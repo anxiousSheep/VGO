@@ -47,6 +47,10 @@ public:
     bool onboardingDone() const;
     void setOnboardingDone(bool);
 
+    // 形势分析强度档位（职业7/8/9段 = 17/18/19，见 ai/strength.h）。
+    int analysisLevel() const { return analysisLevel_; }
+    void setAnalysisLevel(int level);
+
     // 状态判断（供 UI 显示）
     bool katagoReady() const;         // binary+model 文件都存在
     QString katagoStatusText() const;
@@ -69,6 +73,7 @@ private:
     bool keyLoaded_ = false;
     bool loaded_ = false;
     bool onboardingDone_ = false;
+    int analysisLevel_ = 17;  // 默认「一般」= 职业7段
 };
 
 }  // namespace vgo

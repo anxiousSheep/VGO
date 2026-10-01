@@ -29,6 +29,7 @@ signals:
 private:
     void buildKataGoGroup();
     void buildLlmGroup();
+    void buildAnalysisGroup();
     void refreshKataGoStatus();
     void refreshLlmFields();
     void startInstall(const QString& variant, const QString& modelId);
@@ -48,6 +49,10 @@ private:
     QLineEdit* modelEdit_ = nullptr;
     QLineEdit* keyEdit_ = nullptr;
     QLabel* llmResult_ = nullptr;
+
+    // 形势分析强度
+    QComboBox* analysisCombo_ = nullptr;
+    QLabel* analysisHint_ = nullptr;
 
     vgo::KataGoProvisioner* provisioner_ = nullptr;
     vgo::OllamaDetect* ollama_ = nullptr;

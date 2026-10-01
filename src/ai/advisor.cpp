@@ -55,9 +55,9 @@ void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
     const int gen = ++generation_;
     const Color to_move = game.current();
     const Game snapshot = game;  // stable copy for the async callback
-    // 形势判断始终用满血强度（kAnalysisLevel=职业9段/超人类），与对局难度解耦，
+    // 形势判断用独立强度档位（analysis_level_，默认职业7段），与对局难度解耦，
     // 保证判断正确；落子仍按 level_ 的难度。
-    eng->analyze(game.board(), to_move, strengthForLevel(kAnalysisLevel),
+    eng->analyze(game.board(), to_move, strengthForLevel(analysis_level_),
                  [this, gen, cb](const Analysis& a) {
                      if (gen != generation_) return;  // stale / cancelled
                      last_analysis_ = a;              // cache as grounding

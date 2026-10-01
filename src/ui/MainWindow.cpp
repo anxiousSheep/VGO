@@ -209,6 +209,7 @@ void MainWindow::createAiServices(int level) {
 
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
+    advisor_->setAnalysisLevel(vgo::ModelManager::instance().analysisLevel());
 
     const bool usingKata =
         (dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr);
@@ -307,7 +308,8 @@ void MainWindow::openModelSettings() {
 }
 
 void MainWindow::updateModelStatus() {
-    // 粗略显示当前配置状态；精确的「实际在用」在 createAiServices 里再刷新。
+    // 设置变更时，立即把形势分析强度应用到当前对局的 advisor。
+    if (advisor_) advisor_->setAnalysisLevel(vgo::ModelManager::instance().analysisLevel());
     const auto& km = vgo::ModelManager::instance();
     modelStatus_->setText(QStringLiteral("引擎：%1 · 对话：%2")
                               .arg(km.katagoStatusText(), km.llmStatusText()));

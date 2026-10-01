@@ -31,6 +31,7 @@ void ModelManager::setDataDirOverride(const QString& dir) {
     m.apiKeyCache_.clear();
     m.keyLoaded_ = false;
     m.onboardingDone_ = false;
+    m.analysisLevel_ = 17;
 }
 
 QString ModelManager::dataDir() const {
@@ -102,6 +103,7 @@ void ModelManager::readConfig() {
         llm_.model = l.value("model").toString();
     }
     onboardingDone_ = root.value("onboarding_done").toBool(false);
+    analysisLevel_ = root.value("analysis_level").toInt(17);
 }
 
 void ModelManager::saveConfig() {
@@ -124,6 +126,7 @@ void ModelManager::saveConfig() {
     root["katago"] = k;
     root["llm"] = l;
     root["onboarding_done"] = onboardingDone_;
+    root["analysis_level"] = analysisLevel_;
 
     QFile f(configPath());
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -189,6 +192,12 @@ bool ModelManager::onboardingDone() const {
 void ModelManager::setOnboardingDone(bool done) {
     ensureLoaded();
     onboardingDone_ = done;
+    saveConfig();
+}
+
+void ModelManager::setAnalysisLevel(int level) {
+    ensureLoaded();
+    analysisLevel_ = level;
     saveConfig();
 }
 

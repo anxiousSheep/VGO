@@ -19,6 +19,7 @@
 #include <QVBoxLayout>
 
 #include "ai/llm_presets.h"
+#include "ai/strength.h"
 #include "model/GpuDetect.h"
 #include "model/KeyStore.h"
 #include "model/KataGoProvisioner.h"
@@ -49,6 +50,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     auto* root = new QVBoxLayout(this);
     buildKataGoGroup();
     buildLlmGroup();
+    buildAnalysisGroup();
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     connect(buttons, &QDialogButtonBox::rejected, this, &SettingsDialog::accept);
@@ -173,6 +175,48 @@ void SettingsDialog::buildLlmGroup() {
     v->addWidget(box);
 }
 
+void SettingsDialog::buildAnalysisGroup() {
+    auto* box = new QGroupBox(QStringLiteral("形势分析强度"), this);
+    auto* form = new QFormLayout(box);
+
+    analysisCombo_ = new QComboBox(box);
+    analysisCombo_->addItem(QStringLiteral("一般（职业7段）"), kAnalysisLevelNormal);
+    analysisCombo_->addItem(QStringLiteral("更强（职业8段）"), kAnalysisLevelStronger);
+    analysisCombo_->addItem(QStringLiteral("完全正确（职业9段）"), kAnalysisLevelFull);
+
+    analysisHint_ = new QLabel(box);
+    analysisHint_->setWordWrap(true);
+
+    form->addRow(QStringLiteral("强度"), analysisCombo_);
+    form->addRow(QStringLiteral("说明"), analysisHint_);
+
+    auto updateHint = [this] {
+        switch (analysisCombo_->currentData().toInt()) {
+            case kAnalysisLevelStronger:
+                analysisHint_->setText(QStringLiteral("你可以相信职业八段的判断"));
+                break;
+            case kAnalysisLevelFull:
+                analysisHint_->setText(QStringLiteral(
+                    "我不认为柯洁能下赢这个模型。警告：这将会导致形势判断特别特别特别慢，"
+                    "也许你可以宣布打挂。"));
+                break;
+            default:
+                analysisHint_->setText(QStringLiteral("你可以相信职业七段的判断"));
+                break;
+        }
+    };
+    connect(analysisCombo_, &QComboBox::currentIndexChanged, this, updateHint);
+
+    // 载入当前设置（默认「一般」= 职业7段）。
+    const int cur = ModelManager::instance().analysisLevel();
+    const int idx = analysisCombo_->findData(cur);
+    analysisCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
+    updateHint();
+
+    auto* v = qobject_cast<QVBoxLayout*>(layout());
+    v->addWidget(box);
+}
+
 void SettingsDialog::refreshKataGoStatus() {
     const KataGoSettings& s = ModelManager::instance().katago();
     katagoStatus_->setText(ModelManager::instance().katagoStatusText());
@@ -273,6 +317,7 @@ void SettingsDialog::accept() {
     s.model = modelEdit_->text().trimmed();
     ModelManager::instance().setLlm(s);
     if (keyChanged_) ModelManager::instance().setApiKey(keyEdit_->text().trimmed());
+    ModelManager::instance().setAnalysisLevel(analysisCombo_->currentData().toInt());
     ModelManager::instance().setOnboardingDone(true);
     emit settingsChanged();
     QDialog::accept();

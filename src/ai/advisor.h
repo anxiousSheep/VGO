@@ -51,6 +51,9 @@ public:
     // 形势判断专用引擎（满血 KataGo，独立于落子引擎）。未设置时回退到 engine_。
     void setAnalysisEngine(EngineInterface* e) { analysis_engine_ = e; }
 
+    // 形势判断强度档位（职业7/8/9段，见 strength.h 的 kAnalysisLevel*）。
+    void setAnalysisLevel(int l) { analysis_level_ = l; }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
@@ -60,6 +63,7 @@ private:
     EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用，可空
     ConversationService* conversation_;
     int level_;
+    int analysis_level_ = kAnalysisLevelNormal;  // 形势判断强度档位
     Color user_color_ = Color::Empty;
     Analysis last_analysis_;
     int generation_ = 0;
