@@ -26,6 +26,14 @@ void KataGoEngine::start() {
     proc_->setProcessChannelMode(QProcess::SeparateChannels);
     connect(proc_, &QProcess::readyReadStandardOutput, this, &KataGoEngine::onStdout);
     connect(proc_, &QProcess::errorOccurred, this, &KataGoEngine::onErrorOccurred);
+    connect(proc_, &QProcess::readyReadStandardError, this, [this]() {
+        // KataGo 首次运行会在 stderr 输出 OpenCL 自动调优进度。
+        const QByteArray err = proc_->readAllStandardError();
+        if (err.contains("autotuning") || err.contains("Tuning")) {
+            emit statusMessage(
+                QStringLiteral("KataGo 首次运行正在 GPU 调优（约几分钟），完成后即可落子"));
+        }
+    });
 
     QStringList args;
     args << QStringLiteral("gtp") << QStringLiteral("-model") << model_;

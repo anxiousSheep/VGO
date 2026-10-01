@@ -137,8 +137,9 @@ void ModelManager::readSecrets() {
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
     const QString enc = root.value("llm").toObject().value("api_key_enc").toString();
     if (!enc.isEmpty()) {
-        apiKeyCache_ = QString::fromUtf8(
-            QByteArray::fromBase64(enc.toLatin1()));
+        // 关键：落盘的是 DPAPI 密文，读回时必须解密，否则会把密文当 key 传给 LLM。
+        const QByteArray dec = KeyStore::unprotect(QByteArray::fromBase64(enc.toLatin1()));
+        apiKeyCache_ = QString::fromUtf8(dec);
         keyLoaded_ = true;
     }
 }

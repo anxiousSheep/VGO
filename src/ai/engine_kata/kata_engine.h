@@ -29,6 +29,10 @@ public:
                      const StrengthParams& params, Callback cb) override;
     void cancel() override;
 
+signals:
+    // 进程状态提示（如首次 OpenCL 调优），供 UI 显示。
+    void statusMessage(const QString& msg);
+
 private:
     void start();
     void onStdout();

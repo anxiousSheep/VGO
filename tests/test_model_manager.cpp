@@ -1,8 +1,11 @@
 #include "test_framework.h"
 
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
+#include "ui/model/KeyStore.h"
 #include "ui/model/ModelManager.h"
 #include "ui/model/ModelsManifest.h"
 
@@ -65,6 +68,25 @@ TEST(model_manager_roundtrip_no_plaintext_key) {
     QFile sf(dir.path() + QStringLiteral("/secrets.json"));
     CHECK(sf.open(QIODevice::ReadOnly));
     CHECK(!sf.readAll().contains("sk-secret-9999"));
+}
+
+TEST(model_manager_key_decrypts_on_reload) {
+    QTemporaryDir dir;
+    ModelManager::setDataDirOverride(dir.path());
+    // 预写 secrets.json（模拟上次会话 setApiKey 落盘的 DPAPI 密文）。
+    const QByteArray enc = KeyStore::protect("sk-disk-test-123");
+    QJsonObject llm;
+    llm["api_key_enc"] = QString::fromLatin1(enc.toBase64());
+    QJsonObject root;
+    root["llm"] = llm;
+    QFile f(dir.path() + QStringLiteral("/secrets.json"));
+    CHECK(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    f.write(QJsonDocument(root).toJson());
+    f.close();
+
+    ModelManager::instance().load();
+    // 关键：读回后必须解密，返回明文 key，而非密文。
+    CHECK(ModelManager::instance().apiKey() == QStringLiteral("sk-disk-test-123"));
 }
 
 TEST(model_manager_status_uninstalled) {

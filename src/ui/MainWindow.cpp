@@ -159,7 +159,13 @@ void MainWindow::createAiServices(int level) {
     if (ks.enabled && !ks.binary.isEmpty() && !modelPath.isEmpty() &&
         QFileInfo::exists(ks.binary) && QFileInfo::exists(modelPath)) {
         auto* k = new vgo::KataGoEngine(ks.binary, modelPath, ks.config);
-        if (k->available()) engine_ = k; else delete k;
+        if (k->available()) {
+            engine_ = k;
+            connect(k, &vgo::KataGoEngine::statusMessage, this,
+                    [this](const QString& msg) { status_->setText(msg); });
+        } else {
+            delete k;
+        }
     }
     if (!engine_) engine_ = new vgo::FallbackEngine();
 
