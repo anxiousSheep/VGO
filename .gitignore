@@ -1,0 +1,13 @@
+# Build output
+/build/
+/cmake-build-*/
+*.exe
+*.obj
+*.o
+*.pdb
+*.ilk
+
+# IDE (volatile files only; the rest of .idea is tracked)
+.idea/workspace.xml
+.idea/shelf/
+.idea/httpRequests/
