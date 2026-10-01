@@ -9,8 +9,8 @@ namespace vgo {
 struct KataGoAsset {
     std::string variant;      // "eigen" | "opencl" | "cuda"
     std::string label;        // display name
-    std::string officialUrl;  // primary source
-    std::string mirrorUrl;    // fallback source (may be empty)
+    std::string officialUrl;  // primary source (GitHub release)
+    std::vector<std::string> mirrors;  // fallback mirrors, tried before official
 };
 
 // A downloadable neural-network model.
@@ -20,12 +20,12 @@ struct ModelAsset {
     std::string description;
     bool humanStyle = false;  // supports humanSLProfile (新手/业余段)
     std::string officialUrl;
-    std::string mirrorUrl;    // may be empty
+    std::vector<std::string> mirrors;
 };
 
-// KataGo version we provision by default. URLs follow the GitHub release asset
-// naming: katago-v<ver>-<variant>-windows-x64.zip (contains katago.exe).
-inline std::string kataGoVersion() { return "1.15.3"; }
+// KataGo version we provision. v1.18.1 is the latest that ships OpenCL/Eigen
+// (CPU/GPU) Windows builds; v1.18.2 dropped them (CUDA-only).
+inline std::string kataGoVersion() { return "1.18.1"; }
 
 // Binary variants for the default version. Eigen is the safe CPU fallback;
 // OpenCL is preferred when a GPU is present.

@@ -1,73 +1,63 @@
 #include "ModelsManifest.h"
 
 #include <string>
+#include <utility>
 
 namespace vgo {
 
 namespace {
 
-std::string gh(const std::string& rel) {
-    // Official GitHub release asset URL pattern.
-    return "https://github.com/lightvector/KataGo/releases/download/" + rel;
+std::string githubRelease(const std::string& tag, const std::string& file) {
+    return "https://github.com/lightvector/KataGo/releases/download/" + tag + "/" + file;
 }
 
-std::string mirror(const std::string& url) {
-    // Generic mirror prefix; a self-hosted mirror can be substituted here.
-    // Empty string means "no mirror".
-    if (url.empty()) return {};
-    return "https://ghproxy.com/" + url;
+// 镜像列表：官方 github 在部分地区不可达时，依次尝试（实测可用）。
+std::vector<std::string> mirrorsFor(const std::string& officialUrl) {
+    if (officialUrl.empty()) return {};
+    return {
+        "https://ghfast.top/" + officialUrl,
+        "https://gh-proxy.com/" + officialUrl,
+    };
 }
 
 }  // namespace
 
 std::vector<KataGoAsset> katagoAssets() {
     const std::string v = kataGoVersion();
+    const std::string tag = "v" + v;
     auto make = [&](const char* variant, const char* label) {
         KataGoAsset a;
         a.variant = variant;
         a.label = label;
-        const std::string rel =
-            "v" + v + "/katago-v" + v + "-" + variant + "-windows-x64.zip";
-        a.officialUrl = gh(rel);
-        a.mirrorUrl = mirror(a.officialUrl);
+        a.officialUrl = githubRelease(tag, "katago-" + tag + "-" + variant + "-windows-x64.zip");
+        a.mirrors = mirrorsFor(a.officialUrl);
         return a;
     };
-    return {make("opencl", "OpenCL（GPU，推荐）"), make("eigen", "Eigen（CPU，保底）"),
+    return {make("opencl", "OpenCL（GPU，推荐）"),
+            make("eigen", "Eigen（CPU，保底）"),
             make("cuda", "CUDA（NVIDIA，高级）")};
 }
 
 std::vector<ModelAsset> modelAssets() {
-    auto net = [](const std::string& file) {
-        return "https://media.katagotraining.org/uploaded/networks/models/kata1/" + file;
-    };
     std::vector<ModelAsset> out;
 
     {
         ModelAsset m;
-        m.id = "b18c384nbt";
-        m.name = "标准模型 b18c384nbt";
-        m.description = "职业段（visits）与普通对弈，约 100MB 级";
-        m.officialUrl = net("b18c384nbt-uec.bin.gz");
-        m.mirrorUrl = mirror(m.officialUrl);
+        m.id = "b18c384nbt-uec";
+        m.name = "标准模型 b18c384nbt-uec";
+        m.description = "职业段（visits）与普通对弈，约 97MB";
+        m.officialUrl = githubRelease("v1.12.4", "b18c384nbt-uec.bin.gz");
+        m.mirrors = mirrorsFor(m.officialUrl);
         out.push_back(std::move(m));
     }
     {
         ModelAsset m;
         m.id = "b18c384nbt-humanv0";
         m.name = "人类风格模型 b18c384nbt-humanv0";
-        m.description = "新手/业余段（humanSLProfile）真实棋风，约 100MB 级";
+        m.description = "新手/业余段（humanSLProfile）真实棋风，约 99MB";
         m.humanStyle = true;
-        m.officialUrl = net("b18c384nbt-humanv0.bin.gz");
-        m.mirrorUrl = mirror(m.officialUrl);
-        out.push_back(std::move(m));
-    }
-    {
-        ModelAsset m;
-        m.id = "b6c96";
-        m.name = "快速小模型 b6c96";
-        m.description = "低配机/秒回，强度弱，约 20MB 级";
-        m.officialUrl = net("b6c96-uec.bin.gz");
-        m.mirrorUrl = mirror(m.officialUrl);
+        m.officialUrl = githubRelease("v1.15.0", "b18c384nbt-humanv0.bin.gz");
+        m.mirrors = mirrorsFor(m.officialUrl);
         out.push_back(std::move(m));
     }
     return out;

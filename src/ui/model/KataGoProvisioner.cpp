@@ -48,16 +48,16 @@ void KataGoProvisioner::downloadBinary() {
     QVector<DownloadSource> sources;
     for (const auto& a : assets) {
         if (QString::fromStdString(a.variant) != variant_) continue;
+        for (const auto& murl : a.mirrors) {
+            DownloadSource m;
+            m.name = QStringLiteral("镜像");
+            m.url = QString::fromStdString(murl);
+            sources.push_back(m);
+        }
         DownloadSource official;
         official.name = QStringLiteral("官方");
         official.url = QString::fromStdString(a.officialUrl);
         sources.push_back(official);
-        if (!a.mirrorUrl.empty()) {
-            DownloadSource m;
-            m.name = QStringLiteral("镜像");
-            m.url = QString::fromStdString(a.mirrorUrl);
-            sources.push_back(m);
-        }
         break;
     }
     if (sources.isEmpty()) {
@@ -149,16 +149,16 @@ void KataGoProvisioner::downloadModel() {
     }
 
     QVector<DownloadSource> sources;
+    for (const auto& murl : m->mirrors) {
+        DownloadSource mir;
+        mir.name = QStringLiteral("镜像");
+        mir.url = QString::fromStdString(murl);
+        sources.push_back(mir);
+    }
     DownloadSource official;
     official.name = QStringLiteral("官方");
     official.url = QString::fromStdString(m->officialUrl);
     sources.push_back(official);
-    if (!m->mirrorUrl.empty()) {
-        DownloadSource mir;
-        mir.name = QStringLiteral("镜像");
-        mir.url = QString::fromStdString(m->mirrorUrl);
-        sources.push_back(mir);
-    }
 
     downloader_ = new Downloader(this);
     connect(downloader_, &Downloader::progress, this, &KataGoProvisioner::progress);

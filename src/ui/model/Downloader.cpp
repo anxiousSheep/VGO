@@ -68,6 +68,7 @@ void Downloader::startRequest(const DownloadSource& src) {
 
     QNetworkRequest req(src.url);
     req.setRawHeader("User-Agent", "VGO/1.0");
+    req.setTransferTimeout(20000);  // 无数据即超时，快速切到下一源
     reply_ = nam_.get(req);
     connect(reply_, &QNetworkReply::downloadProgress, this,
             [this](qint64 received, qint64 total) { emit progress(received, total); });
