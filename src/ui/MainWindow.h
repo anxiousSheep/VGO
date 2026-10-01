@@ -17,6 +17,7 @@ class ConversationService;
 class AiAdvisor;
 class AIMatchController;
 struct ConversationReply;
+struct Analysis;
 }
 
 // Main window: holds the current game (a placement Game, or an AIMatchController
@@ -38,6 +39,7 @@ private slots:
     void onUndo();
     void onResign();
     void onScore();
+    void onPositionAnalysis();
     void onChatMessage(const QString& text);
 
 private:
@@ -51,9 +53,12 @@ private:
     void updateModelStatus();
     void appendAi(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
+    void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
 
     bool inAiMode() const { return controller_ != nullptr; }
     vgo::Game* currentGame() const;
+    vgo::Color userColor() const;
+    bool usingKata() const;
 
     vgo::GameSetup setup_;
 
@@ -66,8 +71,10 @@ private:
     vgo::GobanWidget* board_view_ = nullptr;
     QLabel* status_ = nullptr;
     QLabel* modelStatus_ = nullptr;
+    QLabel* scoreStatus_ = nullptr;
     vgo::ChatPanel* chat_ = nullptr;
     QDockWidget* dock_ = nullptr;
     QAction* toggleChatAction_ = nullptr;
+    QAction* analyzeAction_ = nullptr;
     bool resigned_ = false;
 };

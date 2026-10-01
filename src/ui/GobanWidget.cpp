@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "ai/ownership.h"
+
 namespace vgo {
 
 namespace {
@@ -50,6 +52,11 @@ void GobanWidget::setCandidates(const std::vector<Point>& pts) {
 
 void GobanWidget::setHighlight(const std::vector<Point>& pts) {
     highlight_ = pts;
+    update();
+}
+
+void GobanWidget::setOwnership(const OwnershipMap& ownership) {
+    ownership_ = ownership;
     update();
 }
 
@@ -110,6 +117,27 @@ void GobanWidget::paintEvent(QPaintEvent*) {
 
     p.fillRect(rect(), QColor("#DCB35C"));
 
+    // Territory heat map (形势显示): shade empty points by ownership. Deeper
+    // color = more confident; near-zero stays transparent (undecided).
+    if (board_ && !ownership_.empty() && ownership_.size == s) {
+        for (int y = 0; y < s; ++y) {
+            for (int x = 0; x < s; ++x) {
+                if (board_->at(x, y) != Color::Empty) continue;
+                const double o = ownership_.at(x, y);
+                if (std::abs(o) < 0.05) continue;
+                const bool black = o > 0.0;
+                const int alpha = static_cast<int>(std::min(1.0, std::abs(o)) * 150);
+                const QColor c = black ? QColor(30, 30, 30, alpha)
+                                       : QColor(250, 250, 245, alpha);
+                const QPointF center = intersectionToPixel(x, y);
+                p.setPen(Qt::NoPen);
+                p.setBrush(c);
+                p.drawRect(QRectF(center.x() - cell / 2, center.y() - cell / 2,
+                                  cell, cell));
+            }
+        }
+    }
+
     // Grid lines.
     QPen linePen(QColor("#3A2A18"), std::max(1.0, cell * 0.045));
     p.setPen(linePen);
@@ -146,6 +174,22 @@ void GobanWidget::paintEvent(QPaintEvent*) {
                 p.setPen(QPen(QColor("#8A8A82"), 1));
             }
             p.drawEllipse(c, stoneR, stoneR);
+        }
+    }
+
+    // Dead stones (形势显示): tint a stone whose ownership confidently assigns
+    // it to the opponent with the opponent's territory color (no separate
+    // symbol), so it reads as "belongs to the other side".
+    if (board_ && !ownership_.empty() && ownership_.size == s) {
+        const std::vector<Point> dead = deadStones(*board_, ownership_, 0.8);
+        for (const Point& pt : dead) {
+            const bool ownerBlack = ownership_.at(pt.x, pt.y) > 0.0;
+            const QColor overlay = ownerBlack ? QColor(40, 40, 40, 160)
+                                              : QColor(250, 250, 245, 170);
+            const QPointF c = intersectionToPixel(pt.x, pt.y);
+            p.setPen(Qt::NoPen);
+            p.setBrush(overlay);
+            p.drawEllipse(c, stoneR * 0.90, stoneR * 0.90);
         }
     }
 

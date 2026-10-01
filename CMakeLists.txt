@@ -45,6 +45,8 @@ add_library(vgo_ai STATIC
     src/ai/session.cpp
     src/ai/advisor.h
     src/ai/advisor.cpp
+    src/ai/ownership.h
+    src/ai/ownership.cpp
     src/ai/llm_presets.h
     src/ai/llm_presets.cpp
 )
@@ -71,6 +73,7 @@ add_executable(vgo_ai_tests
     tests/test_template.cpp
     tests/test_session.cpp
     tests/test_advisor.cpp
+    tests/test_ownership.cpp
     tests/test_llm_presets.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
@@ -126,6 +129,14 @@ add_executable(vgo_model_tests
 )
 target_link_libraries(vgo_model_tests PRIVATE vgo_model)
 add_test(NAME vgo_model_tests COMMAND vgo_model_tests)
+
+# KataGo JSON analysis parsing (Qt layer) — headless with a QCoreApplication.
+add_executable(vgo_ai_qt_tests
+    tests/test_main_qt.cpp
+    tests/test_kata_analyze.cpp
+)
+target_link_libraries(vgo_ai_qt_tests PRIVATE vgo_ai_qt)
+add_test(NAME vgo_ai_qt_tests COMMAND vgo_ai_qt_tests)
 
 add_executable(vgo_app WIN32
     src/ui/main.cpp

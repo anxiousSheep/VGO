@@ -1,8 +1,13 @@
 #include "kata_engine.h"
 
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QList>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "ai/gtp.h"
@@ -14,6 +19,10 @@ namespace {
 // kata-genmove_analyze 需要足够的 visits 才会输出 info move 分析（胜率/目数/候选）。
 // 1 visit 时不输出，导致分析全为 0。此处给分析一个下限。
 constexpr int kMinAnalysisVisits = 20;
+
+// 形势评估（kata-analyze）用固定小预算，保证手动触发快速返回，
+// 不随段位 maxVisits（职业高段可达 100k）膨胀。
+constexpr int kAnalyzeMaxVisits = 200;
 
 // 解析 `info move E5 visits 7 ... winrate 0.1 ... scoreLead -0.2 ... order 0 pv E5 E7`。
 // 返回候选；isSymmetryOf（对称重复）或坐标非法时返回 p.x<0（调用方跳过）。
@@ -48,7 +57,76 @@ MoveCandidate parseCandidate(const QByteArray& line, int size) {
     return c;
 }
 
+// Whether the accumulated text holds a complete JSON object (braces balanced,
+// at least one '{'). KataGo may emit the analysis as pretty (multi-line) JSON,
+// so we accumulate lines until the top-level object closes.
+bool jsonComplete(const QByteArray& s) {
+    int depth = 0;
+    bool in_string = false;
+    bool started = false;
+    for (int i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (in_string) {
+            if (c == '\\') { ++i; continue; }  // skip escaped char
+            if (c == '"') in_string = false;
+            continue;
+        }
+        if (c == '"') { in_string = true; continue; }
+        if (c == '{') { depth++; started = true; }
+        else if (c == '}') { depth--; }
+    }
+    return started && depth == 0;
+}
+
 }  // namespace
+
+bool parseKataAnalysis(const QByteArray& json, int size, Analysis* out) {
+    if (!out) return false;
+    QJsonParseError err;
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return false;
+    const QJsonObject root = doc.object();
+
+    out->winrate = root.value("rootInfo").toObject().value("winrate").toDouble(0.0);
+    out->score_lead = root.value("rootInfo").toObject().value("scoreLead").toDouble(0.0);
+    out->valid = true;
+
+    out->candidates.clear();
+    const QJsonArray moves = root.value("moveInfos").toArray();
+    for (const QJsonValue& v : moves) {
+        const QJsonObject mo = v.toObject();
+        MoveCandidate c;
+        const QString mv = mo.value("move").toString();
+        if (mv == "pass" || mv == "resign") {
+            c.is_pass = true;
+        } else {
+            Point p;
+            if (!gtpParsePoint(mv.toStdString(), size, &p)) continue;
+            c.p = p;
+        }
+        c.visits = mo.value("visits").toInt();
+        c.winrate = mo.value("winrate").toDouble(0.0);
+        c.score_lead = mo.value("scoreLead").toDouble(0.0);
+        const QJsonArray pv = mo.value("pv").toArray();
+        for (const QJsonValue& pvv : pv) {
+            Point pp;
+            if (gtpParsePoint(pvv.toString().toStdString(), size, &pp)) c.pv.push_back(pp);
+        }
+        out->candidates.push_back(std::move(c));
+    }
+    if (!out->candidates.empty()) out->best = out->candidates.front();
+
+    const QJsonArray ownership = root.value("ownership").toArray();
+    if (!ownership.isEmpty()) {
+        out->ownership.size = size;
+        out->ownership.value.assign(static_cast<std::size_t>(size) * size, 0.0);
+        const int n = std::min(static_cast<int>(ownership.size()), size * size);
+        for (int i = 0; i < n; ++i) {
+            out->ownership.value[static_cast<std::size_t>(i)] = ownership.at(i).toDouble();
+        }
+    }
+    return true;
+}
 
 KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QString& config,
                            QObject* parent)
@@ -96,13 +174,14 @@ void KataGoEngine::start() {
 
 void KataGoEngine::requestMove(const Board& board, Color to_move,
                                const StrengthParams& params, Callback cb) {
-    if (!available_) {
+    if (!available_ || busy()) {
         EngineResult r;
         r.move.is_pass = true;
         cb(r);
         return;
     }
     pending_ = std::move(cb);
+    pending_kind_ = PendingKind::Move;
     size_ = board.size();
 
     QByteArray cmd;
@@ -128,10 +207,47 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
     proc_->write(cmd);
 }
 
+void KataGoEngine::analyze(const Board& board, Color to_move,
+                           const StrengthParams&, AnalysisCallback cb) {
+    if (!available_ || busy()) {
+        cb(Analysis{});
+        return;
+    }
+    pending_analysis_ = std::move(cb);
+    pending_kind_ = PendingKind::Analyze;
+    analysis_buffer_.clear();
+    size_ = board.size();
+
+    QByteArray cmd;
+    cmd += "boardsize ";
+    cmd += QByteArray::number(board.size());
+    cmd += "\nclear_board\n";
+    for (int y = 0; y < board.size(); ++y) {
+        for (int x = 0; x < board.size(); ++x) {
+            const Color c = board.at(x, y);
+            if (c == Color::Empty) continue;
+            cmd += (c == Color::Black) ? "play B " : "play W ";
+            cmd += gtpPoint(x, y, board.size()).c_str();
+            cmd += "\n";
+        }
+    }
+    // 形势评估用固定小预算（kAnalyzeMaxVisits），并请求每点归属 ownership。
+    cmd += "kata-set-param maxVisits ";
+    cmd += QByteArray::number(kAnalyzeMaxVisits);
+    cmd += "\nkata-analyze ";
+    cmd += (to_move == Color::Black) ? "B" : "W";
+    cmd += " ownership true\n";
+    proc_->write(cmd);
+}
+
 void KataGoEngine::cancel() {
-    if (pending_) {
+    if (pending_ || pending_analysis_) {
         proc_->write("stop\n");
         pending_ = nullptr;
+        pending_analysis_ = nullptr;
+        pending_kind_ = PendingKind::None;
+        pending_candidates_.clear();
+        analysis_buffer_.clear();
     }
 }
 
@@ -141,6 +257,11 @@ void KataGoEngine::onStdout() {
     while ((nl = buffer_.indexOf('\n')) >= 0) {
         QByteArray line = buffer_.left(nl).trimmed();
         buffer_.remove(0, nl + 1);
+
+        if (pending_kind_ == PendingKind::Analyze) {
+            handleAnalyzeLine(line);
+            continue;
+        }
 
         if (line.isEmpty() || line == "=" ||
             (line.startsWith("info ") && !line.startsWith("info move "))) {
@@ -174,6 +295,7 @@ void KataGoEngine::onStdout() {
             if (pending_) {
                 Callback cb = std::move(pending_);
                 pending_ = nullptr;
+                pending_kind_ = PendingKind::None;
                 cb(std::move(r));
             }
             continue;
@@ -198,6 +320,7 @@ void KataGoEngine::onStdout() {
             if (pending_) {
                 Callback cb = std::move(pending_);
                 pending_ = nullptr;
+                pending_kind_ = PendingKind::None;
                 cb(std::move(r));
             }
             continue;
@@ -210,10 +333,30 @@ void KataGoEngine::onStdout() {
             if (pending_) {
                 Callback cb = std::move(pending_);
                 pending_ = nullptr;
+                pending_kind_ = PendingKind::None;
                 cb(std::move(r));
             }
         }
     }
+}
+
+void KataGoEngine::handleAnalyzeLine(const QByteArray& line) {
+    // Skip empty lines and the GTP ack ("=") that may precede the JSON.
+    if (line.isEmpty() || line == "=") return;
+    QByteArray j = line;
+    if (j.startsWith("= ")) j = j.mid(2).trimmed();  // some builds prefix "= {json}"
+    if (j.isEmpty()) return;
+
+    analysis_buffer_ += j;
+    if (!jsonComplete(analysis_buffer_)) return;
+
+    Analysis a;
+    parseKataAnalysis(analysis_buffer_, size_, &a);
+    analysis_buffer_.clear();
+    pending_kind_ = PendingKind::None;
+    AnalysisCallback cb = std::move(pending_analysis_);
+    pending_analysis_ = nullptr;
+    if (cb) cb(std::move(a));
 }
 
 void KataGoEngine::onErrorOccurred(QProcess::ProcessError) {

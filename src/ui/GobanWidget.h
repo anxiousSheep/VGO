@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+#include "ai/analysis.h"
 #include "go/board.h"
 #include "go/go_types.h"
 
@@ -21,6 +22,12 @@ public:
     void setHover(const Point& p, bool has);
     void setCandidates(const std::vector<Point>& pts);
     void setHighlight(const std::vector<Point>& pts);
+
+    // Territory heat map (形势显示): empty points shaded by ownership, dead
+    // stones tinted with the opponent's territory color. Pass an empty map to
+    // clear the overlay. A copy is kept, so the caller may free its source.
+    void setOwnership(const OwnershipMap& ownership);
+    void clearOwnership() { ownership_ = OwnershipMap{}; update(); }
 
 signals:
     void pointClicked(int x, int y);
@@ -45,6 +52,7 @@ private:
     Color ghost_color_ = Color::Black;
     std::vector<Point> candidates_;
     std::vector<Point> highlight_;
+    OwnershipMap ownership_;
 };
 
 }  // namespace vgo

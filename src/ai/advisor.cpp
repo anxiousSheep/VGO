@@ -45,6 +45,22 @@ void AiAdvisor::explainLastMove(const Game& game, ReplyCb cb) {
     deliverAnswer(game, "为什么下这里", currentFacts(game), cb);
 }
 
+void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
+    if (!engine_) {
+        cb(Analysis{});
+        return;
+    }
+    const int gen = ++generation_;
+    const Color to_move = game.current();
+    const Game snapshot = game;  // stable copy for the async callback
+    engine_->analyze(game.board(), to_move, strengthForLevel(level_),
+                     [this, gen, cb](const Analysis& a) {
+                         if (gen != generation_) return;  // stale / cancelled
+                         last_analysis_ = a;              // cache as grounding
+                         cb(a);
+                     });
+}
+
 void AiAdvisor::cancel() {
     ++generation_;
     if (conversation_) conversation_->cancel();

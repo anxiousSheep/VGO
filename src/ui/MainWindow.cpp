@@ -48,6 +48,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     status_ = new QLabel(this);
     statusBar()->addWidget(status_, 1);
+    scoreStatus_ = new QLabel(this);
+    statusBar()->addPermanentWidget(scoreStatus_);
     modelStatus_ = new QLabel(this);
     statusBar()->addPermanentWidget(modelStatus_);
 
@@ -71,6 +73,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     actUndo->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
     auto* actResign = new QAction(QStringLiteral("认输"), this);
     auto* actScore = new QAction(QStringLiteral("计分/终局"), this);
+    analyzeAction_ = new QAction(QStringLiteral("形势"), this);
+    analyzeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
+    analyzeAction_->setEnabled(false);  // 无 KataGo 时隐藏/禁用（见 createAiServices）
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
     actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     auto* actSettings = new QAction(QStringLiteral("模型设置…"), this);
@@ -80,6 +85,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actUndo, &QAction::triggered, this, &MainWindow::onUndo);
     connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
     connect(actScore, &QAction::triggered, this, &MainWindow::onScore);
+    connect(analyzeAction_, &QAction::triggered, this, &MainWindow::onPositionAnalysis);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
     connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
@@ -91,6 +97,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->addAction(actResign);
     gameMenu->addSeparator();
     gameMenu->addAction(actScore);
+    gameMenu->addAction(analyzeAction_);
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
@@ -112,6 +119,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tb->addAction(actPass);
     tb->addAction(actResign);
     tb->addAction(actScore);
+    tb->addAction(analyzeAction_);
     tb->addSeparator();
     tb->addAction(toggleChatAction_);
 
@@ -181,6 +189,12 @@ void MainWindow::createAiServices(int level) {
     const bool usingKata = (dynamic_cast<vgo::KataGoEngine*>(engine_) != nullptr);
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
+    // 形势显示依赖 KataGo 的 ownership；未接 KataGo 时隐藏该功能（M6 验收）。
+    analyzeAction_->setEnabled(usingKata);
+    if (!usingKata) {
+        scoreStatus_->clear();
+        board_view_->setOwnership({});
+    }
     modelStatus_->setText(
         QStringLiteral("引擎：%1 · 对话：%2")
             .arg(usingKata ? QStringLiteral("KataGo") : QStringLiteral("离线"),
@@ -247,6 +261,8 @@ void MainWindow::teardown() {
     game_ = nullptr;
     board_view_->setHighlight({});
     board_view_->setCandidates({});
+    board_view_->setOwnership({});
+    if (scoreStatus_) scoreStatus_->clear();
 }
 
 void MainWindow::newGame() {
@@ -363,6 +379,18 @@ void MainWindow::onScore() {
 
 void MainWindow::onChatMessage(const QString& text) {
     const std::string q = text.toStdString();
+    // 形势类提问（谁领先/形势）走 analyzePosition：一次引擎调用同时产出
+    // 领地热力 + 领先目数，避免与文本问答争抢单飞引擎。
+    if (usingKata() && vgo::classifyQuestion(q) == vgo::QuestionClass::WhoIsWinning) {
+        vgo::Game* g = currentGame();
+        if (g && advisor_) {
+            const vgo::Color to_move = g->current();
+            advisor_->analyzePosition(*g, [this, to_move](const vgo::Analysis& a) {
+                applyAnalysis(a, to_move, /*sayInChat=*/true);
+            });
+            return;
+        }
+    }
     if (inAiMode()) {
         controller_->ask(q);
     } else if (advisor_) {
@@ -375,6 +403,68 @@ void MainWindow::onChatMessage(const QString& text) {
 void MainWindow::handleReply(const vgo::ConversationReply& r) {
     appendAi(QString::fromStdString(r.text));
     board_view_->setHighlight(r.highlight);
+}
+
+bool MainWindow::usingKata() const {
+    return dynamic_cast<vgo::KataGoEngine*>(engine_) != nullptr;
+}
+
+vgo::Color MainWindow::userColor() const {
+    return inAiMode() ? controller_->humanColor() : vgo::Color::Empty;
+}
+
+void MainWindow::onPositionAnalysis() {
+    if (!usingKata()) return;  // 按钮已禁用，双保险
+    vgo::Game* g = currentGame();
+    if (!g || !advisor_) return;
+    const vgo::Color to_move = g->current();
+    advisor_->analyzePosition(*g, [this, to_move](const vgo::Analysis& a) {
+        applyAnalysis(a, to_move, /*sayInChat=*/false);
+    });
+}
+
+void MainWindow::applyAnalysis(const vgo::Analysis& a, vgo::Color to_move,
+                               bool sayInChat) {
+    if (!a.valid || a.ownership.empty()) {
+        scoreStatus_->setText(QStringLiteral("形势：无归属数据"));
+        board_view_->setOwnership({});
+        return;
+    }
+    board_view_->setOwnership(a.ownership);
+
+    // Analysis.winrate/score_lead 是 to_move 视角；转成黑方视角显示。
+    double black_lead = a.score_lead;
+    double black_winrate = a.winrate;
+    if (to_move == vgo::Color::White) {
+        black_lead = -a.score_lead;
+        black_winrate = 1.0 - a.winrate;
+    }
+
+    // 领先文案：有人机执子方时转成「我方」视角，否则用黑白双方视角。
+    QString lead;
+    const vgo::Color uc = userColor();
+    if (uc == vgo::Color::Empty) {
+        if (black_lead > 0.05)
+            lead = QStringLiteral("黑领先 %1 目").arg(black_lead, 0, 'f', 1);
+        else if (black_lead < -0.05)
+            lead = QStringLiteral("白领先 %1 目").arg(-black_lead, 0, 'f', 1);
+        else
+            lead = QStringLiteral("双方均势");
+    } else {
+        const double mine = (uc == vgo::Color::Black) ? black_lead : -black_lead;
+        if (mine > 0.05)
+            lead = QStringLiteral("我方领先 %1 目").arg(mine, 0, 'f', 1);
+        else if (mine < -0.05)
+            lead = QStringLiteral("我方落后 %1 目").arg(-mine, 0, 'f', 1);
+        else
+            lead = QStringLiteral("双方均势");
+    }
+    const int wpct = static_cast<int>(black_winrate * 100.0 + 0.5);
+    scoreStatus_->setText(QStringLiteral("%1 · 黑方胜率 %2%").arg(lead).arg(wpct));
+
+    if (sayInChat) {
+        appendAi(QStringLiteral("当前形势：%1 · 黑方胜率 %2%。").arg(lead).arg(wpct));
+    }
 }
 
 void MainWindow::appendAi(const QString& text) {

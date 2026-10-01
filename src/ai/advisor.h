@@ -28,6 +28,13 @@ public:
     // analysis (see noteAnalysis; invalid when no engine analysis exists).
     void explainLastMove(const Game& game, ReplyCb cb);
 
+    // Request a full positional analysis (winrate / score lead / ownership) of
+    // `game`'s current position. Powers the 形势 display. Invalid when the
+    // engine provides no ownership (e.g. the fallback engine). The returned
+    // winrate/score_lead are from the current player's perspective.
+    using AnalysisCb = std::function<void(const Analysis&)>;
+    void analyzePosition(const Game& game, AnalysisCb cb);
+
     // Record the engine analysis of the last played move (used as grounding).
     void noteAnalysis(const Analysis& a) { last_analysis_ = a; }
 
