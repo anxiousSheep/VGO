@@ -38,6 +38,8 @@ public:
     bool play(int x, int y);
     // Passes the current turn. Two consecutive passes end the game.
     void pass();
+    // Force-end the game (双方协商终局 or 智能裁判), without adding a move.
+    void settle();
     // Undoes the last move/pass. Returns false if there is nothing to undo.
     bool undo();
 

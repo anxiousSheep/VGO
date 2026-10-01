@@ -81,6 +81,15 @@ TEST(game_two_pass_ends) {
     CHECK(g.is_over());
 }
 
+TEST(game_settle_ends_without_move) {
+    Game g(9);
+    g.play(2, 2);
+    CHECK(!g.is_over());
+    g.settle();
+    CHECK(g.is_over());
+    CHECK_EQ(g.move_number(), 1);  // 协商终局不新增手数
+}
+
 TEST(game_undo) {
     Game g(5);
     g.play(2, 2);  // Black

@@ -76,13 +76,49 @@ void AIMatchController::beginAiTurn() {
 
 void AIMatchController::onAiResult(EngineResult r) {
     thinking_ = false;
+
+    // 人类刚请求数目：AI 用这一手「评估」——虚着=同意终局，落子=拒绝并继续。
+    if (settle_proposed_ && settle_proposer_ == human_color_) {
+        settle_proposed_ = false;
+        ai_turn_ = false;
+        if (r.move.is_pass) {
+            confirmSettle();
+        } else if (game_.is_legal(r.move.p.x, r.move.p.y)) {
+            game_.play(r.move.p.x, r.move.p.y);
+            if (advisor_) advisor_->noteAnalysis(r.analysis);
+            if (onAiMove) onAiMove(r.move, r.analysis);
+            if (onChanged) onChanged();
+        } else {
+            game_.pass();
+            if (onChanged) onChanged();
+        }
+        if (onActivity) onActivity(AiActivity::Idle);
+        return;
+    }
+
+    // 常规 AI 落子。
     if (!game_.is_over()) {
         if (r.move.is_pass) {
-            game_.pass();
+            // AI 认为终局：改为提议，等待人类确认，不再直接双虚着结束。
+            settle_proposed_ = true;
+            settle_proposer_ = game_.current();  // AI 颜色
+            ai_has_non_pass_ = false;
+            for (const MoveCandidate& c : r.analysis.candidates) {
+                if (c.p.x >= 0 && !c.is_pass) {
+                    ai_non_pass_move_ = {c.p, false};
+                    ai_has_non_pass_ = true;
+                    break;
+                }
+            }
+            if (onCountProposed) onCountProposed();
+            if (onChanged) onChanged();
         } else if (game_.is_legal(r.move.p.x, r.move.p.y)) {
             game_.play(r.move.p.x, r.move.p.y);
             blocked_points_.clear();
             retry_count_ = 0;
+            if (advisor_) advisor_->noteAnalysis(r.analysis);
+            if (onAiMove) onAiMove(r.move, r.analysis);
+            if (onChanged) onChanged();
         } else {
             // 引擎给出非法点（通常是劫，重建局面丢失劫态所致）：屏蔽后重试。
             blocked_points_.push_back(r.move.p);
@@ -95,9 +131,6 @@ void AIMatchController::onAiResult(EngineResult r) {
             game_.pass();
         }
     }
-    if (advisor_) advisor_->noteAnalysis(r.analysis);
-    if (onAiMove) onAiMove(r.move, r.analysis);
-    if (onChanged) onChanged();
 
     if (game_.is_over()) {
         ai_turn_ = false;
@@ -107,6 +140,60 @@ void AIMatchController::onAiResult(EngineResult r) {
     ai_turn_ = false;
     // 不自动解说：避免每手都向 LLM 发一条「为什么下这里」打扰用户；
     // 用户可主动在聊天面板提问（advisor.ask）。
+    if (onActivity) onActivity(AiActivity::Idle);
+}
+
+void AIMatchController::humanRequestCount() {
+    if (!humanMayAct() || game_.is_over() || thinking_) return;
+    settle_proposed_ = true;
+    settle_proposer_ = human_color_;
+    ai_turn_ = true;
+    beginAiTurn();  // AI 评估：虚着=同意终局，落子=拒绝继续
+}
+
+void AIMatchController::humanConfirmCount() {
+    if (!settle_proposed_ || settle_proposer_ != opponent(human_color_)) return;
+    confirmSettle();
+}
+
+void AIMatchController::humanDeclineCount() {
+    if (!settle_proposed_ || settle_proposer_ != opponent(human_color_)) return;
+    settle_proposed_ = false;
+    // AI 落子继续（用提议时的最佳非虚着；没有则重新思考一手）。
+    if (ai_has_non_pass_ && game_.is_legal(ai_non_pass_move_.p.x, ai_non_pass_move_.p.y)) {
+        game_.play(ai_non_pass_move_.p.x, ai_non_pass_move_.p.y);
+        ai_has_non_pass_ = false;
+        ai_turn_ = false;
+        if (onAiMove) onAiMove(ai_non_pass_move_, Analysis{});
+        if (onChanged) onChanged();
+    } else {
+        ai_has_non_pass_ = false;
+        ai_turn_ = true;
+        beginAiTurn();
+    }
+}
+
+void AIMatchController::smartReferee() {
+    if (game_.is_over()) return;
+    ++generation_;
+    if (engine_) engine_->cancel();
+    if (advisor_) advisor_->cancel();
+    thinking_ = false;
+    ai_turn_ = false;
+    settle_proposed_ = false;
+    game_.settle();
+    if (onSettled) onSettled();
+    if (onChanged) onChanged();
+    if (onActivity) onActivity(AiActivity::Idle);
+}
+
+void AIMatchController::confirmSettle() {
+    settle_proposed_ = false;
+    thinking_ = false;
+    ai_turn_ = false;
+    game_.settle();
+    if (onSettled) onSettled();
+    if (onChanged) onChanged();
     if (onActivity) onActivity(AiActivity::Idle);
 }
 

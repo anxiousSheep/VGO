@@ -37,6 +37,11 @@ QString colorName(vgo::Color c) {
     }
 }
 
+// 智能裁判触发手数：随棋盘大小而定，19路≈350手（盘面总点数 - 11）。
+int smartRefereeThreshold(int size) {
+    return size * size - 11;
+}
+
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -70,6 +75,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* actNew = new QAction(QStringLiteral("新对局…"), this);
     actNew->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
     auto* actPass = new QAction(QStringLiteral("虚着/停一手"), this);
+    auto* actCount = new QAction(QStringLiteral("请求数目"), this);
     auto* actUndo = new QAction(QStringLiteral("悔棋"), this);
     actUndo->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
     auto* actResign = new QAction(QStringLiteral("认输"), this);
@@ -84,6 +90,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(actNew, &QAction::triggered, this, &MainWindow::newGame);
     connect(actPass, &QAction::triggered, this, &MainWindow::onPass);
+    connect(actCount, &QAction::triggered, this, &MainWindow::onRequestCount);
     connect(actUndo, &QAction::triggered, this, &MainWindow::onUndo);
     connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
     connect(actScore, &QAction::triggered, this, &MainWindow::onScore);
@@ -96,6 +103,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->addSeparator();
     gameMenu->addAction(actUndo);
     gameMenu->addAction(actPass);
+    gameMenu->addAction(actCount);
     gameMenu->addAction(actResign);
     gameMenu->addSeparator();
     gameMenu->addAction(actScore);
@@ -119,6 +127,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tb->addSeparator();
     tb->addAction(actUndo);
     tb->addAction(actPass);
+    tb->addAction(actCount);
     tb->addAction(actResign);
     tb->addAction(actScore);
     tb->addAction(analyzeAction_);
@@ -259,6 +268,8 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     controller_->onActivity = [this](vgo::AiActivity a) {
         if (a == vgo::AiActivity::Thinking) status_->setText(QStringLiteral("AI 思考中…"));
     };
+    controller_->onCountProposed = [this] { promptConfirmSettle(); };
+    controller_->onSettled = [this] { onScore(); };
 
     chat_->clear();
     if (setup.nigiri) {
@@ -323,6 +334,11 @@ void MainWindow::refresh() {
     board_view_->setGhostColor(g->current());
     board_view_->setHighlight({});
     updateStatus();
+    // 智能裁判：达到手数阈值（随棋盘大小）后由模型自动判定胜负。
+    if (inAiMode() && controller_ && !controller_->game().is_over() &&
+        controller_->game().move_number() >= smartRefereeThreshold(setup_.size)) {
+        controller_->smartReferee();
+    }
     // 形势开关打开时，随落子/悔棋/虚着自动刷新归属图。用 singleShot(0) 延后到本次
     // 事件处理结束，避免人机对弈中人类落子后与 AI 的 genmove 争抢单飞引擎（若先发
     // analyze 会让 genmove 被判忙而停一手）。AI 落子后 refresh 会再触发一次并成功。
@@ -362,6 +378,25 @@ void MainWindow::onPass() {
     game_->pass();
     refresh();
     if (game_->is_over()) onScore();
+}
+
+void MainWindow::onRequestCount() {
+    if (inAiMode()) {
+        controller_->humanRequestCount();
+        return;
+    }
+    // 摆棋模式无对手，直接数目。
+    onScore();
+}
+
+void MainWindow::promptConfirmSettle() {
+    if (!inAiMode()) return;
+    const int ret = QMessageBox::question(
+        this, QStringLiteral("终局提议"),
+        QStringLiteral("AI 认为棋局已结束，提议数子。是否同意？"),
+        QStringLiteral("同意数子"), QStringLiteral("继续下"));
+    if (ret == 0) controller_->humanConfirmCount();
+    else controller_->humanDeclineCount();
 }
 
 void MainWindow::onUndo() {

@@ -112,6 +112,10 @@ void Game::pass() {
     history_.push_back(std::move(next));
 }
 
+void Game::settle() {
+    history_.back().is_over = true;
+}
+
 bool Game::undo() {
     if (history_.size() <= 1) return false;
     history_.pop_back();

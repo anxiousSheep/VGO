@@ -36,6 +36,8 @@ private slots:
     void openModelSettings();
     void onPointClicked(int x, int y);
     void onPass();
+    void onRequestCount();
+    void promptConfirmSettle();
     void onUndo();
     void onResign();
     void onScore();
