@@ -397,11 +397,40 @@ void MainWindow::onResign() {
 void MainWindow::onScore() {
     vgo::Game* g = currentGame();
     if (!g) return;
-    const auto [black, white] = g->score_area();
-    const double lead = g->score_black();
+    const double komi = g->komi();
+    // 本地计数作为回退（无 KataGo 或分析失败时用）。
+    const auto [local_black, local_white] = g->score_area();
+    const double local_lead = g->score_black();
+
+    // 优先用 KataGo 判断（ownership 正确处理死子与未定型领地，且黑+白=盘面总点数）。
+    if (usingKata() && advisor_) {
+        const vgo::Color to_move = g->current();
+        advisor_->analyzePosition(*g, [this, to_move, komi, local_black, local_white,
+                                       local_lead](const vgo::Analysis& a) {
+            if (!a.valid || a.ownership.empty()) {
+                showScoreResult(local_black, local_white, komi, local_lead);
+                return;
+            }
+            int black = 0;
+            int white = 0;
+            for (double v : a.ownership.value) {
+                if (v > 0.0) ++black;
+                else if (v < 0.0) ++white;
+            }
+            // rootInfo.scoreLead 是 to_move 视角（含贴目），转成黑方领先。
+            double black_lead = a.score_lead;
+            if (to_move == vgo::Color::White) black_lead = -a.score_lead;
+            showScoreResult(black, white, komi, black_lead);
+        });
+        return;
+    }
+    showScoreResult(local_black, local_white, komi, local_lead);
+}
+
+void MainWindow::showScoreResult(int black, int white, double komi, double black_lead) {
     QString result;
-    if (lead > 0.0) result = QStringLiteral("黑胜");
-    else if (lead < 0.0) result = QStringLiteral("白胜");
+    if (black_lead > 0.0) result = QStringLiteral("黑胜");
+    else if (black_lead < 0.0) result = QStringLiteral("白胜");
     else result = QStringLiteral("平局");
 
     QMessageBox::information(
@@ -409,9 +438,9 @@ void MainWindow::onScore() {
         QStringLiteral("黑方：%1 子（含目）\n白方：%2 子（含目）\n贴目：%3\n结果：%4（黑领先 %5 目）")
             .arg(black)
             .arg(white)
-            .arg(g->komi())
+            .arg(komi)
             .arg(result)
-            .arg(lead));
+            .arg(black_lead));
 }
 
 void MainWindow::onChatMessage(const QString& text) {

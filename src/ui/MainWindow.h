@@ -55,6 +55,7 @@ private:
     void handleReply(const vgo::ConversationReply& r);
     void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
+    void showScoreResult(int black, int white, double komi, double black_lead);
 
     bool inAiMode() const { return controller_ != nullptr; }
     vgo::Game* currentGame() const;
