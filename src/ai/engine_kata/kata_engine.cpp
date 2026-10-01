@@ -63,7 +63,10 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
     size_ = board.size();
 
     QByteArray cmd;
-    cmd += "clear_board\n";
+    // 必须先告知棋盘大小，否则 KataGo 默认 19×19，返回的坐标无法在 9/13 路解析。
+    cmd += "boardsize ";
+    cmd += QByteArray::number(board.size());
+    cmd += "\nclear_board\n";
     for (int y = 0; y < board.size(); ++y) {
         for (int x = 0; x < board.size(); ++x) {
             const Color c = board.at(x, y);
