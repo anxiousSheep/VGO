@@ -2,7 +2,6 @@
 
 #include <QMainWindow>
 
-#include "AppConfig.h"
 #include "ai/game_setup.h"
 #include "go/game.h"
 
@@ -23,7 +22,7 @@ struct ConversationReply;
 // Main window: holds the current game (a placement Game, or an AIMatchController
 // for human-vs-AI), the board view, the chat side bar, and the menu/toolbar
 // actions. Game parameters are chosen once in the New Game dialog and cannot be
-// changed in-game.
+// changed in-game; model settings live in a separate Settings dialog.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -33,6 +32,7 @@ public:
 
 private slots:
     void newGame();
+    void openModelSettings();
     void onPointClicked(int x, int y);
     void onPass();
     void onUndo();
@@ -48,6 +48,7 @@ private:
     void teardown();
     void refresh();
     void updateStatus();
+    void updateModelStatus();
     void appendAi(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
 
@@ -55,7 +56,6 @@ private:
     vgo::Game* currentGame() const;
 
     vgo::GameSetup setup_;
-    AppConfig config_;
 
     vgo::Game* game_ = nullptr;                     // placement mode
     vgo::AIMatchController* controller_ = nullptr;  // human-vs-AI mode
@@ -65,6 +65,7 @@ private:
 
     vgo::GobanWidget* board_view_ = nullptr;
     QLabel* status_ = nullptr;
+    QLabel* modelStatus_ = nullptr;
     vgo::ChatPanel* chat_ = nullptr;
     QDockWidget* dock_ = nullptr;
     QAction* toggleChatAction_ = nullptr;

@@ -1,0 +1,52 @@
+#include "test_framework.h"
+
+#include <QFile>
+#include <QTemporaryDir>
+
+#include "ui/model/ModelManager.h"
+
+using namespace vgo;
+
+TEST(model_manager_roundtrip_no_plaintext_key) {
+    QTemporaryDir dir;
+    ModelManager::setDataDirOverride(dir.path());
+    ModelManager& m = ModelManager::instance();
+    m.load();
+
+    KataGoSettings k;
+    k.enabled = true;
+    k.binary = dir.path() + QStringLiteral("/katago.exe");
+    k.model = dir.path() + QStringLiteral("/model.bin.gz");
+    k.version = QStringLiteral("1.15.3");
+    k.variant = QStringLiteral("eigen");
+    m.setKatago(k);
+
+    LlmSettings l;
+    l.provider = QStringLiteral("deepseek");
+    l.baseUrl = QStringLiteral("https://api.deepseek.com/v1");
+    l.model = QStringLiteral("deepseek-chat");
+    m.setLlm(l);
+    m.setApiKey(QStringLiteral("sk-secret-9999"));
+
+    CHECK(m.katago().binary == k.binary);
+    CHECK(m.katago().variant == QStringLiteral("eigen"));
+    CHECK(m.llm().provider == QStringLiteral("deepseek"));
+    CHECK(m.apiKey() == QStringLiteral("sk-secret-9999"));
+    CHECK(QFile::exists(dir.path() + QStringLiteral("/config.json")));
+    CHECK(QFile::exists(dir.path() + QStringLiteral("/secrets.json")));
+
+    // secrets.json 不应包含明文 key。
+    QFile sf(dir.path() + QStringLiteral("/secrets.json"));
+    CHECK(sf.open(QIODevice::ReadOnly));
+    CHECK(!sf.readAll().contains("sk-secret-9999"));
+}
+
+TEST(model_manager_status_uninstalled) {
+    QTemporaryDir dir;
+    ModelManager::setDataDirOverride(dir.path());
+    ModelManager::instance().load();
+    // 全新目录：未装 KataGo、未配 LLM。
+    CHECK(!ModelManager::instance().katagoReady());
+    CHECK(ModelManager::instance().katagoStatusText() == QStringLiteral("未安装"));
+    CHECK(ModelManager::instance().llmStatusText() == QStringLiteral("未配置"));
+}

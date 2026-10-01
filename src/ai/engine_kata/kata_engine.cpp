@@ -28,8 +28,8 @@ void KataGoEngine::start() {
     connect(proc_, &QProcess::errorOccurred, this, &KataGoEngine::onErrorOccurred);
 
     QStringList args;
-    args << QStringLiteral("gtp") << QStringLiteral("-model") << model_
-         << QStringLiteral("-config") << config_;
+    args << QStringLiteral("gtp") << QStringLiteral("-model") << model_;
+    if (!config_.isEmpty()) args << QStringLiteral("-config") << config_;
     proc_->start(binary_, args);
     if (!proc_->waitForStarted(10000)) {
         error_ = QStringLiteral("KataGo 启动失败：%1").arg(proc_->errorString());
@@ -61,13 +61,19 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
             cmd += "\n";
         }
     }
-    // Strength knobs (best effort; humanSLProfile may need to live in the
-    // config file rather than being settable at runtime).
+    // Strength knobs (best effort): visits/temperature for the standard model;
+    // humanSLProfile for the human-style model (新手/业余段, M5.0).
     cmd += "kata-set-param maxVisits ";
     cmd += QByteArray::number(params.max_visits);
     cmd += "\nkata-set-param temperature ";
     cmd += QByteArray::number(params.temperature);
-    cmd += "\nkata-genmove ";
+    cmd += "\n";
+    if (!params.human_profile.empty()) {
+        cmd += "kata-set-param humanSLProfile ";
+        cmd += params.human_profile.c_str();
+        cmd += "\n";
+    }
+    cmd += "kata-genmove ";
     cmd += (to_move == Color::Black) ? "B\n" : "W\n";
     proc_->write(cmd);
 }

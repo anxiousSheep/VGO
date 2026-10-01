@@ -45,6 +45,8 @@ add_library(vgo_ai STATIC
     src/ai/session.cpp
     src/ai/advisor.h
     src/ai/advisor.cpp
+    src/ai/llm_presets.h
+    src/ai/llm_presets.cpp
 )
 target_include_directories(vgo_ai PUBLIC src)
 target_link_libraries(vgo_ai PUBLIC vgo_core)
@@ -69,6 +71,7 @@ add_executable(vgo_ai_tests
     tests/test_template.cpp
     tests/test_session.cpp
     tests/test_advisor.cpp
+    tests/test_llm_presets.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)
@@ -90,6 +93,40 @@ add_library(vgo_ai_qt STATIC
 target_include_directories(vgo_ai_qt PUBLIC src)
 target_link_libraries(vgo_ai_qt PUBLIC vgo_ai Qt6::Network)
 
+# ---------------------------------------------------------------------------
+# Model provisioning (Qt layer): config/secrets, downloader, GPU detect,
+# KataGo installer, LLM presets/probe. Shared by the app and the model tests.
+# ---------------------------------------------------------------------------
+add_library(vgo_model STATIC
+    src/ui/model/KeyStore.h
+    src/ui/model/KeyStore.cpp
+    src/ui/model/ModelManager.h
+    src/ui/model/ModelManager.cpp
+    src/ui/model/Downloader.h
+    src/ui/model/Downloader.cpp
+    src/ui/model/GpuDetect.h
+    src/ui/model/GpuDetect.cpp
+    src/ui/model/OllamaDetect.h
+    src/ui/model/OllamaDetect.cpp
+    src/ui/model/ModelsManifest.h
+    src/ui/model/ModelsManifest.cpp
+    src/ui/model/KataGoProvisioner.h
+    src/ui/model/KataGoProvisioner.cpp
+)
+target_include_directories(vgo_model PUBLIC src)
+target_link_libraries(vgo_model PUBLIC vgo_ai Qt6::Core Qt6::Network)
+if(WIN32)
+    target_link_libraries(vgo_model PUBLIC Crypt32)
+endif()
+
+add_executable(vgo_model_tests
+    tests/test_main_qt.cpp
+    tests/test_keystore.cpp
+    tests/test_model_manager.cpp
+)
+target_link_libraries(vgo_model_tests PRIVATE vgo_model)
+add_test(NAME vgo_model_tests COMMAND vgo_model_tests)
+
 add_executable(vgo_app WIN32
     src/ui/main.cpp
     src/ui/GobanWidget.h
@@ -100,11 +137,13 @@ add_executable(vgo_app WIN32
     src/ui/ChatPanel.cpp
     src/ui/NewGameDialog.h
     src/ui/NewGameDialog.cpp
+    src/ui/SettingsDialog.h
+    src/ui/SettingsDialog.cpp
     src/ui/AppConfig.h
     src/ui/AppConfig.cpp
 )
 target_include_directories(vgo_app PRIVATE src)
-target_link_libraries(vgo_app PRIVATE vgo_core vgo_ai_qt Qt6::Widgets)
+target_link_libraries(vgo_app PRIVATE vgo_core vgo_ai_qt vgo_model Qt6::Widgets)
 
 # ---------------------------------------------------------------------------
 # Deploy Qt runtime DLLs next to vgo_app on Windows, so the executable can be

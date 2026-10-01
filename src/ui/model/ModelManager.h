@@ -1,0 +1,74 @@
+#pragma once
+
+#include <QString>
+
+namespace vgo {
+
+struct KataGoSettings {
+    bool enabled = true;
+    QString binary;      // katago.exe 路径
+    QString model;       // 标准模型路径
+    QString humanModel;  // 人类风格模型路径（可选）
+    QString config;      // gtp.cfg 路径
+    QString version;
+    QString variant;     // "opencl" | "eigen" | "cuda" | ""
+};
+
+struct LlmSettings {
+    QString provider;  // 预设 id
+    QString baseUrl;
+    QString model;
+    // API key 不在此处（内存/磁盘都经 ModelManager::apiKey 加解密）
+};
+
+// Single source of truth for model configuration. Persists to the per-user data
+// directory (QStandardPaths::AppDataLocation) as config.json + secrets.json.
+// Migrates the legacy vgo_config.json (next to the exe) on first run.
+class ModelManager {
+public:
+    static ModelManager& instance();
+
+    // Test hook: override the data directory (used by unit tests).
+    static void setDataDirOverride(const QString& dir);
+
+    void load();  // 幂等：首次调用读取/迁移
+
+    QString dataDir() const;
+
+    const KataGoSettings& katago() const { return katago_; }
+    void setKatago(const KataGoSettings&);
+
+    const LlmSettings& llm() const { return llm_; }
+    void setLlm(const LlmSettings&);
+
+    QString apiKey() const;          // 解密后返回（仅内存）
+    void setApiKey(const QString&);  // DPAPI 加密落盘
+
+    bool onboardingDone() const;
+    void setOnboardingDone(bool);
+
+    // 状态判断（供 UI 显示）
+    bool katagoReady() const;         // binary+model 文件都存在
+    QString katagoStatusText() const;
+    QString llmStatusText() const;
+
+private:
+    ModelManager() = default;
+    void ensureLoaded();
+    void migrateLegacy();
+    void saveConfig();
+    void saveSecrets();
+    void readConfig();
+    void readSecrets();
+    QString configPath() const;
+    QString secretsPath() const;
+
+    KataGoSettings katago_;
+    LlmSettings llm_;
+    QString apiKeyCache_;
+    bool keyLoaded_ = false;
+    bool loaded_ = false;
+    bool onboardingDone_ = false;
+};
+
+}  // namespace vgo

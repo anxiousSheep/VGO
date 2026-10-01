@@ -4,15 +4,18 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDockWidget>
+#include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 
 #include "ChatPanel.h"
 #include "GobanWidget.h"
 #include "NewGameDialog.h"
+#include "SettingsDialog.h"
 
 #include "ai/advisor.h"
 #include "ai/fallback_engine.h"
@@ -21,6 +24,7 @@
 #include "ai/template_conversation.h"
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
+#include "model/ModelManager.h"
 
 namespace {
 
@@ -36,7 +40,7 @@ QString colorName(vgo::Color c) {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("VGO — 围棋练习"));
-    config_ = loadAppConfig(QCoreApplication::applicationDirPath());
+    vgo::ModelManager::instance().load();
 
     board_view_ = new vgo::GobanWidget(this);
     setCentralWidget(board_view_);
@@ -44,6 +48,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     status_ = new QLabel(this);
     statusBar()->addWidget(status_, 1);
+    modelStatus_ = new QLabel(this);
+    statusBar()->addPermanentWidget(modelStatus_);
 
     // Chat side bar in a collapsible dock.
     chat_ = new vgo::ChatPanel(this);
@@ -57,7 +63,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (advisor_) advisor_->cancel();
     });
 
-    // Menu: 对局 (new game + in-game actions) and 视图 (AI panel toggle).
+    // Menu: 对局 (new game + in-game actions), 视图 (AI panel), 设置 (models).
     auto* actNew = new QAction(QStringLiteral("新对局…"), this);
     actNew->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
     auto* actPass = new QAction(QStringLiteral("虚着/停一手"), this);
@@ -67,6 +73,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* actScore = new QAction(QStringLiteral("计分/终局"), this);
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
     actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
+    auto* actSettings = new QAction(QStringLiteral("模型设置…"), this);
 
     connect(actNew, &QAction::triggered, this, &MainWindow::newGame);
     connect(actPass, &QAction::triggered, this, &MainWindow::onPass);
@@ -74,6 +81,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
     connect(actScore, &QAction::triggered, this, &MainWindow::onScore);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
+    connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
     QMenu* gameMenu = menuBar()->addMenu(QStringLiteral("对局"));
     gameMenu->addAction(actNew);
@@ -86,14 +94,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
-    // "AI 交流面板" toggle — driven by the dock's built-in toggle action, so
-    // closing the dock by its X also unchecks the action (and vice versa).
     toggleChatAction_ = dock_->toggleViewAction();
     toggleChatAction_->setText(QStringLiteral("AI 交流面板"));
     toggleChatAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+A")));
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
     viewMenu->addAction(toggleChatAction_);
+
+    QMenu* settingsMenu = menuBar()->addMenu(QStringLiteral("设置"));
+    settingsMenu->addAction(actSettings);
 
     QToolBar* tb = addToolBar(QStringLiteral("工具"));
     tb->setMovable(false);
@@ -106,7 +115,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tb->addSeparator();
     tb->addAction(toggleChatAction_);
 
-    // Default to a placement game so the app is immediately usable offline.
+    // 首次运行：未配置任何模型时，自动打开设置引导。
+    if (!vgo::ModelManager::instance().onboardingDone() &&
+        !vgo::ModelManager::instance().katagoReady() &&
+        vgo::ModelManager::instance().llm().baseUrl.isEmpty()) {
+        QTimer::singleShot(0, this, &MainWindow::openModelSettings);
+    }
+
     vgo::GameSetup initial;
     initial.mode = vgo::GameMode::Placement;
     initial.size = 9;
@@ -131,26 +146,43 @@ void MainWindow::applySetup(const vgo::GameSetup& setup) {
 }
 
 void MainWindow::createAiServices(int level) {
-    // Engine: KataGo if configured and starts, else the built-in fallback.
+    const vgo::KataGoSettings& ks = vgo::ModelManager::instance().katago();
+
+    // 选模型：业余段（1–11）优先用人类风格模型，否则标准模型。
+    QString modelPath = ks.model;
+    if (level >= 1 && level <= 11 && !ks.humanModel.isEmpty() &&
+        QFileInfo::exists(ks.humanModel)) {
+        modelPath = ks.humanModel;
+    }
+
     engine_ = nullptr;
-    if (config_.katago.enabled && !config_.katago.binary.isEmpty() &&
-        !config_.katago.model.isEmpty()) {
-        auto* k = new vgo::KataGoEngine(config_.katago.binary, config_.katago.model,
-                                        config_.katago.config);
+    if (ks.enabled && !ks.binary.isEmpty() && !modelPath.isEmpty() &&
+        QFileInfo::exists(ks.binary) && QFileInfo::exists(modelPath)) {
+        auto* k = new vgo::KataGoEngine(ks.binary, modelPath, ks.config);
         if (k->available()) engine_ = k; else delete k;
     }
     if (!engine_) engine_ = new vgo::FallbackEngine();
 
-    // Conversation: HTTP if configured, else template.
+    const vgo::LlmSettings& ls = vgo::ModelManager::instance().llm();
     conversation_ = nullptr;
-    if (config_.llm.enabled && !config_.llm.baseUrl.isEmpty()) {
-        auto* h = new vgo::HttpConversationService(config_.llm.baseUrl, config_.llm.apiKey,
-                                                   config_.llm.model);
+    if (!ls.baseUrl.isEmpty() && !ls.model.isEmpty()) {
+        auto* h = new vgo::HttpConversationService(ls.baseUrl,
+                                                   vgo::ModelManager::instance().apiKey(),
+                                                   ls.model);
         if (h->available()) conversation_ = h; else delete h;
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
 
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
+
+    const bool usingKata = (dynamic_cast<vgo::KataGoEngine*>(engine_) != nullptr);
+    const bool usingHttp =
+        (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
+    modelStatus_->setText(
+        QStringLiteral("引擎：%1 · 对话：%2")
+            .arg(usingKata ? QStringLiteral("KataGo") : QStringLiteral("离线"),
+                 usingHttp ? (ls.provider.isEmpty() ? QStringLiteral("HTTP") : ls.provider)
+                           : QStringLiteral("本地模板")));
 }
 
 void MainWindow::startPlacement(int size) {
@@ -217,6 +249,20 @@ void MainWindow::teardown() {
 void MainWindow::newGame() {
     NewGameDialog dlg(this);
     if (dlg.exec() == QDialog::Accepted) applySetup(dlg.setup());
+}
+
+void MainWindow::openModelSettings() {
+    SettingsDialog dlg(this);
+    connect(&dlg, &SettingsDialog::settingsChanged, this, &MainWindow::updateModelStatus);
+    dlg.exec();
+    updateModelStatus();
+}
+
+void MainWindow::updateModelStatus() {
+    // 粗略显示当前配置状态；精确的「实际在用」在 createAiServices 里再刷新。
+    const auto& km = vgo::ModelManager::instance();
+    modelStatus_->setText(QStringLiteral("引擎：%1 · 对话：%2")
+                              .arg(km.katagoStatusText(), km.llmStatusText()));
 }
 
 void MainWindow::refresh() {
