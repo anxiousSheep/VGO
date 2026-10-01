@@ -1,5 +1,6 @@
 #include "kata_engine.h"
 
+#include <QFileInfo>
 #include <utility>
 
 #include "ai/gtp.h"
@@ -38,6 +39,9 @@ void KataGoEngine::start() {
     QStringList args;
     args << QStringLiteral("gtp") << QStringLiteral("-model") << model_;
     if (!config_.isEmpty()) args << QStringLiteral("-config") << config_;
+    // 固定工作目录到 kata 二进制所在目录，使 OpenCL 调优缓存（KataGoData/）
+    // 落盘位置稳定，首次调优后无需重复。
+    proc_->setWorkingDirectory(QFileInfo(binary_).absolutePath());
     proc_->start(binary_, args);
     if (!proc_->waitForStarted(10000)) {
         error_ = QStringLiteral("KataGo 启动失败：%1").arg(proc_->errorString());
