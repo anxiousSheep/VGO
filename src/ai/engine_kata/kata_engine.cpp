@@ -1,10 +1,6 @@
 #include "kata_engine.h"
 
 #include <QFileInfo>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonParseError>
 #include <QList>
 #include <algorithm>
 #include <cmath>
@@ -20,7 +16,7 @@ namespace {
 // 1 visit 时不输出，导致分析全为 0。此处给分析一个下限。
 constexpr int kMinAnalysisVisits = 20;
 
-// 形势评估（kata-analyze）用固定小预算，保证手动触发快速返回，
+// 形势评估（kata-search_analyze）用固定小预算，保证手动触发快速返回，
 // 不随段位 maxVisits（职业高段可达 100k）膨胀。
 constexpr int kAnalyzeMaxVisits = 200;
 
@@ -57,75 +53,121 @@ MoveCandidate parseCandidate(const QByteArray& line, int size) {
     return c;
 }
 
-// Whether the accumulated text holds a complete JSON object (braces balanced,
-// at least one '{'). KataGo may emit the analysis as pretty (multi-line) JSON,
-// so we accumulate lines until the top-level object closes.
-bool jsonComplete(const QByteArray& s) {
-    int depth = 0;
-    bool in_string = false;
-    bool started = false;
-    for (int i = 0; i < s.size(); ++i) {
-        const char c = s[i];
-        if (in_string) {
-            if (c == '\\') { ++i; continue; }  // skip escaped char
-            if (c == '"') in_string = false;
-            continue;
-        }
-        if (c == '"') { in_string = true; continue; }
-        if (c == '{') { depth++; started = true; }
-        else if (c == '}') { depth--; }
-    }
-    return started && depth == 0;
+// Whether a token is a known scalar-valued key (followed by exactly one value).
+bool isScalarKey(const QByteArray& k) {
+    static const char* keys[] = {
+        "visits",       "edgeVisits", "utility",    "winrate",    "scoreMean",
+        "scoreStdev",   "scoreLead",  "scoreSelfplay", "prior",   "noResultValue",
+        "lcb",          "utilityLcb", "weight",     "order",      "pvVisits",
+        "pvEdgeVisits", "rawStWrError", "rawVarTimeLeft", "stWrError", "varTimeLeft",
+    };
+    for (const char* s : keys)
+        if (k == s) return true;
+    return false;
+}
+
+// Whether a token starts a new top-level section of the analysis text.
+bool isSectionStart(const QByteArray& k) {
+    return k == "info" || k == "rootInfo" || k == "ownership" || k == "play";
 }
 
 }  // namespace
 
-bool parseKataAnalysis(const QByteArray& json, int size, Analysis* out) {
+// Parses the space-separated analysis text from `kata-search_analyze`, of the
+// form:
+//   info move E5 visits 467 ... winrate 0.11 ... scoreLead -0.74 ... order 0 pv E5 G5 ...
+//   info move F5 ... rootInfo visits 505 winrate 0.108 scoreLead -0.726 ...
+//   ownership <size*size floats> ... play E5
+// Tokens may span newlines, so callers concatenate lines with spaces first.
+bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out) {
     if (!out) return false;
-    QJsonParseError err;
-    const QJsonDocument doc = QJsonDocument::fromJson(json, &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject()) return false;
-    const QJsonObject root = doc.object();
+    const QList<QByteArray> toks = text.split(' ');
+    const int n = toks.size();
+    int i = 0;
 
-    out->winrate = root.value("rootInfo").toObject().value("winrate").toDouble(0.0);
-    out->score_lead = root.value("rootInfo").toObject().value("scoreLead").toDouble(0.0);
-    out->valid = true;
+    auto parsePoint = [&](const QByteArray& t, Point* p) {
+        return gtpParsePoint(QString::fromLatin1(t).toStdString(), size, p);
+    };
 
-    out->candidates.clear();
-    const QJsonArray moves = root.value("moveInfos").toArray();
-    for (const QJsonValue& v : moves) {
-        const QJsonObject mo = v.toObject();
-        MoveCandidate c;
-        const QString mv = mo.value("move").toString();
-        if (mv == "pass" || mv == "resign") {
-            c.is_pass = true;
-        } else {
+    MoveCandidate* cur = nullptr;
+    bool have_root = false;
+    while (i < n) {
+        const QByteArray t = toks[i];
+        if (t.isEmpty()) { ++i; continue; }
+
+        if (t == "info") {
+            if (i + 2 >= n || toks[i + 1] != "move") { ++i; continue; }
+            out->candidates.push_back(MoveCandidate{});
+            cur = &out->candidates.back();
             Point p;
-            if (!gtpParsePoint(mv.toStdString(), size, &p)) continue;
-            c.p = p;
+            if (parsePoint(toks[i + 2], &p)) cur->p = p;
+            else cur->is_pass = true;
+            i += 3;
+            while (i < n && !isSectionStart(toks[i])) {
+                const QByteArray k = toks[i];
+                if (k == "visits" && i + 1 < n) { cur->visits = toks[i + 1].toInt(); i += 2; }
+                else if (k == "winrate" && i + 1 < n) { cur->winrate = toks[i + 1].toDouble(); i += 2; }
+                else if (k == "scoreLead" && i + 1 < n) { cur->score_lead = toks[i + 1].toDouble(); i += 2; }
+                else if (k == "isSymmetryOf") { cur->p = {-1, -1}; i += (i + 1 < n ? 2 : 1); }
+                else if (k == "pv") {
+                    ++i;
+                    while (i < n && !isSectionStart(toks[i])) {
+                        Point pp;
+                        if (parsePoint(toks[i], &pp)) { cur->pv.push_back(pp); ++i; }
+                        else { ++i; }  // skip non-move token
+                    }
+                } else if (isScalarKey(k)) {
+                    i += (i + 1 < n ? 2 : 1);
+                } else {
+                    ++i;  // unknown token, skip
+                }
+            }
+            continue;
         }
-        c.visits = mo.value("visits").toInt();
-        c.winrate = mo.value("winrate").toDouble(0.0);
-        c.score_lead = mo.value("scoreLead").toDouble(0.0);
-        const QJsonArray pv = mo.value("pv").toArray();
-        for (const QJsonValue& pvv : pv) {
-            Point pp;
-            if (gtpParsePoint(pvv.toString().toStdString(), size, &pp)) c.pv.push_back(pp);
+
+        if (t == "rootInfo") {
+            have_root = true;
+            ++i;
+            while (i < n && !isSectionStart(toks[i])) {
+                const QByteArray k = toks[i];
+                if (k == "winrate" && i + 1 < n) { out->winrate = toks[i + 1].toDouble(); i += 2; }
+                else if (k == "scoreLead" && i + 1 < n) { out->score_lead = toks[i + 1].toDouble(); i += 2; }
+                else if (isScalarKey(k)) { i += (i + 1 < n ? 2 : 1); }
+                else { ++i; }
+            }
+            continue;
         }
-        out->candidates.push_back(std::move(c));
+
+        if (t == "ownership") {
+            out->ownership.size = size;
+            out->ownership.value.assign(static_cast<std::size_t>(size) * size, 0.0);
+            ++i;
+            int idx = 0;
+            while (i < n && idx < size * size) {
+                const QByteArray v = toks[i];
+                if (!v.isEmpty()) {
+                    bool ok = false;
+                    const double d = v.toDouble(&ok);
+                    if (ok) { out->ownership.value[static_cast<std::size_t>(idx)] = d; ++idx; }
+                }
+                ++i;
+            }
+            continue;
+        }
+
+        if (t == "play") break;  // completion marker (move reported, not committed)
+        ++i;
     }
+
+    // Drop symmetry duplicates (p.x < 0, not pass), mirroring the genmove path.
+    out->candidates.erase(
+        std::remove_if(out->candidates.begin(), out->candidates.end(),
+                       [](const MoveCandidate& c) { return c.p.x < 0 && !c.is_pass; }),
+        out->candidates.end());
     if (!out->candidates.empty()) out->best = out->candidates.front();
 
-    const QJsonArray ownership = root.value("ownership").toArray();
-    if (!ownership.isEmpty()) {
-        out->ownership.size = size;
-        out->ownership.value.assign(static_cast<std::size_t>(size) * size, 0.0);
-        const int n = std::min(static_cast<int>(ownership.size()), size * size);
-        for (int i = 0; i < n; ++i) {
-            out->ownership.value[static_cast<std::size_t>(i)] = ownership.at(i).toDouble();
-        }
-    }
-    return true;
+    out->valid = have_root || !out->candidates.empty() || !out->ownership.empty();
+    return out->valid;
 }
 
 KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QString& config,
@@ -231,12 +273,14 @@ void KataGoEngine::analyze(const Board& board, Color to_move,
             cmd += "\n";
         }
     }
-    // 形势评估用固定小预算（kAnalyzeMaxVisits），并请求每点归属 ownership。
+    // 形势评估用固定小预算（kAnalyzeMaxVisits），并请求每点归属 ownership 与 rootInfo。
+    // 用 kata-search_analyze（不落子）而非 kata-analyze：后者是连续分析命令，在默认
+    // 配置下不会一次性回显结果；前者等价于 genmove_analyze 但不改棋盘。
     cmd += "kata-set-param maxVisits ";
     cmd += QByteArray::number(kAnalyzeMaxVisits);
-    cmd += "\nkata-analyze ";
+    cmd += "\nkata-search_analyze ";
     cmd += (to_move == Color::Black) ? "B" : "W";
-    cmd += " ownership true\n";
+    cmd += " ownership true rootInfo true\n";
     proc_->write(cmd);
 }
 
@@ -341,22 +385,27 @@ void KataGoEngine::onStdout() {
 }
 
 void KataGoEngine::handleAnalyzeLine(const QByteArray& line) {
-    // Skip empty lines and the GTP ack ("=") that may precede the JSON.
+    // Skip empty lines and the GTP ack ("=") that precedes the analysis text.
     if (line.isEmpty() || line == "=") return;
-    QByteArray j = line;
-    if (j.startsWith("= ")) j = j.mid(2).trimmed();  // some builds prefix "= {json}"
-    if (j.isEmpty()) return;
 
-    analysis_buffer_ += j;
-    if (!jsonComplete(analysis_buffer_)) return;
+    // Completion: the final "play <move>" line (kata-search_analyze reports the
+    // chosen move without committing it), or a GTP error ("? ...").
+    if (line.startsWith("play ") || line.startsWith("? ")) {
+        Analysis a;
+        if (line.startsWith("play ")) parseKataAnalysis(analysis_buffer_, size_, &a);
+        // On error, `a` stays invalid (no ownership/candidates) -> UI degrades.
+        analysis_buffer_.clear();
+        pending_kind_ = PendingKind::None;
+        AnalysisCallback cb = std::move(pending_analysis_);
+        pending_analysis_ = nullptr;
+        if (cb) cb(std::move(a));
+        return;
+    }
 
-    Analysis a;
-    parseKataAnalysis(analysis_buffer_, size_, &a);
-    analysis_buffer_.clear();
-    pending_kind_ = PendingKind::None;
-    AnalysisCallback cb = std::move(pending_analysis_);
-    pending_analysis_ = nullptr;
-    if (cb) cb(std::move(a));
+    // Accumulate analysis text (info move ... / rootInfo ... / ownership ...);
+    // tokens may span lines, so join with a single space.
+    analysis_buffer_ += line;
+    analysis_buffer_ += ' ';
 }
 
 void KataGoEngine::onErrorOccurred(QProcess::ProcessError) {

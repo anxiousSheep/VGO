@@ -7,24 +7,22 @@
 using namespace vgo;
 
 TEST(parse_kata_analysis_rootinfo_and_ownership) {
-    const char* json = R"({
-        "rootInfo": {"winrate": 0.62, "scoreLead": 3.5, "visits": 200},
-        "moveInfos": [
-            {"move": "D4", "visits": 100, "winrate": 0.61, "scoreLead": 3.0,
-             "order": 0, "pv": ["D4", "E5"]}
-        ],
-        "ownership": [0.1, -0.2, 0.3]
-    })";
+    // Space-separated text as returned by `kata-search_analyze` (tokens may be
+    // on one line or split across lines).
+    const char* text =
+        "info move D4 visits 100 winrate 0.61 scoreLead 3.0 order 0 pv D4 E5 "
+        "rootInfo visits 200 winrate 0.62 scoreLead 3.5 "
+        "ownership 0.1 -0.2 0.3";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(json), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
     CHECK(a.valid);
-    CHECK(std::abs(a.winrate - 0.62) < 1e-9);
+    CHECK(std::abs(a.winrate - 0.62) < 1e-9);       // from rootInfo
     CHECK(std::abs(a.score_lead - 3.5) < 1e-9);
 
     CHECK_EQ(a.candidates.size(), 1u);
     CHECK_EQ(a.candidates[0].p.x, 3);   // "D" -> x=3
     CHECK_EQ(a.candidates[0].p.y, 5);   // row 4 -> y = 9-4 = 5
-    CHECK_EQ(a.candidates[0].pv.size(), 2u);
+    CHECK_EQ(a.candidates[0].pv.size(), 2u);  // D4, E5
     CHECK_EQ(a.best.p.x, 3);
 
     CHECK_EQ(a.ownership.size, 9);
@@ -34,27 +32,42 @@ TEST(parse_kata_analysis_rootinfo_and_ownership) {
     CHECK(std::abs(a.ownership.at(2, 0) - 0.3) < 1e-9);
 }
 
-TEST(parse_kata_analysis_no_ownership) {
-    const char* json = R"({"rootInfo": {"winrate": 0.5, "scoreLead": 0.0}})";
+TEST(parse_kata_analysis_multiple_moves_and_symmetry) {
+    const char* text =
+        "info move E5 visits 400 winrate 0.5 scoreLead 0.0 order 0 pv E5 G5 "
+        "info move F5 visits 35 winrate 0.4 scoreLead -1.0 order 1 pv F5 "
+        "info move D5 visits 35 isSymmetryOf F5 order 2 pv D5 "
+        "rootInfo visits 500 winrate 0.5 scoreLead 0.0";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(json), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
+    CHECK(a.valid);
+    // Symmetry duplicates are dropped; two real candidates remain.
+    CHECK_EQ(a.candidates.size(), 2u);
+    CHECK_EQ(a.candidates[0].p.x, 4);  // E5 -> x=4
+    CHECK_EQ(a.candidates[1].p.x, 5);  // F5 -> x=5
+}
+
+TEST(parse_kata_analysis_root_only) {
+    const char* text = "rootInfo visits 500 winrate 0.5 scoreLead 0.0";
+    Analysis a;
+    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
     CHECK(a.valid);
     CHECK(a.ownership.empty());
     CHECK(a.candidates.empty());
 }
 
-TEST(parse_kata_analysis_invalid_json) {
+TEST(parse_kata_analysis_empty_is_invalid) {
     Analysis a;
-    CHECK(!parseKataAnalysis(QByteArray("not json"), 9, &a));
+    CHECK(!parseKataAnalysis(QByteArray(""), 9, &a));
+    CHECK(!a.valid);
+    CHECK(!parseKataAnalysis(QByteArray("= \n"), 9, &a));
 }
 
 TEST(parse_kata_analysis_pass_move) {
-    const char* json = R"({
-        "rootInfo": {"winrate": 0.5, "scoreLead": 0.0},
-        "moveInfos": [{"move": "pass", "visits": 10, "order": 0}]
-    })";
+    const char* text =
+        "info move pass visits 10 order 0 rootInfo visits 10 winrate 0.5 scoreLead 0.0";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(json), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
     CHECK_EQ(a.candidates.size(), 1u);
     CHECK(a.candidates[0].is_pass);
 }

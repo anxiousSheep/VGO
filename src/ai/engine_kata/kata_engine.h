@@ -9,16 +9,17 @@
 
 namespace vgo {
 
-// Parse the JSON returned by KataGo's `kata-analyze` command (rootInfo winrate/
-// scoreLead, moveInfos candidates, ownership array) into an Analysis. `size` is
-// the board size, used to decode move strings and size the ownership map.
-// Exposed as a free function so it can be unit-tested without a KataGo process.
-bool parseKataAnalysis(const QByteArray& json, int size, Analysis* out);
+// Parse the space-separated text returned by KataGo's `kata-search_analyze`
+// command (`info move ...` candidates + `rootInfo winrate/scoreLead` + `ownership
+// <size*size floats>`) into an Analysis. `size` is the board size, used to decode
+// move strings and size the ownership map. Exposed as a free function so it can
+// be unit-tested without a KataGo process.
+bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out);
 
 // KataGo GTP client. Owns a persistent `katago gtp` subprocess and answers
 // requestMove by rebuilding the position and issuing `kata-genmove_analyze`
 // (move + winrate/scoreLead/candidates/pv), and analyze by issuing
-// `kata-analyze` (winrate/scoreLead + ownership), both feeding the Analysis.
+// `kata-search_analyze` (winrate/scoreLead + ownership), both feeding Analysis.
 class KataGoEngine : public QObject, public EngineInterface {
     Q_OBJECT
 public:
@@ -58,7 +59,7 @@ private:
     Callback pending_;
     AnalysisCallback pending_analysis_;
     QByteArray buffer_;
-    QByteArray analysis_buffer_;  // 累积 kata-analyze 的多行 JSON
+    QByteArray analysis_buffer_;  // 累积 kata-search_analyze 的分析文本（可能跨行）
     int size_ = 0;  // board size of the in-flight request (for parsing moves)
     std::vector<MoveCandidate> pending_candidates_;  // 正在收的 kata-genmove_analyze 候选
 };

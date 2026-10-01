@@ -26,7 +26,7 @@ public:
     // Analyze a position (winrate / score lead / ownership). `Analysis.winrate`
     // and `Analysis.score_lead` are reported from `to_move`'s perspective. The
     // default returns an invalid Analysis (the fallback engine provides no
-    // ownership); KataGo overrides it via `kata-analyze`.
+    // ownership); KataGo overrides it via `kata-search_analyze`.
     virtual void analyze(const Board& board, Color to_move,
                          const StrengthParams& params, AnalysisCallback cb) {
         cb(Analysis{});
