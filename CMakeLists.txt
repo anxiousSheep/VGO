@@ -44,3 +44,22 @@ add_executable(vgo_app WIN32
 )
 target_include_directories(vgo_app PRIVATE src)
 target_link_libraries(vgo_app PRIVATE vgo_core Qt6::Widgets)
+
+# ---------------------------------------------------------------------------
+# Deploy Qt runtime DLLs next to vgo_app on Windows, so the executable can be
+# launched directly (from CLion or Explorer) without editing PATH.
+# ---------------------------------------------------------------------------
+if(WIN32)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt
+                 HINTS "${CMAKE_PREFIX_PATH}"
+                 PATH_SUFFIXES bin)
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET vgo_app POST_BUILD
+            COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                    --no-translations
+                    "$<IF:$<CONFIG:Debug>,--debug,--release>"
+                    "$<TARGET_FILE:vgo_app>"
+            COMMENT "Deploying Qt runtime libraries"
+            VERBATIM)
+    endif()
+endif()
