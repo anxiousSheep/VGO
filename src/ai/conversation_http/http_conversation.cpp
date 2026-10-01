@@ -37,6 +37,22 @@ QString buildUserPrompt(const ConversationRequest& req) {
     }
     s += QStringLiteral("当前轮到%1方落子。\n")
              .arg(req.to_move == Color::Black ? QStringLiteral("黑") : QStringLiteral("白"));
+    if (req.facts.analysis.valid) {
+        const QString mover = req.to_move == Color::Black ? QStringLiteral("黑") : QStringLiteral("白");
+        s += QStringLiteral("KataGo 分析（%1方视角）：胜率 %2%，领先 %3 目。\n")
+                 .arg(mover)
+                 .arg(req.facts.analysis.winrate * 100.0, 0, 'f', 1)
+                 .arg(req.facts.analysis.score_lead, 0, 'f', 1);
+        int shown = 0;
+        for (const auto& c : req.facts.analysis.candidates) {
+            if (shown >= 4) break;
+            s += QStringLiteral("  候选点 %1：胜率 %2%，领先 %3 目\n")
+                     .arg(QString::fromStdString(gtpPoint(c.p, req.size)))
+                     .arg(c.winrate * 100.0, 0, 'f', 1)
+                     .arg(c.score_lead, 0, 'f', 1);
+            ++shown;
+        }
+    }
     if (req.has_last_move) {
         s += QStringLiteral("最近一手的坐标：%1（%2方）。\n")
                  .arg(QString::fromStdString(gtpPoint(req.last_move, req.size)))

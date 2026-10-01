@@ -10,11 +10,8 @@
 namespace vgo {
 
 // KataGo GTP client. Owns a persistent `katago gtp` subprocess and answers
-// requestMove by rebuilding the position and issuing `kata-genmove`.
-//
-// NOTE: the protocol handling follows KataGo's GTP extensions but has not been
-// verified end-to-end against a live KataGo install. Callers should fall back
-// to FallbackEngine when available() is false.
+// requestMove by rebuilding the position and issuing `kata-genmove_analyze`
+// (move + winrate/scoreLead/candidates/pv), which feeds the Analysis struct.
 class KataGoEngine : public QObject, public EngineInterface {
     Q_OBJECT
 public:
@@ -47,6 +44,7 @@ private:
     Callback pending_;
     QByteArray buffer_;
     int size_ = 0;  // board size of the in-flight request (for parsing moves)
+    std::vector<MoveCandidate> pending_candidates_;  // 正在收的 kata-genmove_analyze 候选
 };
 
 }  // namespace vgo

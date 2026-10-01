@@ -11,17 +11,23 @@ AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation,
 
 void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
-    if (classifyQuestion(question) == QuestionClass::WhereToPlay && !game.is_over() &&
-        engine_) {
-        // 「我该下哪」应为用户执子方建议；摆棋模式下无用户色则用当前轮到方。
-        const Color to_move = (user_color_ != Color::Empty) ? user_color_ : game.current();
+    const QuestionClass cls = classifyQuestion(question);
+    // 「我该下哪」为用户执子方建议；「谁领先」用当前局面分析。二者都查引擎拿真实分析。
+    const bool needEngine = (cls == QuestionClass::WhereToPlay || cls == QuestionClass::WhoIsWinning);
+
+    if (needEngine && !game.is_over() && engine_) {
+        const Color to_move = (user_color_ != Color::Empty && cls == QuestionClass::WhereToPlay)
+                                  ? user_color_
+                                  : game.current();
         const int gen = ++generation_;
         const Game snapshot = game;  // stable copy for the async callback
         engine_->requestMove(game.board(), to_move, strengthForLevel(level_),
                              [this, gen, question, snapshot, cb](EngineResult r) {
                                  if (gen != generation_) return;  // stale / cancelled
                                  GroundedFacts f = currentFacts(snapshot);
-                                 if (!r.move.is_pass) {
+                                 if (r.analysis.valid) {
+                                     f.analysis = r.analysis;  // 用引擎完整分析
+                                 } else if (!r.move.is_pass) {
                                      MoveCandidate c;
                                      c.p = r.move.p;
                                      f.analysis.valid = true;

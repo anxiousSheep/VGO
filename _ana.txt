@@ -1,0 +1,12 @@
+= 
+
+= 
+
+= 
+
+=
+info move E5 visits 7 edgeVisits 7 utility -0.803794 winrate 0.103569 scoreMean -0.227631 scoreStdev 8.64132 scoreLead -0.227631 scoreSelfplay -1.6077 prior 0.587792 lcb 0.0505366 utilityLcb -0.952287 weight 13.627 order 0 pv E5 E7 G6 info move F5 visits 2 edgeVisits 2 utility -0.712847 winrate 0.1455 scoreMean -0.103939 scoreStdev 7.52211 scoreLead -0.103939 scoreSelfplay -1.47302 prior 0.066987 lcb -0.391253 utilityLcb -2.21575 weight 3.32617 order 1 pv F5 D5 info move D5 visits 2 edgeVisits 2 utility -0.712847 winrate 0.1455 scoreMean -0.103939 scoreStdev 7.52211 scoreLead -0.103939 scoreSelfplay -1.47302 prior 0.066987 lcb -0.391253 utilityLcb -2.21575 weight 3.32617 isSymmetryOf F5 order 2 pv D5 F5 info move E4 visits 2 edgeVisits 2 utility -0.712847 winrate 0.1455 scoreMean -0.103939 scoreStdev 7.52211 scoreLead -0.103939 scoreSelfplay -1.47302 prior 0.066987 lcb -0.391253 utilityLcb -2.21575 weight 3.32617 isSymmetryOf F5 order 3 pv E4 E6 info move E6 visits 2 edgeVisits 2 utility -0.712847 winrate 0.1455 scoreMean -0.103939 scoreStdev 7.52211 scoreLead -0.103939 scoreSelfplay -1.47302 prior 0.066987 lcb -0.391253 utilityLcb -2.21575 weight 3.32617 isSymmetryOf F5 order 4 pv E6 E4
+play E5
+
+= 
+

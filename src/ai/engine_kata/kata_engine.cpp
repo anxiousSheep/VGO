@@ -1,11 +1,49 @@
 #include "kata_engine.h"
 
 #include <QFileInfo>
+#include <QList>
 #include <utility>
 
 #include "ai/gtp.h"
 
 namespace vgo {
+
+namespace {
+
+// 解析 `info move E5 visits 7 ... winrate 0.1 ... scoreLead -0.2 ... order 0 pv E5 E7`。
+// 返回候选；isSymmetryOf（对称重复）或坐标非法时返回 p.x<0（调用方跳过）。
+MoveCandidate parseCandidate(const QByteArray& line, int size) {
+    MoveCandidate c;
+    const QList<QByteArray> parts = line.split(' ');
+    if (parts.size() < 3) return c;
+    Point p;
+    if (!gtpParsePoint(QString::fromLatin1(parts[2]).toStdString(), size, &p)) return c;
+    c.p = p;
+    for (int i = 3; i < parts.size(); ++i) {
+        const QByteArray key = parts[i];
+        if (key == "winrate" && i + 1 < parts.size()) {
+            c.winrate = parts[++i].toDouble();
+        } else if (key == "scoreLead" && i + 1 < parts.size()) {
+            c.score_lead = parts[++i].toDouble();
+        } else if (key == "visits" && i + 1 < parts.size()) {
+            c.visits = parts[++i].toInt();
+        } else if (key == "isSymmetryOf") {
+            c.p = {-1, -1};  // 对称重复，跳过
+            return c;
+        } else if (key == "pv") {
+            for (int j = i + 1; j < parts.size(); ++j) {
+                Point pp;
+                if (gtpParsePoint(QString::fromLatin1(parts[j]).toStdString(), size, &pp)) {
+                    c.pv.push_back(pp);
+                }
+            }
+            break;  // pv 是最后一个字段
+        }
+    }
+    return c;
+}
+
+}  // namespace
 
 KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QString& config,
                            QObject* parent)
@@ -77,11 +115,10 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
         }
     }
     // 强度：仅 maxVisits 可经 kata-set-param 运行时覆盖。
-    // `temperature`/`humanSLProfile` 在本版不可覆盖（会报 ? unknown），已移除；
-    // 标准 GTP 命令是 `genmove`（非 kata-genmove）。强度细化留待 M3a.10 标定。
+    // 用 kata-genmove_analyze 一次拿回落子 + 胜率/目数差/候选/pv，供 LLM Grounding。
     cmd += "kata-set-param maxVisits ";
     cmd += QByteArray::number(params.max_visits);
-    cmd += "\ngenmove ";
+    cmd += "\nkata-genmove_analyze ";
     cmd += (to_move == Color::Black) ? "B\n" : "W\n";
     proc_->write(cmd);
 }
@@ -99,11 +136,48 @@ void KataGoEngine::onStdout() {
     while ((nl = buffer_.indexOf('\n')) >= 0) {
         QByteArray line = buffer_.left(nl).trimmed();
         buffer_.remove(0, nl + 1);
-        if (line.isEmpty() || line.startsWith("info ")) continue;  // skip ack/info
+
+        if (line.isEmpty() || line == "=" ||
+            (line.startsWith("info ") && !line.startsWith("info move "))) {
+            continue;  // ack 或其它 info
+        }
+
+        if (line.startsWith("info move ")) {
+            MoveCandidate c = parseCandidate(line, size_);
+            if (c.p.x >= 0) pending_candidates_.push_back(std::move(c));
+            continue;
+        }
+
+        if (line.startsWith("play ")) {
+            const QByteArray tok = line.mid(5).trimmed();
+            EngineResult r;
+            Point p;
+            if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {
+                r.move = {p, false};
+            } else {
+                r.move.is_pass = true;
+            }
+            if (!pending_candidates_.empty()) {
+                const MoveCandidate& best = pending_candidates_.front();
+                r.analysis.valid = true;
+                r.analysis.winrate = best.winrate;
+                r.analysis.score_lead = best.score_lead;
+                r.analysis.best = best;
+                r.analysis.candidates = std::move(pending_candidates_);
+            }
+            pending_candidates_.clear();
+            if (pending_) {
+                Callback cb = std::move(pending_);
+                pending_ = nullptr;
+                cb(std::move(r));
+            }
+            continue;
+        }
 
         if (line.startsWith("= ")) {
+            // 兜底：单行结果（pass/resign 或旧格式）
             const QByteArray tok = line.mid(2).trimmed();
-            if (tok.isEmpty()) continue;  // ack for clear_board/play/set-param
+            if (tok.isEmpty()) continue;
             EngineResult r;
             if (tok == "pass") {
                 r.move.is_pass = true;
@@ -112,17 +186,22 @@ void KataGoEngine::onStdout() {
                 if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {
                     r.move = {p, false};
                 } else {
-                    r.move.is_pass = true;  // "resign" or malformed -> pass
+                    r.move.is_pass = true;
                 }
             }
+            pending_candidates_.clear();
             if (pending_) {
                 Callback cb = std::move(pending_);
                 pending_ = nullptr;
                 cb(std::move(r));
             }
-        } else if (line.startsWith("? ")) {
+            continue;
+        }
+
+        if (line.startsWith("? ")) {
             EngineResult r;
             r.move.is_pass = true;
+            pending_candidates_.clear();
             if (pending_) {
                 Callback cb = std::move(pending_);
                 pending_ = nullptr;
