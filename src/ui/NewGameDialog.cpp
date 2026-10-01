@@ -1,14 +1,13 @@
 #include "NewGameDialog.h"
 
 #include <QButtonGroup>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
-#include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRandomGenerator>
-#include <QSlider>
 #include <QVBoxLayout>
 
 #include "ai/strength.h"
@@ -44,11 +43,12 @@ NewGameDialog::NewGameDialog(QWidget* parent) : QDialog(parent) {
     colorGroup_->addButton(whiteRadio, 1);
     colorGroup_->addButton(nigiriRadio, 2);
 
-    // 难度（19 级）
-    levelSlider_ = new QSlider(Qt::Horizontal, this);
-    levelSlider_->setRange(1, 19);
-    levelSlider_->setValue(1);
-    levelLabel_ = new QLabel(this);
+    // 难度（19 级，下拉选择，避免滑杆难拉）
+    levelCombo_ = new QComboBox(this);
+    for (int lv = 1; lv <= 19; ++lv) {
+        levelCombo_->addItem(QString::fromStdString(vgo::rankLabel(lv)));
+    }
+    levelCombo_->setCurrentIndex(0);
 
     auto* modeRow = new QHBoxLayout;
     modeRow->addWidget(placementRadio);
@@ -72,8 +72,7 @@ NewGameDialog::NewGameDialog(QWidget* parent) : QDialog(parent) {
     levelRow_ = new QWidget(this);
     auto* levelLayout = new QHBoxLayout(levelRow_);
     levelLayout->setContentsMargins(0, 0, 0, 0);
-    levelLayout->addWidget(levelSlider_, 1);
-    levelLayout->addWidget(levelLabel_);
+    levelLayout->addWidget(levelCombo_, 1);
 
     auto* form = new QFormLayout;
     form->addRow(QStringLiteral("模式"), modeRow);
@@ -95,10 +94,7 @@ NewGameDialog::NewGameDialog(QWidget* parent) : QDialog(parent) {
             [this](int id, bool checked) {
                 if (checked) onModeChanged(id);
             });
-    connect(levelSlider_, &QSlider::valueChanged, this,
-            [this](int) { refreshLevelLabel(); });
 
-    refreshLevelLabel();
     onModeChanged(1);  // 人机对弈默认
 }
 
@@ -108,15 +104,11 @@ void NewGameDialog::onModeChanged(int mode) {
     levelRow_->setEnabled(ai);
 }
 
-void NewGameDialog::refreshLevelLabel() {
-    levelLabel_->setText(QString::fromStdString(vgo::rankLabel(levelSlider_->value())));
-}
-
 void NewGameDialog::accept() {
     setup_.mode = (modeGroup_->checkedId() == 0) ? vgo::GameMode::Placement
                                                  : vgo::GameMode::HumanVsAi;
     setup_.size = sizeGroup_->checkedId();
-    setup_.level = levelSlider_->value();
+    setup_.level = levelCombo_->currentIndex() + 1;
 
     if (setup_.mode == vgo::GameMode::HumanVsAi) {
         const int color = colorGroup_->checkedId();

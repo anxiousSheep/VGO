@@ -5,8 +5,7 @@
 #include "ai/game_setup.h"
 
 class QButtonGroup;
-class QLabel;
-class QSlider;
+class QComboBox;
 class QWidget;
 
 // Modal "New Game" dialog: picks mode / board size / stone color (AI mode only)
@@ -23,15 +22,13 @@ public:
 private:
     void accept() override;
     void onModeChanged(int mode);
-    void refreshLevelLabel();
 
     vgo::GameSetup setup_;
 
     QButtonGroup* modeGroup_ = nullptr;
     QButtonGroup* sizeGroup_ = nullptr;
     QButtonGroup* colorGroup_ = nullptr;
-    QSlider* levelSlider_ = nullptr;
-    QLabel* levelLabel_ = nullptr;
+    QComboBox* levelCombo_ = nullptr;
     QWidget* colorRow_ = nullptr;
     QWidget* levelRow_ = nullptr;
 };
