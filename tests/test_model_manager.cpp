@@ -4,8 +4,34 @@
 #include <QTemporaryDir>
 
 #include "ui/model/ModelManager.h"
+#include "ui/model/ModelsManifest.h"
+
+#include <QProcess>
 
 using namespace vgo;
+
+TEST(qprocess_startcommand_works) {
+    QProcess p;
+    p.startCommand(QStringLiteral("powershell.exe -NoProfile -Command \"Write-Output VGO_OK\""));
+    CHECK(p.waitForFinished(8000));
+    CHECK(p.readAllStandardOutput().contains("VGO_OK"));
+}
+
+TEST(manifest_sanity) {
+    const auto models = modelAssets();
+    CHECK(models.size() >= 1);
+    for (const auto& m : models) {
+        CHECK(!m.id.empty());
+        CHECK(!m.officialUrl.empty());
+        CHECK(!m.mirrors.empty());
+    }
+    const auto assets = katagoAssets();
+    CHECK(assets.size() >= 2);
+    for (const auto& a : assets) {
+        CHECK(!a.officialUrl.empty());
+        CHECK(!a.mirrors.empty());
+    }
+}
 
 TEST(model_manager_roundtrip_no_plaintext_key) {
     QTemporaryDir dir;

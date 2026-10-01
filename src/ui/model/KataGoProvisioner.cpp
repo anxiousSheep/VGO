@@ -102,22 +102,18 @@ void KataGoProvisioner::extractBinary() {
     const QString ps = QStringLiteral(
         "powershell.exe -NoProfile -Command \"Expand-Archive -Path '%1' -DestinationPath '%2' -Force\"")
                            .arg(binaryZipPath(), katagoDir());
-    extractProc_->start(ps);
+    // 注意：Qt6 必须用 startCommand（把整串当命令行），start(QString) 会把整串当程序名。
+    extractProc_->startCommand(ps);
 }
 
 void KataGoProvisioner::writeConfig() {
-    QDir().mkpath(katagoDir());
-    const QString cfg = katagoDir() + QStringLiteral("/gtp.cfg");
-    QFile f(cfg);
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        f.write("# VGO 生成的最小 GTP 配置\nlogAllGTPCommunication = false\n");
-    }
     QDir().mkpath(dataDir() + QStringLiteral("/models"));
 
     KataGoSettings s = ModelManager::instance().katago();
     s.enabled = true;
     s.binary = katagoDir() + QStringLiteral("/katago.exe");
-    s.config = cfg;
+    // 用 release 自带的默认 GTP 配置（解压后一定存在），不手写最小配置。
+    s.config = katagoDir() + QStringLiteral("/default_gtp.cfg");
     s.version = QString::fromStdString(kataGoVersion());
     s.variant = variant_;
     ModelManager::instance().setKatago(s);
