@@ -83,11 +83,8 @@ void AIMatchController::onAiResult(EngineResult r) {
         return;
     }
     ai_turn_ = false;
-    if (advisor_) {
-        advisor_->explainLastMove(game_, [this](const ConversationReply& r) {
-            if (onReply) onReply(r);
-        });
-    }
+    // 不自动解说：避免每手都向 LLM 发一条「为什么下这里」打扰用户；
+    // 用户可主动在聊天面板提问（advisor.ask）。
     if (onActivity) onActivity(AiActivity::Idle);
 }
 

@@ -55,6 +55,8 @@ struct ConversationRequest {
     int size = 0;
     Color to_move = Color::Black;
     Color last_mover = Color::Empty;
+    Point last_move{-1, -1};    // 最近一手的坐标（供 LLM 定位）
+    bool has_last_move = false;
     PlayerProfile profile;
 };
 

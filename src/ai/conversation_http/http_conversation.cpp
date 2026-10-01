@@ -9,6 +9,7 @@
 #include <QUrl>
 
 #include "ai/explain.h"
+#include "ai/gtp.h"
 
 namespace vgo {
 
@@ -29,11 +30,14 @@ QString buildUserPrompt(const ConversationRequest& req) {
     s += QStringLiteral("当前形势：黑领先 %1 目（含贴目）。手数：%2。\n")
              .arg(req.score_black, 0, 'f', 1)
              .arg(req.move_number);
+    if (req.has_last_move) {
+        s += QStringLiteral("最近一手的坐标：%1（%2方）。\n")
+                 .arg(QString::fromStdString(gtpPoint(req.last_move, req.size)))
+                 .arg(req.last_mover == Color::Black ? "黑" : "白");
+    }
     const std::string exp = renderExplanation(req.facts.facts, req.last_mover);
     if (!exp.empty()) {
-        s += QStringLiteral("最近一手（%1）的客观描述：%2\n")
-                 .arg(req.last_mover == Color::Black ? "黑" : "白")
-                 .arg(QString::fromStdString(exp));
+        s += QStringLiteral("最近一手的客观描述：%1\n").arg(QString::fromStdString(exp));
     }
     s += QStringLiteral("\n棋手的问题：%1").arg(QString::fromStdString(req.question));
     return s;

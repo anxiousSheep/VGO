@@ -69,6 +69,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.size = game.size();
     req.to_move = game.current();
     req.last_mover = opponent(game.current());
+    req.last_move = game.last_move();
+    req.has_last_move = game.has_last_move();
     req.profile = PlayerProfile{level_, true};
     const int gen = ++generation_;
     conversation_->answer(req, [this, gen, cb](ConversationReply r) {

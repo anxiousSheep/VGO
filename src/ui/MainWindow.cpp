@@ -148,12 +148,9 @@ void MainWindow::applySetup(const vgo::GameSetup& setup) {
 void MainWindow::createAiServices(int level) {
     const vgo::KataGoSettings& ks = vgo::ModelManager::instance().katago();
 
-    // 选模型：业余段（1–11）优先用人类风格模型，否则标准模型。
-    QString modelPath = ks.model;
-    if (level >= 1 && level <= 11 && !ks.humanModel.isEmpty() &&
-        QFileInfo::exists(ks.humanModel)) {
-        modelPath = ks.humanModel;
-    }
+    // 统一用标准模型：人类模型必须经 config/override 设置 humanSLProfile 才能下棋，
+    // 该能力（按等级切档 + 重启进程）留待 M3a.10 标定。强度暂以 maxVisits 区分。
+    const QString modelPath = ks.model;
 
     engine_ = nullptr;
     if (ks.enabled && !ks.binary.isEmpty() && !modelPath.isEmpty() &&

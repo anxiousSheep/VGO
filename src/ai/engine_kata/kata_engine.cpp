@@ -73,19 +73,12 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
             cmd += "\n";
         }
     }
-    // Strength knobs (best effort): visits/temperature for the standard model;
-    // humanSLProfile for the human-style model (新手/业余段, M5.0).
+    // 强度：仅 maxVisits 可经 kata-set-param 运行时覆盖。
+    // `temperature`/`humanSLProfile` 在本版不可覆盖（会报 ? unknown），已移除；
+    // 标准 GTP 命令是 `genmove`（非 kata-genmove）。强度细化留待 M3a.10 标定。
     cmd += "kata-set-param maxVisits ";
     cmd += QByteArray::number(params.max_visits);
-    cmd += "\nkata-set-param temperature ";
-    cmd += QByteArray::number(params.temperature);
-    cmd += "\n";
-    if (!params.human_profile.empty()) {
-        cmd += "kata-set-param humanSLProfile ";
-        cmd += params.human_profile.c_str();
-        cmd += "\n";
-    }
-    cmd += "kata-genmove ";
+    cmd += "\ngenmove ";
     cmd += (to_move == Color::Black) ? "B\n" : "W\n";
     proc_->write(cmd);
 }
