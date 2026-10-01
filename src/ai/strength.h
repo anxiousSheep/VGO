@@ -23,9 +23,9 @@ StrengthParams strengthForLevel(int level);
 std::string rankLabel(int level);
 
 // 形势判断（analysis）强度档位，对应对局难度之外的职业段 visits（标准模型）。
-// 用户可在设置中选择；默认「一般」= 职业7段。
-constexpr int kAnalysisLevelNormal = 17;    // 职业7段：3000 visits（一般）
-constexpr int kAnalysisLevelStronger = 18;  // 职业8段：10000 visits（更强）
+// 用户可在设置中选择；默认「一般」= 职业5段。
+constexpr int kAnalysisLevelNormal = 15;    // 职业5段：300 visits（一般）
+constexpr int kAnalysisLevelStronger = 17;  // 职业7段：3000 visits（更强）
 constexpr int kAnalysisLevelFull = 19;      // 职业9段：100000 visits（完全正确，超人类）
 
 }  // namespace vgo

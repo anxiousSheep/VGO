@@ -12,9 +12,11 @@ namespace vgo {
 // Parse the space-separated text returned by KataGo's `kata-search_analyze`
 // command (`info move ...` candidates + `rootInfo winrate/scoreLead` + `ownership
 // <size*size floats>`) into an Analysis. `size` is the board size, used to decode
-// move strings and size the ownership map. Exposed as a free function so it can
-// be unit-tested without a KataGo process.
-bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out);
+// move strings and size the ownership map. KataGo reports `ownership` relative to
+// `perspective` (the side to move), so it is negated here when that side is White
+// to store a black-relative map (-1=white .. +1=black). Exposed as a free function
+// so it can be unit-tested without a KataGo process.
+bool parseKataAnalysis(const QByteArray& text, int size, Color perspective, Analysis* out);
 
 // KataGo GTP client. Owns a persistent `katago gtp` subprocess and answers
 // requestMove by rebuilding the position and issuing `kata-genmove_analyze`
@@ -62,6 +64,7 @@ private:
     QByteArray buffer_;
     QByteArray analysis_buffer_;  // 累积 kata-search_analyze 的分析文本（可能跨行）
     int size_ = 0;  // board size of the in-flight request (for parsing moves)
+    Color analysis_to_move_ = Color::Black;  // 在途分析的视角（ownership 转黑方视角用）
     std::vector<MoveCandidate> pending_candidates_;  // 正在收的 kata-genmove_analyze 候选
 };
 

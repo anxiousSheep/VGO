@@ -180,8 +180,8 @@ void SettingsDialog::buildAnalysisGroup() {
     auto* form = new QFormLayout(box);
 
     analysisCombo_ = new QComboBox(box);
-    analysisCombo_->addItem(QStringLiteral("一般（职业7段）"), kAnalysisLevelNormal);
-    analysisCombo_->addItem(QStringLiteral("更强（职业8段）"), kAnalysisLevelStronger);
+    analysisCombo_->addItem(QStringLiteral("一般（职业5段）"), kAnalysisLevelNormal);
+    analysisCombo_->addItem(QStringLiteral("更强（职业7段）"), kAnalysisLevelStronger);
     analysisCombo_->addItem(QStringLiteral("完全正确（职业9段）"), kAnalysisLevelFull);
 
     analysisHint_ = new QLabel(box);
@@ -193,7 +193,7 @@ void SettingsDialog::buildAnalysisGroup() {
     auto updateHint = [this] {
         switch (analysisCombo_->currentData().toInt()) {
             case kAnalysisLevelStronger:
-                analysisHint_->setText(QStringLiteral("你可以相信职业八段的判断"));
+                analysisHint_->setText(QStringLiteral("你可以相信职业七段的判断"));
                 break;
             case kAnalysisLevelFull:
                 analysisHint_->setText(QStringLiteral(
@@ -201,7 +201,7 @@ void SettingsDialog::buildAnalysisGroup() {
                     "也许你可以宣布打挂。"));
                 break;
             default:
-                analysisHint_->setText(QStringLiteral("你可以相信职业七段的判断"));
+                analysisHint_->setText(QStringLiteral("你可以相信职业五段的判断"));
                 break;
         }
     };

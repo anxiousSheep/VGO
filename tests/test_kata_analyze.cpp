@@ -14,7 +14,7 @@ TEST(parse_kata_analysis_rootinfo_and_ownership) {
         "rootInfo visits 200 winrate 0.62 scoreLead 3.5 "
         "ownership 0.1 -0.2 0.3";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, Color::Black, &a));
     CHECK(a.valid);
     CHECK(std::abs(a.winrate - 0.62) < 1e-9);       // from rootInfo
     CHECK(std::abs(a.score_lead - 3.5) < 1e-9);
@@ -27,9 +27,21 @@ TEST(parse_kata_analysis_rootinfo_and_ownership) {
 
     CHECK_EQ(a.ownership.size, 9);
     CHECK_EQ(a.ownership.value.size(), 81u);
+    // 黑方视角：符号不变。
     CHECK(std::abs(a.ownership.at(0, 0) - 0.1) < 1e-9);
     CHECK(std::abs(a.ownership.at(1, 0) + 0.2) < 1e-9);
     CHECK(std::abs(a.ownership.at(2, 0) - 0.3) < 1e-9);
+}
+
+TEST(parse_kata_analysis_ownership_white_perspective_negated) {
+    // KataGo 的 ownership 以行棋方为视角；白方行棋时需取反转成黑方视角。
+    const char* text = "rootInfo visits 100 winrate 0.5 scoreLead 0.0 "
+                       "ownership 0.4 -0.6";
+    Analysis a;
+    CHECK(parseKataAnalysis(QByteArray(text), 9, Color::White, &a));
+    CHECK(a.valid);
+    CHECK(std::abs(a.ownership.at(0, 0) + 0.4) < 1e-9);  // +0.4 -> -0.4
+    CHECK(std::abs(a.ownership.at(1, 0) - 0.6) < 1e-9);  // -0.6 -> +0.6
 }
 
 TEST(parse_kata_analysis_multiple_moves_and_symmetry) {
@@ -39,7 +51,7 @@ TEST(parse_kata_analysis_multiple_moves_and_symmetry) {
         "info move D5 visits 35 isSymmetryOf F5 order 2 pv D5 "
         "rootInfo visits 500 winrate 0.5 scoreLead 0.0";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, Color::Black, &a));
     CHECK(a.valid);
     // Symmetry duplicates are dropped; two real candidates remain.
     CHECK_EQ(a.candidates.size(), 2u);
@@ -50,7 +62,7 @@ TEST(parse_kata_analysis_multiple_moves_and_symmetry) {
 TEST(parse_kata_analysis_root_only) {
     const char* text = "rootInfo visits 500 winrate 0.5 scoreLead 0.0";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, Color::Black, &a));
     CHECK(a.valid);
     CHECK(a.ownership.empty());
     CHECK(a.candidates.empty());
@@ -58,16 +70,16 @@ TEST(parse_kata_analysis_root_only) {
 
 TEST(parse_kata_analysis_empty_is_invalid) {
     Analysis a;
-    CHECK(!parseKataAnalysis(QByteArray(""), 9, &a));
+    CHECK(!parseKataAnalysis(QByteArray(""), 9, Color::Black, &a));
     CHECK(!a.valid);
-    CHECK(!parseKataAnalysis(QByteArray("= \n"), 9, &a));
+    CHECK(!parseKataAnalysis(QByteArray("= \n"), 9, Color::Black, &a));
 }
 
 TEST(parse_kata_analysis_pass_move) {
     const char* text =
         "info move pass visits 10 order 0 rootInfo visits 10 winrate 0.5 scoreLead 0.0";
     Analysis a;
-    CHECK(parseKataAnalysis(QByteArray(text), 9, &a));
+    CHECK(parseKataAnalysis(QByteArray(text), 9, Color::Black, &a));
     CHECK_EQ(a.candidates.size(), 1u);
     CHECK(a.candidates[0].is_pass);
 }

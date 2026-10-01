@@ -31,7 +31,7 @@ void ModelManager::setDataDirOverride(const QString& dir) {
     m.apiKeyCache_.clear();
     m.keyLoaded_ = false;
     m.onboardingDone_ = false;
-    m.analysisLevel_ = 17;
+    m.analysisLevel_ = 15;
 }
 
 QString ModelManager::dataDir() const {
@@ -103,7 +103,7 @@ void ModelManager::readConfig() {
         llm_.model = l.value("model").toString();
     }
     onboardingDone_ = root.value("onboarding_done").toBool(false);
-    analysisLevel_ = root.value("analysis_level").toInt(17);
+    analysisLevel_ = root.value("analysis_level").toInt(15);
 }
 
 void ModelManager::saveConfig() {

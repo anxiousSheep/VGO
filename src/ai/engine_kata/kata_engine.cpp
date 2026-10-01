@@ -75,7 +75,7 @@ bool isSectionStart(const QByteArray& k) {
 //   info move F5 ... rootInfo visits 505 winrate 0.108 scoreLead -0.726 ...
 //   ownership <size*size floats> ... play E5
 // Tokens may span newlines, so callers concatenate lines with spaces first.
-bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out) {
+bool parseKataAnalysis(const QByteArray& text, int size, Color perspective, Analysis* out) {
     if (!out) return false;
     const QList<QByteArray> toks = text.split(' ');
     const int n = toks.size();
@@ -137,6 +137,9 @@ bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out) {
         if (t == "ownership") {
             out->ownership.size = size;
             out->ownership.value.assign(static_cast<std::size_t>(size) * size, 0.0);
+            // KataGo 的 ownership 以「行棋方」为视角（+1 = perspective 方），转为
+            // 黑方视角（+1 = 黑）存储，与 OwnershipMap 的约定一致。
+            const double sign = (perspective == Color::White) ? -1.0 : 1.0;
             ++i;
             int idx = 0;
             while (i < n && idx < size * size) {
@@ -144,7 +147,7 @@ bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out) {
                 if (!v.isEmpty()) {
                     bool ok = false;
                     const double d = v.toDouble(&ok);
-                    if (ok) { out->ownership.value[static_cast<std::size_t>(idx)] = d; ++idx; }
+                    if (ok) { out->ownership.value[static_cast<std::size_t>(idx)] = sign * d; ++idx; }
                 }
                 ++i;
             }
@@ -266,6 +269,7 @@ void KataGoEngine::analyze(const Board& board, Color to_move,
     pending_kind_ = PendingKind::Analyze;
     analysis_buffer_.clear();
     size_ = board.size();
+    analysis_to_move_ = to_move;
 
     QByteArray cmd;
     cmd += "boardsize ";
@@ -401,7 +405,7 @@ void KataGoEngine::handleAnalyzeLine(const QByteArray& line) {
     // chosen move without committing it), or a GTP error ("? ...").
     if (line.startsWith("play ") || line.startsWith("? ")) {
         Analysis a;
-        if (line.startsWith("play ")) parseKataAnalysis(analysis_buffer_, size_, &a);
+        if (line.startsWith("play ")) parseKataAnalysis(analysis_buffer_, size_, analysis_to_move_, &a);
         // On error, `a` stays invalid (no ownership/candidates) -> UI degrades.
         analysis_buffer_.clear();
         pending_kind_ = PendingKind::None;

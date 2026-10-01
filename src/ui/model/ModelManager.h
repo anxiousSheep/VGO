@@ -73,7 +73,7 @@ private:
     bool keyLoaded_ = false;
     bool loaded_ = false;
     bool onboardingDone_ = false;
-    int analysisLevel_ = 17;  // 默认「一般」= 职业7段
+    int analysisLevel_ = 15;  // 默认「一般」= 职业5段
 };
 
 }  // namespace vgo
