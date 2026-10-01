@@ -46,19 +46,23 @@ void AiAdvisor::explainLastMove(const Game& game, ReplyCb cb) {
 }
 
 void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
-    if (!engine_) {
+    // 形势判断用专用满血引擎（analysis_engine_），未设置时回退到落子引擎。
+    EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+    if (!eng) {
         cb(Analysis{});
         return;
     }
     const int gen = ++generation_;
     const Color to_move = game.current();
     const Game snapshot = game;  // stable copy for the async callback
-    engine_->analyze(game.board(), to_move, strengthForLevel(level_),
-                     [this, gen, cb](const Analysis& a) {
-                         if (gen != generation_) return;  // stale / cancelled
-                         last_analysis_ = a;              // cache as grounding
-                         cb(a);
-                     });
+    // 形势判断始终用满血强度（kAnalysisLevel=职业9段/超人类），与对局难度解耦，
+    // 保证判断正确；落子仍按 level_ 的难度。
+    eng->analyze(game.board(), to_move, strengthForLevel(kAnalysisLevel),
+                 [this, gen, cb](const Analysis& a) {
+                     if (gen != generation_) return;  // stale / cancelled
+                     last_analysis_ = a;              // cache as grounding
+                     cb(a);
+                 });
 }
 
 void AiAdvisor::cancel() {

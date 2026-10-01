@@ -16,10 +16,6 @@ namespace {
 // 1 visit 时不输出，导致分析全为 0。此处给分析一个下限。
 constexpr int kMinAnalysisVisits = 20;
 
-// 形势评估（kata-search_analyze）用固定小预算，保证手动触发快速返回，
-// 不随段位 maxVisits（职业高段可达 100k）膨胀。
-constexpr int kAnalyzeMaxVisits = 200;
-
 // 解析 `info move E5 visits 7 ... winrate 0.1 ... scoreLead -0.2 ... order 0 pv E5 E7`。
 // 返回候选；isSymmetryOf（对称重复）或坐标非法时返回 p.x<0（调用方跳过）。
 MoveCandidate parseCandidate(const QByteArray& line, int size) {
@@ -171,8 +167,9 @@ bool parseKataAnalysis(const QByteArray& text, int size, Analysis* out) {
 }
 
 KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QString& config,
-                           QObject* parent)
-    : QObject(parent), binary_(binary), model_(model), config_(config) {
+                           const QString& human_profile, QObject* parent)
+    : QObject(parent), binary_(binary), model_(model), config_(config),
+      human_profile_(human_profile) {
     start();
 }
 
@@ -202,6 +199,9 @@ void KataGoEngine::start() {
     QStringList args;
     args << QStringLiteral("gtp") << QStringLiteral("-model") << model_;
     if (!config_.isEmpty()) args << QStringLiteral("-config") << config_;
+    // HumanSL 档位只能经 -override-config 下发（kata-set-param 不支持该配置项）。
+    if (!human_profile_.isEmpty())
+        args << QStringLiteral("-override-config") << (QStringLiteral("humanSLProfile=") + human_profile_);
     // 固定工作目录到 kata 二进制所在目录，使 OpenCL 调优缓存（KataGoData/）
     // 落盘位置稳定，首次调优后无需重复。
     proc_->setWorkingDirectory(QFileInfo(binary_).absolutePath());
@@ -216,11 +216,18 @@ void KataGoEngine::start() {
 
 void KataGoEngine::requestMove(const Board& board, Color to_move,
                                const StrengthParams& params, Callback cb) {
-    if (!available_ || busy()) {
+    if (!available_ || pending_) {  // pending_ 非空 = 已有落子请求在途
         EngineResult r;
         r.move.is_pass = true;
         cb(r);
         return;
+    }
+    // 落子优先：取消在途的形势分析（满血分析可能耗时很长），避免阻塞 AI 落子。
+    if (pending_analysis_) {
+        proc_->write("stop\n");
+        pending_analysis_ = nullptr;
+        pending_kind_ = PendingKind::None;
+        analysis_buffer_.clear();
     }
     pending_ = std::move(cb);
     pending_kind_ = PendingKind::Move;
@@ -250,7 +257,7 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
 }
 
 void KataGoEngine::analyze(const Board& board, Color to_move,
-                           const StrengthParams&, AnalysisCallback cb) {
+                           const StrengthParams& params, AnalysisCallback cb) {
     if (!available_ || busy()) {
         cb(Analysis{});
         return;
@@ -273,12 +280,12 @@ void KataGoEngine::analyze(const Board& board, Color to_move,
             cmd += "\n";
         }
     }
-    // 形势评估用固定小预算（kAnalyzeMaxVisits），并请求每点归属 ownership 与 rootInfo。
-    // 用 kata-search_analyze（不落子）而非 kata-analyze：后者是连续分析命令，在默认
-    // 配置下不会一次性回显结果；前者等价于 genmove_analyze 但不改棋盘。
+    // 形势评估用满血 visits（analysisStrength 传入 = 职业9段/超人类），请求每点
+    // 归属 ownership 与 rootInfo。用 kata-search_analyze_cancellable（可被落子请求
+    // 中断）而非 kata-analyze：后者是连续分析命令，默认配置下不会一次性回显。
     cmd += "kata-set-param maxVisits ";
-    cmd += QByteArray::number(kAnalyzeMaxVisits);
-    cmd += "\nkata-search_analyze ";
+    cmd += QByteArray::number(std::max(params.max_visits, kMinAnalysisVisits));
+    cmd += "\nkata-search_analyze_cancellable ";
     cmd += (to_move == Color::Black) ? "B" : "W";
     cmd += " ownership true rootInfo true\n";
     proc_->write(cmd);
@@ -320,6 +327,8 @@ void KataGoEngine::onStdout() {
 
         if (line.startsWith("play ")) {
             const QByteArray tok = line.mid(5).trimmed();
+            // 取消在途形势分析（kata-search_analyze_cancellable）后的残留输出，忽略。
+            if (tok == "cancelled") continue;
             EngineResult r;
             Point p;
             if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {

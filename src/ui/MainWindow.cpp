@@ -158,14 +158,18 @@ void MainWindow::applySetup(const vgo::GameSetup& setup) {
 void MainWindow::createAiServices(int level) {
     const vgo::KataGoSettings& ks = vgo::ModelManager::instance().katago();
 
-    // 统一用标准模型：人类模型必须经 config/override 设置 humanSLProfile 才能下棋，
-    // 该能力（按等级切档 + 重启进程）留待 M3a.10 标定。强度暂以 maxVisits 区分。
-    const QString modelPath = ks.model;
+    // 落子引擎按难度选模型：业余段（1-11）用人类风格模型 + humanSLProfile，
+    // 职业段（12-19）用标准模型 + 递增 visits（M3a.10 标定前置）。
+    const vgo::StrengthParams sp = vgo::strengthForLevel(level);
+    const bool useHuman = !sp.human_profile.empty() && !ks.humanModel.isEmpty() &&
+                          QFileInfo::exists(ks.humanModel);
+    const QString moveModel = useHuman ? ks.humanModel : ks.model;
+    const QString humanProfile = useHuman ? QString::fromStdString(sp.human_profile) : QString();
 
     engine_ = nullptr;
-    if (ks.enabled && !ks.binary.isEmpty() && !modelPath.isEmpty() &&
-        QFileInfo::exists(ks.binary) && QFileInfo::exists(modelPath)) {
-        auto* k = new vgo::KataGoEngine(ks.binary, modelPath, ks.config);
+    if (ks.enabled && !ks.binary.isEmpty() && !moveModel.isEmpty() &&
+        QFileInfo::exists(ks.binary) && QFileInfo::exists(moveModel)) {
+        auto* k = new vgo::KataGoEngine(ks.binary, moveModel, ks.config, humanProfile);
         if (k->available()) {
             engine_ = k;
             connect(k, &vgo::KataGoEngine::statusMessage, this,
@@ -175,6 +179,23 @@ void MainWindow::createAiServices(int level) {
         }
     }
     if (!engine_) engine_ = new vgo::FallbackEngine();
+
+    // 形势判断引擎：始终用标准模型满血（职业9段/超人类），与落子引擎解耦，保证
+    // 形势判断的正确性。落子已是标准模型时复用；业余段落子用了人类模型则另起一个。
+    analysis_engine_ = nullptr;
+    if (dynamic_cast<vgo::KataGoEngine*>(engine_) && moveModel == ks.model) {
+        analysis_engine_ = engine_;  // 复用（每次请求各自 kata-set-param maxVisits）
+    } else if (ks.enabled && !ks.binary.isEmpty() && !ks.model.isEmpty() &&
+               QFileInfo::exists(ks.binary) && QFileInfo::exists(ks.model)) {
+        auto* ak = new vgo::KataGoEngine(ks.binary, ks.model, ks.config);
+        if (ak->available()) {
+            analysis_engine_ = ak;
+            connect(ak, &vgo::KataGoEngine::statusMessage, this,
+                    [this](const QString& msg) { status_->setText(msg); });
+        } else {
+            delete ak;
+        }
+    }
 
     const vgo::LlmSettings& ls = vgo::ModelManager::instance().llm();
     conversation_ = nullptr;
@@ -187,8 +208,10 @@ void MainWindow::createAiServices(int level) {
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
 
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
+    advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
 
-    const bool usingKata = (dynamic_cast<vgo::KataGoEngine*>(engine_) != nullptr);
+    const bool usingKata =
+        (dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr);
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
     // 形势显示依赖 KataGo 的 ownership；未接 KataGo 时隐藏该功能（M6 验收）。
@@ -257,6 +280,8 @@ void MainWindow::teardown() {
     controller_ = nullptr;
     delete advisor_;
     advisor_ = nullptr;
+    if (analysis_engine_ && analysis_engine_ != engine_) delete analysis_engine_;
+    analysis_engine_ = nullptr;
     delete engine_;
     engine_ = nullptr;
     delete conversation_;
@@ -415,7 +440,8 @@ void MainWindow::handleReply(const vgo::ConversationReply& r) {
 }
 
 bool MainWindow::usingKata() const {
-    return dynamic_cast<vgo::KataGoEngine*>(engine_) != nullptr;
+    // 形势显示依赖形势判断引擎（标准模型满血），而非落子引擎。
+    return dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr;
 }
 
 vgo::Color MainWindow::userColor() const {

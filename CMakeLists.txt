@@ -138,6 +138,13 @@ add_executable(vgo_ai_qt_tests
 target_link_libraries(vgo_ai_qt_tests PRIVATE vgo_ai_qt)
 add_test(NAME vgo_ai_qt_tests COMMAND vgo_ai_qt_tests)
 
+# 难度标定 spike（M3a.10）：相邻档位对弈，验证强度单调递增。
+add_executable(vgo_calibrate
+    tools/calibrate_strength.cpp
+)
+target_include_directories(vgo_calibrate PRIVATE src)
+target_link_libraries(vgo_calibrate PRIVATE vgo_ai_qt Qt6::Core)
+
 add_executable(vgo_app WIN32
     src/ui/main.cpp
     src/ui/GobanWidget.h

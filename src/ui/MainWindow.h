@@ -65,7 +65,8 @@ private:
 
     vgo::Game* game_ = nullptr;                     // placement mode
     vgo::AIMatchController* controller_ = nullptr;  // human-vs-AI mode
-    vgo::EngineInterface* engine_ = nullptr;
+    vgo::EngineInterface* engine_ = nullptr;        // 落子引擎（难度随等级）
+    vgo::EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用满血引擎
     vgo::ConversationService* conversation_ = nullptr;
     vgo::AiAdvisor* advisor_ = nullptr;
 

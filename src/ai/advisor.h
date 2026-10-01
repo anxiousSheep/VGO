@@ -48,12 +48,16 @@ public:
     void setUserColor(Color c) { user_color_ = c; }
     Color userColor() const { return user_color_; }
 
+    // 形势判断专用引擎（满血 KataGo，独立于落子引擎）。未设置时回退到 engine_。
+    void setAnalysisEngine(EngineInterface* e) { analysis_engine_ = e; }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
                        GroundedFacts facts, ReplyCb cb);
 
     EngineInterface* engine_;
+    EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用，可空
     ConversationService* conversation_;
     int level_;
     Color user_color_ = Color::Empty;
