@@ -11,3 +11,6 @@
 .idea/workspace.xml
 .idea/shelf/
 .idea/httpRequests/
+
+# Local runtime config (may contain API keys)
+vgo_config.json

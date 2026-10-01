@@ -19,6 +19,8 @@ public:
     void setLastMove(const Point& p, bool has);
     void setGhostColor(Color c) { ghost_color_ = c; }
     void setHover(const Point& p, bool has);
+    void setCandidates(const std::vector<Point>& pts);
+    void setHighlight(const std::vector<Point>& pts);
 
 signals:
     void pointClicked(int x, int y);
@@ -41,6 +43,8 @@ private:
     Point hover_{-1, -1};
     bool has_hover_ = false;
     Color ghost_color_ = Color::Black;
+    std::vector<Point> candidates_;
+    std::vector<Point> highlight_;
 };
 
 }  // namespace vgo

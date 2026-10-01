@@ -43,6 +43,16 @@ void GobanWidget::setHover(const Point& p, bool has) {
     update();
 }
 
+void GobanWidget::setCandidates(const std::vector<Point>& pts) {
+    candidates_ = pts;
+    update();
+}
+
+void GobanWidget::setHighlight(const std::vector<Point>& pts) {
+    highlight_ = pts;
+    update();
+}
+
 double GobanWidget::cellSize() const {
     const int s = board_ ? board_->size() : 9;
     return std::min(width(), height()) / (s + 1.6);
@@ -160,6 +170,26 @@ void GobanWidget::paintEvent(QPaintEvent*) {
         p.setPen(Qt::NoPen);
         p.setBrush(g);
         p.drawEllipse(c, stoneR, stoneR);
+    }
+
+    // Candidate move markers (small dots).
+    for (const Point& pt : candidates_) {
+        if (!board_ || !board_->in_bounds(pt.x, pt.y) ||
+            board_->at(pt.x, pt.y) != Color::Empty)
+            continue;
+        const QPointF c = intersectionToPixel(pt.x, pt.y);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(200, 60, 40, 200));
+        p.drawEllipse(c, cell * 0.13, cell * 0.13);
+    }
+
+    // Highlight rings (points referenced by an answer).
+    for (const Point& pt : highlight_) {
+        if (!board_ || !board_->in_bounds(pt.x, pt.y)) continue;
+        const QPointF c = intersectionToPixel(pt.x, pt.y);
+        p.setPen(QPen(QColor(30, 120, 210), std::max(1.5, cell * 0.06)));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(c, cell * 0.30, cell * 0.30);
     }
 
     // Coordinate labels.

@@ -1,0 +1,14 @@
+{
+  "katago": {
+    "enabled": false,
+    "binary": "C:/path/to/katago.exe",
+    "model": "C:/path/to/b18c384nbt-humanv0.bin.gz",
+    "config": "C:/path/to/gtp_human5k_example.cfg"
+  },
+  "llm": {
+    "enabled": false,
+    "base_url": "http://localhost:11434/v1",
+    "api_key": "",
+    "model": "qwen2.5:7b"
+  }
+}
