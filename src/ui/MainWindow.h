@@ -39,7 +39,7 @@ private slots:
     void onUndo();
     void onResign();
     void onScore();
-    void onPositionAnalysis();
+    void onAnalyzeToggled(bool on);
     void onChatMessage(const QString& text);
 
 private:
@@ -53,6 +53,7 @@ private:
     void updateModelStatus();
     void appendAi(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
+    void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
 
     bool inAiMode() const { return controller_ != nullptr; }

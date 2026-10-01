@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
@@ -74,6 +75,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* actResign = new QAction(QStringLiteral("认输"), this);
     auto* actScore = new QAction(QStringLiteral("计分/终局"), this);
     analyzeAction_ = new QAction(QStringLiteral("形势"), this);
+    analyzeAction_->setCheckable(true);  // 手动开关：开=显示并随落子刷新，关=隐藏
     analyzeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
     analyzeAction_->setEnabled(false);  // 无 KataGo 时隐藏/禁用（见 createAiServices）
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
@@ -85,7 +87,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actUndo, &QAction::triggered, this, &MainWindow::onUndo);
     connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
     connect(actScore, &QAction::triggered, this, &MainWindow::onScore);
-    connect(analyzeAction_, &QAction::triggered, this, &MainWindow::onPositionAnalysis);
+    connect(analyzeAction_, &QAction::toggled, this, &MainWindow::onAnalyzeToggled);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
     connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
@@ -249,6 +251,8 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
 }
 
 void MainWindow::teardown() {
+    // 新对局重置形势开关为关（toggled(false) 会清空显示并取消在途分析）。
+    if (analyzeAction_) analyzeAction_->setChecked(false);
     delete controller_;
     controller_ = nullptr;
     delete advisor_;
@@ -292,6 +296,12 @@ void MainWindow::refresh() {
     board_view_->setGhostColor(g->current());
     board_view_->setHighlight({});
     updateStatus();
+    // 形势开关打开时，随落子/悔棋/虚着自动刷新归属图。用 singleShot(0) 延后到本次
+    // 事件处理结束，避免人机对弈中人类落子后与 AI 的 genmove 争抢单飞引擎（若先发
+    // analyze 会让 genmove 被判忙而停一手）。AI 落子后 refresh 会再触发一次并成功。
+    if (analyzeAction_ && analyzeAction_->isChecked()) {
+        QTimer::singleShot(0, this, [this] { requestAnalysis(false); });
+    }
 }
 
 void MainWindow::onPointClicked(int x, int y) {
@@ -380,16 +390,15 @@ void MainWindow::onScore() {
 void MainWindow::onChatMessage(const QString& text) {
     const std::string q = text.toStdString();
     // 形势类提问（谁领先/形势）走 analyzePosition：一次引擎调用同时产出
-    // 领地热力 + 领先目数，避免与文本问答争抢单飞引擎。
+    // 领地热力 + 领先目数，避免与文本问答争抢单飞引擎。同时打开形势开关，
+    // 让热力图继续随落子自动刷新。
     if (usingKata() && vgo::classifyQuestion(q) == vgo::QuestionClass::WhoIsWinning) {
-        vgo::Game* g = currentGame();
-        if (g && advisor_) {
-            const vgo::Color to_move = g->current();
-            advisor_->analyzePosition(*g, [this, to_move](const vgo::Analysis& a) {
-                applyAnalysis(a, to_move, /*sayInChat=*/true);
-            });
-            return;
+        {
+            QSignalBlocker blocker(analyzeAction_);  // 避免 toggled 再触发一次分析
+            analyzeAction_->setChecked(true);
         }
+        requestAnalysis(/*sayInChat=*/true);
+        return;
     }
     if (inAiMode()) {
         controller_->ask(q);
@@ -413,21 +422,35 @@ vgo::Color MainWindow::userColor() const {
     return inAiMode() ? controller_->humanColor() : vgo::Color::Empty;
 }
 
-void MainWindow::onPositionAnalysis() {
-    if (!usingKata()) return;  // 按钮已禁用，双保险
+void MainWindow::onAnalyzeToggled(bool on) {
+    if (on) {
+        requestAnalysis(false);  // 打开：立即刷新一次
+    } else {
+        // 关闭：清空归属图与领先显示，并取消在途分析。
+        if (advisor_) advisor_->cancel();
+        board_view_->clearOwnership();
+        scoreStatus_->clear();
+    }
+}
+
+void MainWindow::requestAnalysis(bool sayInChat) {
+    if (!usingKata()) return;
+    // 仅当形势开关打开时才刷新；防止关闭后残留的延后 singleShot 再次触发。
+    if (!analyzeAction_ || !analyzeAction_->isChecked()) return;
     vgo::Game* g = currentGame();
     if (!g || !advisor_) return;
     const vgo::Color to_move = g->current();
-    advisor_->analyzePosition(*g, [this, to_move](const vgo::Analysis& a) {
-        applyAnalysis(a, to_move, /*sayInChat=*/false);
+    advisor_->analyzePosition(*g, [this, to_move, sayInChat](const vgo::Analysis& a) {
+        applyAnalysis(a, to_move, sayInChat);
     });
 }
 
 void MainWindow::applyAnalysis(const vgo::Analysis& a, vgo::Color to_move,
                                bool sayInChat) {
     if (!a.valid || a.ownership.empty()) {
-        scoreStatus_->setText(QStringLiteral("形势：无归属数据"));
-        board_view_->setOwnership({});
+        // 引擎忙（如 AI 落子时）或失败：保留上次形势图，仅提示，稍后随落子自动重试。
+        if (sayInChat) appendAi(QStringLiteral("当前形势暂时无法计算（引擎忙或未接入 KataGo）。"));
+        scoreStatus_->setText(QStringLiteral("形势：引擎忙，稍后自动重试"));
         return;
     }
     board_view_->setOwnership(a.ownership);
