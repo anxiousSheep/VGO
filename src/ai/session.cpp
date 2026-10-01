@@ -14,6 +14,7 @@ AIMatchController::AIMatchController(int size, Color human_color, EngineInterfac
       engine_(engine),
       advisor_(advisor),
       level_(level) {
+    if (advisor_) advisor_->setUserColor(human_color_);  // 供 LLM 定位用户执子方
     ai_turn_ = (human_color_ == Color::White);  // AI opens if human is White
 }
 

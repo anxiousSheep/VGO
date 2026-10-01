@@ -55,6 +55,7 @@ struct ConversationRequest {
     int size = 0;
     Color to_move = Color::Black;
     Color last_mover = Color::Empty;
+    Color user_color = Color::Empty;  // 用户执子颜色；Empty=无（摆棋模式）
     Point last_move{-1, -1};    // 最近一手的坐标（供 LLM 定位）
     bool has_last_move = false;
     PlayerProfile profile;

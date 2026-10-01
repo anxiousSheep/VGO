@@ -37,6 +37,10 @@ public:
     int level() const { return level_; }
     void setLevel(int l) { level_ = l; }
 
+    // 用户执子颜色（人机对弈时由 controller 设置；摆棋模式保持 Empty）。
+    void setUserColor(Color c) { user_color_ = c; }
+    Color userColor() const { return user_color_; }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
@@ -45,6 +49,7 @@ private:
     EngineInterface* engine_;
     ConversationService* conversation_;
     int level_;
+    Color user_color_ = Color::Empty;
     Analysis last_analysis_;
     int generation_ = 0;
 };

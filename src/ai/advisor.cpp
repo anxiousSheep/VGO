@@ -13,7 +13,8 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
     if (classifyQuestion(question) == QuestionClass::WhereToPlay && !game.is_over() &&
         engine_) {
-        const Color to_move = game.current();
+        // 「我该下哪」应为用户执子方建议；摆棋模式下无用户色则用当前轮到方。
+        const Color to_move = (user_color_ != Color::Empty) ? user_color_ : game.current();
         const int gen = ++generation_;
         const Game snapshot = game;  // stable copy for the async callback
         engine_->requestMove(game.board(), to_move, strengthForLevel(level_),
@@ -69,6 +70,7 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.size = game.size();
     req.to_move = game.current();
     req.last_mover = opponent(game.current());
+    req.user_color = user_color_;
     req.last_move = game.last_move();
     req.has_last_move = game.has_last_move();
     req.profile = PlayerProfile{level_, true};

@@ -30,6 +30,13 @@ QString buildUserPrompt(const ConversationRequest& req) {
     s += QStringLiteral("当前形势：黑领先 %1 目（含贴目）。手数：%2。\n")
              .arg(req.score_black, 0, 'f', 1)
              .arg(req.move_number);
+    if (req.user_color != Color::Empty) {
+        s += QStringLiteral("棋手执%1。")
+                 .arg(req.user_color == Color::Black ? QStringLiteral("黑")
+                                                     : QStringLiteral("白"));
+    }
+    s += QStringLiteral("当前轮到%1方落子。\n")
+             .arg(req.to_move == Color::Black ? QStringLiteral("黑") : QStringLiteral("白"));
     if (req.has_last_move) {
         s += QStringLiteral("最近一手的坐标：%1（%2方）。\n")
                  .arg(QString::fromStdString(gtpPoint(req.last_move, req.size)))
