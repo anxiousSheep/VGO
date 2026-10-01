@@ -32,9 +32,11 @@ inline std::string kataGoVersion() { return "1.18.1"; }
 std::vector<KataGoAsset> katagoAssets();
 
 // Neural-network models the user can install. Order = display order.
-std::vector<ModelAsset> modelAssets();
+// 返回静态稳定引用，保证 findModel 返回的指针长期有效。
+const std::vector<ModelAsset>& modelAssets();
 
-// Returns the model whose id matches, or nullptr.
+// Returns the model whose id matches, or nullptr. The pointer stays valid for
+// the whole process lifetime (backed by modelAssets()' static storage).
 const ModelAsset* findModel(const std::string& id);
 
 }  // namespace vgo

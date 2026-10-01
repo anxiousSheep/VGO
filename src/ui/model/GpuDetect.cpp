@@ -6,17 +6,14 @@ namespace vgo {
 
 namespace {
 
-using ClGetPlatformIDsFn = int (*)(unsigned, void*, unsigned*);
-
+// 只检查 OpenCL.dll 是否可加载，绝不调用 clGetPlatformIDs——
+// 后者会枚举各厂商 ICD/驱动，遇到损坏的 ICD 会内存损坏/崩溃，且时机不定。
+// 实际 OpenCL 平台由 KataGo 启动时自行检测，失败则回退离线引擎。
 bool hasOpenCl() {
     HMODULE dll = LoadLibraryW(L"OpenCL.dll");
     if (!dll) return false;
-    auto fn = reinterpret_cast<ClGetPlatformIDsFn>(
-        reinterpret_cast<void*>(GetProcAddress(dll, "clGetPlatformIDs")));
-    unsigned count = 0;
-    const bool ok = fn && fn(0, nullptr, &count) == 0 && count > 0;
     FreeLibrary(dll);
-    return ok;
+    return true;
 }
 
 bool hasCuda() {

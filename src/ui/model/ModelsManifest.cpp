@@ -38,29 +38,32 @@ std::vector<KataGoAsset> katagoAssets() {
             make("cuda", "CUDA（NVIDIA，高级）")};
 }
 
-std::vector<ModelAsset> modelAssets() {
-    std::vector<ModelAsset> out;
+const std::vector<ModelAsset>& modelAssets() {
+    static const std::vector<ModelAsset> kModels = [] {
+        std::vector<ModelAsset> out;
 
-    {
-        ModelAsset m;
-        m.id = "b18c384nbt-uec";
-        m.name = "标准模型 b18c384nbt-uec";
-        m.description = "职业段（visits）与普通对弈，约 97MB";
-        m.officialUrl = githubRelease("v1.12.4", "b18c384nbt-uec.bin.gz");
-        m.mirrors = mirrorsFor(m.officialUrl);
-        out.push_back(std::move(m));
-    }
-    {
-        ModelAsset m;
-        m.id = "b18c384nbt-humanv0";
-        m.name = "人类风格模型 b18c384nbt-humanv0";
-        m.description = "新手/业余段（humanSLProfile）真实棋风，约 99MB";
-        m.humanStyle = true;
-        m.officialUrl = githubRelease("v1.15.0", "b18c384nbt-humanv0.bin.gz");
-        m.mirrors = mirrorsFor(m.officialUrl);
-        out.push_back(std::move(m));
-    }
-    return out;
+        {
+            ModelAsset m;
+            m.id = "b18c384nbt-uec";
+            m.name = "标准模型 b18c384nbt-uec";
+            m.description = "职业段（visits）与普通对弈，约 97MB";
+            m.officialUrl = githubRelease("v1.12.4", "b18c384nbt-uec.bin.gz");
+            m.mirrors = mirrorsFor(m.officialUrl);
+            out.push_back(std::move(m));
+        }
+        {
+            ModelAsset m;
+            m.id = "b18c384nbt-humanv0";
+            m.name = "人类风格模型 b18c384nbt-humanv0";
+            m.description = "新手/业余段（humanSLProfile）真实棋风，约 99MB";
+            m.humanStyle = true;
+            m.officialUrl = githubRelease("v1.15.0", "b18c384nbt-humanv0.bin.gz");
+            m.mirrors = mirrorsFor(m.officialUrl);
+            out.push_back(std::move(m));
+        }
+        return out;
+    }();
+    return kModels;
 }
 
 const ModelAsset* findModel(const std::string& id) {
