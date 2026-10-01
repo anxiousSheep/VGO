@@ -3,20 +3,27 @@
 #include <QMainWindow>
 
 #include "AppConfig.h"
+#include "ai/game_setup.h"
 #include "go/game.h"
 
 class QLabel;
+class QAction;
+class QDockWidget;
 
 namespace vgo {
 class GobanWidget;
 class ChatPanel;
 class EngineInterface;
 class ConversationService;
+class AiAdvisor;
 class AIMatchController;
+struct ConversationReply;
 }
 
-// Main window: holds the local two-player Game (or an AIMatchController for
-// human-vs-AI), the board view, the chat panel, and the menu/toolbar actions.
+// Main window: holds the current game (a placement Game, or an AIMatchController
+// for human-vs-AI), the board view, the chat side bar, and the menu/toolbar
+// actions. Game parameters are chosen once in the New Game dialog and cannot be
+// changed in-game.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -25,9 +32,7 @@ public:
     ~MainWindow() override;
 
 private slots:
-    void newGame9();
-    void newGame13();
-    void newGame19();
+    void newGame();
     void onPointClicked(int x, int y);
     void onPass();
     void onUndo();
@@ -36,27 +41,32 @@ private slots:
     void onChatMessage(const QString& text);
 
 private:
-    void startLocal(int size);
-    void startAi(int size, vgo::Color humanColor);
-    void teardownAi();
+    void applySetup(const vgo::GameSetup& setup);
+    void startPlacement(int size);
+    void startAi(const vgo::GameSetup& setup);
+    void createAiServices(int level);
+    void teardown();
     void refresh();
     void updateStatus();
     void appendAi(const QString& text);
+    void handleReply(const vgo::ConversationReply& r);
 
     bool inAiMode() const { return controller_ != nullptr; }
     vgo::Game* currentGame() const;
 
-    int size_ = 9;
-    int ai_level_ = 5;
+    vgo::GameSetup setup_;
     AppConfig config_;
 
-    vgo::Game* game_ = nullptr;                 // local two-player mode
+    vgo::Game* game_ = nullptr;                     // placement mode
     vgo::AIMatchController* controller_ = nullptr;  // human-vs-AI mode
     vgo::EngineInterface* engine_ = nullptr;
     vgo::ConversationService* conversation_ = nullptr;
+    vgo::AiAdvisor* advisor_ = nullptr;
 
     vgo::GobanWidget* board_view_ = nullptr;
     QLabel* status_ = nullptr;
     vgo::ChatPanel* chat_ = nullptr;
+    QDockWidget* dock_ = nullptr;
+    QAction* toggleChatAction_ = nullptr;
     bool resigned_ = false;
 };

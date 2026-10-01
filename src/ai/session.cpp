@@ -2,18 +2,24 @@
 
 #include <utility>
 
+#include "advisor.h"
 #include "strength.h"
 
 namespace vgo {
 
 AIMatchController::AIMatchController(int size, Color human_color, EngineInterface* engine,
-                                     ConversationService* conversation, int level)
+                                     AiAdvisor* advisor, int level)
     : game_(size),
       human_color_(human_color),
       engine_(engine),
-      conversation_(conversation),
+      advisor_(advisor),
       level_(level) {
     ai_turn_ = (human_color_ == Color::White);  // AI opens if human is White
+}
+
+void AIMatchController::setLevel(int l) {
+    level_ = l;
+    if (advisor_) advisor_->setLevel(l);
 }
 
 void AIMatchController::start() {
@@ -67,7 +73,7 @@ void AIMatchController::onAiResult(EngineResult r) {
             game_.pass();  // engine suggested an illegal move (e.g. superko)
         }
     }
-    last_analysis_ = r.analysis;
+    if (advisor_) advisor_->noteAnalysis(r.analysis);
     if (onAiMove) onAiMove(r.move, r.analysis);
     if (onChanged) onChanged();
 
@@ -77,76 +83,25 @@ void AIMatchController::onAiResult(EngineResult r) {
         return;
     }
     ai_turn_ = false;
-    commentOnMove();
+    if (advisor_) {
+        advisor_->explainLastMove(game_, [this](const ConversationReply& r) {
+            if (onReply) onReply(r);
+        });
+    }
     if (onActivity) onActivity(AiActivity::Idle);
 }
 
-void AIMatchController::commentOnMove() {
-    if (!conversation_) return;
-    deliverAnswer("为什么下这里", currentFacts());
-}
-
-GroundedFacts AIMatchController::currentFacts() const {
-    GroundedFacts f;
-    f.analysis = last_analysis_;
-    if (game_.move_number() > 0 && game_.has_last_move()) {
-        const Color mover = opponent(game_.current());
-        Game before = game_;
-        before.undo();
-        f.facts = extractBoardFacts(before.board(), game_.board(),
-                                    Move{game_.last_move(), false},
-                                    game_.captures(mover) - before.captures(mover),
-                                    mover);
-    }
-    return f;
-}
-
-void AIMatchController::deliverAnswer(const std::string& question, GroundedFacts facts) {
-    ConversationRequest req;
-    req.question = question;
-    req.facts = std::move(facts);
-    req.board_context = boardToAscii(game_.board());
-    req.score_black = game_.score_black();
-    req.move_number = game_.move_number();
-    req.size = game_.size();
-    req.to_move = game_.current();
-    req.last_mover = opponent(game_.current());
-    req.profile = PlayerProfile{level_, true};
-    const int gen = ++generation_;
-    conversation_->answer(req, [this, gen](ConversationReply r) {
-        if (gen != generation_) return;
-        if (onReply) onReply(std::move(r));
+void AIMatchController::ask(const std::string& question) {
+    if (!advisor_) return;
+    advisor_->ask(game_, question, [this](const ConversationReply& r) {
+        if (onReply) onReply(r);
     });
 }
 
-void AIMatchController::ask(const std::string& question) {
-    if (!conversation_) return;
-    if (classifyQuestion(question) == QuestionClass::WhereToPlay && !game_.is_over() &&
-        engine_) {
-        const Color human = human_color_;
-        const int gen = ++generation_;
-        engine_->requestMove(game_.board(), human, strengthForLevel(level_),
-                             [this, gen, question](EngineResult r) {
-                                 if (gen != generation_) return;
-                                 GroundedFacts f = currentFacts();
-                                 if (!r.move.is_pass) {
-                                     MoveCandidate c;
-                                     c.p = r.move.p;
-                                     f.analysis.valid = true;
-                                     f.analysis.best = c;
-                                     f.analysis.candidates.push_back(c);
-                                 }
-                                 deliverAnswer(question, std::move(f));
-                             });
-        return;
-    }
-    deliverAnswer(question, currentFacts());
-}
-
 void AIMatchController::undo() {
-    ++generation_;  // invalidate any pending engine/LLM callback
+    ++generation_;  // invalidate any pending engine callback
     if (engine_) engine_->cancel();
-    if (conversation_) conversation_->cancel();
+    if (advisor_) advisor_->cancel();
 
     if (thinking_) {
         thinking_ = false;
@@ -170,7 +125,7 @@ void AIMatchController::resign() {
     if (resigned_ || game_.is_over()) return;
     ++generation_;
     if (engine_) engine_->cancel();
-    if (conversation_) conversation_->cancel();
+    if (advisor_) advisor_->cancel();
     thinking_ = false;
     ai_turn_ = false;
     resigned_ = true;

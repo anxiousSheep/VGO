@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "ai/advisor.h"
 #include "ai/session.h"
 #include "ai/template_conversation.h"
 
@@ -26,7 +27,8 @@ TEST(session_human_black_flow) {
     ScriptedEngine eng;
     eng.moves = {{1, 1}, {2, 2}};
     TemplateConversation conv;
-    AIMatchController c(9, Color::Black, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::Black, &eng, &advisor, 5);
 
     CHECK(!c.isAiTurn());      // human is Black, moves first
     CHECK(c.humanMayAct());
@@ -44,7 +46,8 @@ TEST(session_ai_black_opens) {
     ScriptedEngine eng;
     eng.moves = {{3, 3}};
     TemplateConversation conv;
-    AIMatchController c(9, Color::White, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::White, &eng, &advisor, 5);
 
     CHECK(c.isAiTurn());
     c.start();
@@ -57,7 +60,8 @@ TEST(session_illegal_human_move_ignored) {
     ScriptedEngine eng;
     eng.moves = {{1, 1}};
     TemplateConversation conv;
-    AIMatchController c(9, Color::Black, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::Black, &eng, &advisor, 5);
 
     c.humanPlay({0, 0});
     CHECK_EQ(c.game().move_number(), 2);  // human + AI
@@ -70,7 +74,8 @@ TEST(session_undo_pair) {
     ScriptedEngine eng;
     eng.moves = {{1, 1}};
     TemplateConversation conv;
-    AIMatchController c(9, Color::Black, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::Black, &eng, &advisor, 5);
 
     c.humanPlay({0, 0});
     CHECK_EQ(c.game().move_number(), 2);  // human + AI
@@ -83,7 +88,8 @@ TEST(session_undo_pair) {
 TEST(session_resign) {
     ScriptedEngine eng;
     TemplateConversation conv;
-    AIMatchController c(9, Color::Black, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::Black, &eng, &advisor, 5);
 
     c.resign();
     CHECK(c.resigned());
@@ -93,7 +99,8 @@ TEST(session_resign) {
 TEST(session_question_reaches_conversation) {
     ScriptedEngine eng;
     TemplateConversation conv;
-    AIMatchController c(9, Color::Black, &eng, &conv, 5);
+    AiAdvisor advisor(&eng, &conv, 5);
+    AIMatchController c(9, Color::Black, &eng, &advisor, 5);
 
     std::string got;
     c.onReply = [&](const ConversationReply& r) { got = r.text; };

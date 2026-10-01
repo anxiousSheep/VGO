@@ -30,6 +30,7 @@ add_library(vgo_ai STATIC
     src/ai/analysis.h
     src/ai/strength.h
     src/ai/strength.cpp
+    src/ai/game_setup.h
     src/ai/gtp.h
     src/ai/gtp.cpp
     src/ai/engine.h
@@ -42,6 +43,8 @@ add_library(vgo_ai STATIC
     src/ai/template_conversation.cpp
     src/ai/session.h
     src/ai/session.cpp
+    src/ai/advisor.h
+    src/ai/advisor.cpp
 )
 target_include_directories(vgo_ai PUBLIC src)
 target_link_libraries(vgo_ai PUBLIC vgo_core)
@@ -65,6 +68,7 @@ add_executable(vgo_ai_tests
     tests/test_explain.cpp
     tests/test_template.cpp
     tests/test_session.cpp
+    tests/test_advisor.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)
@@ -94,6 +98,8 @@ add_executable(vgo_app WIN32
     src/ui/MainWindow.cpp
     src/ui/ChatPanel.h
     src/ui/ChatPanel.cpp
+    src/ui/NewGameDialog.h
+    src/ui/NewGameDialog.cpp
     src/ui/AppConfig.h
     src/ui/AppConfig.cpp
 )

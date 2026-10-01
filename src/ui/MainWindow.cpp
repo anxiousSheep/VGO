@@ -12,11 +12,12 @@
 
 #include "ChatPanel.h"
 #include "GobanWidget.h"
+#include "NewGameDialog.h"
 
+#include "ai/advisor.h"
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
 #include "ai/session.h"
-#include "ai/strength.h"
 #include "ai/template_conversation.h"
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
@@ -44,32 +45,30 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     status_ = new QLabel(this);
     statusBar()->addWidget(status_, 1);
 
-    // Chat panel in a right-hand dock.
+    // Chat side bar in a collapsible dock.
     chat_ = new vgo::ChatPanel(this);
-    auto* dock = new QDockWidget(QStringLiteral("与 AI 交流"), this);
-    dock->setWidget(chat_);
-    dock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
-    addDockWidget(Qt::RightDockWidgetArea, dock);
+    dock_ = new QDockWidget(QStringLiteral("与 AI 交流"), this);
+    dock_->setObjectName(QStringLiteral("aiChatDock"));
+    dock_->setWidget(chat_);
+    dock_->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, dock_);
     connect(chat_, &vgo::ChatPanel::messageSent, this, &MainWindow::onChatMessage);
+    connect(chat_, &vgo::ChatPanel::newChatRequested, this, [this] {
+        if (advisor_) advisor_->cancel();
+    });
 
-    auto* act9 = new QAction(QStringLiteral("9×9"), this);
-    auto* act13 = new QAction(QStringLiteral("13×13"), this);
-    auto* act19 = new QAction(QStringLiteral("19×19"), this);
-    auto* actAiBlack = new QAction(QStringLiteral("人机对弈 · 执黑"), this);
-    auto* actAiWhite = new QAction(QStringLiteral("人机对弈 · 执白"), this);
+    // Menu: 对局 (new game + in-game actions) and 视图 (AI panel toggle).
+    auto* actNew = new QAction(QStringLiteral("新对局…"), this);
+    actNew->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
     auto* actPass = new QAction(QStringLiteral("虚着/停一手"), this);
     auto* actUndo = new QAction(QStringLiteral("悔棋"), this);
+    actUndo->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
     auto* actResign = new QAction(QStringLiteral("认输"), this);
     auto* actScore = new QAction(QStringLiteral("计分/终局"), this);
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
+    actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
 
-    connect(act9, &QAction::triggered, this, &MainWindow::newGame9);
-    connect(act13, &QAction::triggered, this, &MainWindow::newGame13);
-    connect(act19, &QAction::triggered, this, &MainWindow::newGame19);
-    connect(actAiBlack, &QAction::triggered, this,
-            [this] { startAi(size_, vgo::Color::Black); });
-    connect(actAiWhite, &QAction::triggered, this,
-            [this] { startAi(size_, vgo::Color::White); });
+    connect(actNew, &QAction::triggered, this, &MainWindow::newGame);
     connect(actPass, &QAction::triggered, this, &MainWindow::onPass);
     connect(actUndo, &QAction::triggered, this, &MainWindow::onUndo);
     connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
@@ -77,78 +76,61 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
 
     QMenu* gameMenu = menuBar()->addMenu(QStringLiteral("对局"));
-    QMenu* newMenu = gameMenu->addMenu(QStringLiteral("新局"));
-    newMenu->addAction(act9);
-    newMenu->addAction(act13);
-    newMenu->addAction(act19);
-    newMenu->addSeparator();
-    newMenu->addAction(actAiBlack);
-    newMenu->addAction(actAiWhite);
-    gameMenu->addAction(actPass);
+    gameMenu->addAction(actNew);
+    gameMenu->addSeparator();
     gameMenu->addAction(actUndo);
+    gameMenu->addAction(actPass);
     gameMenu->addAction(actResign);
     gameMenu->addSeparator();
     gameMenu->addAction(actScore);
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
-    // Difficulty menu (affects the AI).
-    QMenu* levelMenu = menuBar()->addMenu(QStringLiteral("难度"));
-    for (int lv = 1; lv <= 10; ++lv) {
-        auto* a = levelMenu->addAction(QString::fromStdString(vgo::strengthLabel(lv)));
-        a->setCheckable(true);
-        a->setChecked(lv == ai_level_);
-        connect(a, &QAction::triggered, this, [this, lv, a, levelMenu] {
-            ai_level_ = lv;
-            if (controller_) controller_->setLevel(lv);
-            for (QAction* other : levelMenu->actions()) other->setChecked(other == a);
-        });
-    }
+    // "AI 交流面板" toggle — driven by the dock's built-in toggle action, so
+    // closing the dock by its X also unchecks the action (and vice versa).
+    toggleChatAction_ = dock_->toggleViewAction();
+    toggleChatAction_->setText(QStringLiteral("AI 交流面板"));
+    toggleChatAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+A")));
+
+    QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
+    viewMenu->addAction(toggleChatAction_);
 
     QToolBar* tb = addToolBar(QStringLiteral("工具"));
     tb->setMovable(false);
-    tb->addAction(act9);
-    tb->addAction(act13);
-    tb->addAction(act19);
-    tb->addSeparator();
-    tb->addAction(actAiBlack);
-    tb->addAction(actAiWhite);
+    tb->addAction(actNew);
     tb->addSeparator();
     tb->addAction(actUndo);
     tb->addAction(actPass);
     tb->addAction(actResign);
     tb->addAction(actScore);
+    tb->addSeparator();
+    tb->addAction(toggleChatAction_);
 
-    startLocal(9);
+    // Default to a placement game so the app is immediately usable offline.
+    vgo::GameSetup initial;
+    initial.mode = vgo::GameMode::Placement;
+    initial.size = 9;
+    applySetup(initial);
 }
 
 MainWindow::~MainWindow() {
-    teardownAi();
-    delete game_;
+    teardown();
 }
 
 vgo::Game* MainWindow::currentGame() const {
     return inAiMode() ? &controller_->game() : game_;
 }
 
-void MainWindow::startLocal(int size) {
-    teardownAi();
-    delete game_;
-    game_ = new vgo::Game(size);
-    size_ = size;
-    resigned_ = false;
-    chat_->clear();
-    appendAi(QStringLiteral("本地双人对弈模式。"));
-    refresh();
+void MainWindow::applySetup(const vgo::GameSetup& setup) {
+    setup_ = setup;
+    if (setup.mode == vgo::GameMode::HumanVsAi) {
+        startAi(setup);
+    } else {
+        startPlacement(setup.size);
+    }
 }
 
-void MainWindow::startAi(int size, vgo::Color humanColor) {
-    teardownAi();
-    delete game_;
-    game_ = nullptr;
-    size_ = size;
-    resigned_ = false;
-
+void MainWindow::createAiServices(int level) {
     // Engine: KataGo if configured and starts, else the built-in fallback.
     engine_ = nullptr;
     if (config_.katago.enabled && !config_.katago.binary.isEmpty() &&
@@ -168,47 +150,74 @@ void MainWindow::startAi(int size, vgo::Color humanColor) {
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
 
-    controller_ =
-        new vgo::AIMatchController(size, humanColor, engine_, conversation_, ai_level_);
+    advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
+}
+
+void MainWindow::startPlacement(int size) {
+    teardown();
+    createAiServices(setup_.level);
+    game_ = new vgo::Game(size);
+    resigned_ = false;
+    chat_->clear();
+    appendAi(QStringLiteral("摆棋模式：你可以自由摆放黑白棋子（用「虚着」切换行棋方），"
+                            "并随时在右侧问我问题，比如「谁领先」「我该下哪」。"));
+    refresh();
+}
+
+void MainWindow::startAi(const vgo::GameSetup& setup) {
+    teardown();
+    createAiServices(setup.level);
+    game_ = nullptr;
+
+    controller_ = new vgo::AIMatchController(setup.size, setup.human_color, engine_,
+                                             advisor_, setup.level);
     controller_->onChanged = [this] { refresh(); };
     controller_->onAiMove = [this](const vgo::Move& m, const vgo::Analysis&) {
         if (m.is_pass) {
             appendAi(QStringLiteral("（虚着，停一手）"));
         } else {
             appendAi(QStringLiteral("我下在 %1。")
-                         .arg(QString::fromStdString(vgo::gtpPoint(m.p, size_))));
+                         .arg(QString::fromStdString(vgo::gtpPoint(m.p, setup_.size))));
         }
     };
-    controller_->onReply = [this](const vgo::ConversationReply& r) {
-        appendAi(QString::fromStdString(r.text));
-        board_view_->setHighlight(r.highlight);
-    };
+    controller_->onReply = [this](const vgo::ConversationReply& r) { handleReply(r); };
     controller_->onActivity = [this](vgo::AiActivity a) {
         if (a == vgo::AiActivity::Thinking) status_->setText(QStringLiteral("AI 思考中…"));
     };
 
     chat_->clear();
-    appendAi(humanColor == vgo::Color::Black
-                 ? QStringLiteral("你好！你执黑先行。下棋时随时可以在右侧问我问题。")
-                 : QStringLiteral("你好！我执黑先行。下棋时随时可以在右侧问我问题。"));
+    if (setup.nigiri) {
+        appendAi(setup.human_color == vgo::Color::Black
+                     ? QStringLiteral("猜先结果：你执黑，请先行。")
+                     : QStringLiteral("猜先结果：你执白，AI 执黑先行。"));
+    } else if (setup.human_color == vgo::Color::Black) {
+        appendAi(QStringLiteral("你好！你执黑先行。下棋时随时可以在右侧问我问题。"));
+    } else {
+        appendAi(QStringLiteral("你好！我执黑先行。下棋时随时可以在右侧问我问题。"));
+    }
     controller_->start();
     refresh();
 }
 
-void MainWindow::teardownAi() {
+void MainWindow::teardown() {
     delete controller_;
     controller_ = nullptr;
+    delete advisor_;
+    advisor_ = nullptr;
     delete engine_;
     engine_ = nullptr;
     delete conversation_;
     conversation_ = nullptr;
+    delete game_;
+    game_ = nullptr;
     board_view_->setHighlight({});
     board_view_->setCandidates({});
 }
 
-void MainWindow::newGame9() { startLocal(9); }
-void MainWindow::newGame13() { startLocal(13); }
-void MainWindow::newGame19() { startLocal(19); }
+void MainWindow::newGame() {
+    NewGameDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) applySetup(dlg.setup());
+}
 
 void MainWindow::refresh() {
     vgo::Game* g = currentGame();
@@ -233,7 +242,8 @@ void MainWindow::onPointClicked(int x, int y) {
         controller_->humanPlay({x, y});
         return;
     }
-    if (!game_ || resigned_ || game_->is_over()) return;
+    // Placement mode: the human arranges both sides.
+    if (!game_ || game_->is_over()) return;
     if (game_->play(x, y)) {
         refresh();
     } else {
@@ -246,7 +256,7 @@ void MainWindow::onPass() {
         controller_->humanPass();
         return;
     }
-    if (!game_ || resigned_ || game_->is_over()) return;
+    if (!game_ || game_->is_over()) return;
     game_->pass();
     refresh();
     if (game_->is_over()) onScore();
@@ -263,7 +273,6 @@ void MainWindow::onUndo() {
     }
     if (!game_) return;
     if (game_->undo()) {
-        resigned_ = false;
         refresh();
     } else {
         status_->setText(QStringLiteral("没有可悔的棋"));
@@ -280,15 +289,7 @@ void MainWindow::onResign() {
                                  QStringLiteral("你认输，%1方获胜").arg(colorName(winner)));
         return;
     }
-    if (!game_ || resigned_ || game_->is_over()) return;
-    const vgo::Color resigner = game_->current();
-    const vgo::Color winner = vgo::opponent(resigner);
-    resigned_ = true;
-    status_->setText(QStringLiteral("%1方认输，%2方获胜").arg(colorName(resigner)).arg(colorName(winner)));
-    QMessageBox::information(this, QStringLiteral("认输"),
-                             QStringLiteral("%1方认输，%2方获胜")
-                                 .arg(colorName(resigner))
-                                 .arg(colorName(winner)));
+    status_->setText(QStringLiteral("摆棋模式下没有对手，无需认输。"));
 }
 
 void MainWindow::onScore() {
@@ -312,11 +313,19 @@ void MainWindow::onScore() {
 }
 
 void MainWindow::onChatMessage(const QString& text) {
+    const std::string q = text.toStdString();
     if (inAiMode()) {
-        controller_->ask(text.toStdString());
+        controller_->ask(q);
+    } else if (advisor_) {
+        advisor_->ask(*game_, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
     } else {
-        appendAi(QStringLiteral("当前是双人对弈模式，没有 AI。请在「新局」里选择人机对弈。"));
+        appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
     }
+}
+
+void MainWindow::handleReply(const vgo::ConversationReply& r) {
+    appendAi(QString::fromStdString(r.text));
+    board_view_->setHighlight(r.highlight);
 }
 
 void MainWindow::appendAi(const QString& text) {
