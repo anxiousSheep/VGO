@@ -30,6 +30,8 @@ void AIMatchController::start() {
 void AIMatchController::humanPlay(Point p) {
     if (!humanMayAct()) return;
     if (!game_.play(p.x, p.y)) return;
+    blocked_points_.clear();
+    retry_count_ = 0;
     if (onChanged) onChanged();
     if (game_.is_over()) {
         ai_turn_ = false;
@@ -42,6 +44,8 @@ void AIMatchController::humanPlay(Point p) {
 void AIMatchController::humanPass() {
     if (!humanMayAct()) return;
     game_.pass();
+    blocked_points_.clear();
+    retry_count_ = 0;
     if (onChanged) onChanged();
     if (game_.is_over()) {
         ai_turn_ = false;
@@ -56,7 +60,14 @@ void AIMatchController::beginAiTurn() {
     thinking_ = true;
     if (onActivity) onActivity(AiActivity::Thinking);
     const int gen = ++generation_;
-    engine_->requestMove(game_.board(), game_.current(), strengthForLevel(level_),
+    // 复制棋盘并屏蔽已知非法点（劫），让引擎避开这些点。
+    Board board = game_.board();
+    for (const Point& p : blocked_points_) {
+        if (board.in_bounds(p.x, p.y) && board.is_empty(p.x, p.y)) {
+            board.set(p.x, p.y, opponent(game_.current()));
+        }
+    }
+    engine_->requestMove(board, game_.current(), strengthForLevel(level_),
                          [this, gen](EngineResult r) {
                              if (gen != generation_) return;  // stale / cancelled
                              onAiResult(std::move(r));
@@ -70,8 +81,18 @@ void AIMatchController::onAiResult(EngineResult r) {
             game_.pass();
         } else if (game_.is_legal(r.move.p.x, r.move.p.y)) {
             game_.play(r.move.p.x, r.move.p.y);
+            blocked_points_.clear();
+            retry_count_ = 0;
         } else {
-            game_.pass();  // engine suggested an illegal move (e.g. superko)
+            // 引擎给出非法点（通常是劫，重建局面丢失劫态所致）：屏蔽后重试。
+            blocked_points_.push_back(r.move.p);
+            if (++retry_count_ < 3) {
+                beginAiTurn();
+                return;
+            }
+            blocked_points_.clear();
+            retry_count_ = 0;
+            game_.pass();
         }
     }
     if (advisor_) advisor_->noteAnalysis(r.analysis);
@@ -98,6 +119,8 @@ void AIMatchController::ask(const std::string& question) {
 
 void AIMatchController::undo() {
     ++generation_;  // invalidate any pending engine callback
+    blocked_points_.clear();
+    retry_count_ = 0;
     if (engine_) engine_->cancel();
     if (advisor_) advisor_->cancel();
 

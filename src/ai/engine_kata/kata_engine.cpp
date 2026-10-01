@@ -2,6 +2,7 @@
 
 #include <QFileInfo>
 #include <QList>
+#include <algorithm>
 #include <utility>
 
 #include "ai/gtp.h"
@@ -9,6 +10,10 @@
 namespace vgo {
 
 namespace {
+
+// kata-genmove_analyze 需要足够的 visits 才会输出 info move 分析（胜率/目数/候选）。
+// 1 visit 时不输出，导致分析全为 0。此处给分析一个下限。
+constexpr int kMinAnalysisVisits = 20;
 
 // 解析 `info move E5 visits 7 ... winrate 0.1 ... scoreLead -0.2 ... order 0 pv E5 E7`。
 // 返回候选；isSymmetryOf（对称重复）或坐标非法时返回 p.x<0（调用方跳过）。
@@ -117,7 +122,7 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
     // 强度：仅 maxVisits 可经 kata-set-param 运行时覆盖。
     // 用 kata-genmove_analyze 一次拿回落子 + 胜率/目数差/候选/pv，供 LLM Grounding。
     cmd += "kata-set-param maxVisits ";
-    cmd += QByteArray::number(params.max_visits);
+    cmd += QByteArray::number(std::max(params.max_visits, kMinAnalysisVisits));
     cmd += "\nkata-genmove_analyze ";
     cmd += (to_move == Color::Black) ? "B\n" : "W\n";
     proc_->write(cmd);

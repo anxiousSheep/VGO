@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "analysis.h"
 #include "conversation.h"
@@ -65,6 +66,8 @@ private:
     bool thinking_ = false;
     bool resigned_ = false;
     int generation_ = 0;   // bumped to invalidate stale async callbacks
+    std::vector<Point> blocked_points_;  // 引擎给出的非法点（劫），重试时屏蔽
+    int retry_count_ = 0;
 };
 
 }  // namespace vgo
