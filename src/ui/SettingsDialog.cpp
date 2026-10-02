@@ -176,7 +176,7 @@ void SettingsDialog::buildLlmGroup() {
 }
 
 void SettingsDialog::buildAnalysisGroup() {
-    auto* box = new QGroupBox(QStringLiteral("形势分析强度"), this);
+    auto* box = new QGroupBox(QStringLiteral("形势分析 / 教学演示强度"), this);
     auto* form = new QFormLayout(box);
 
     analysisCombo_ = new QComboBox(box);
@@ -193,21 +193,23 @@ void SettingsDialog::buildAnalysisGroup() {
     auto updateHint = [this] {
         switch (analysisCombo_->currentData().toInt()) {
             case kAnalysisLevelStronger:
-                analysisHint_->setText(QStringLiteral("你可以相信职业七段的判断"));
+                analysisHint_->setText(QStringLiteral(
+                    "你可以相信职业七段的判断。该强度同时用于形势判断与棋盘演示的权威 AI。"));
                 break;
             case kAnalysisLevelFull:
                 analysisHint_->setText(QStringLiteral(
-                    "我不认为柯洁能下赢这个模型。警告：这将会导致形势判断特别特别特别慢，"
+                    "我不认为柯洁能下赢这个模型。警告：这将会导致形势判断与教学演示特别特别特别慢，"
                     "也许你可以宣布打挂。"));
                 break;
             default:
-                analysisHint_->setText(QStringLiteral("你可以相信职业五段的判断"));
+                analysisHint_->setText(QStringLiteral(
+                    "你可以相信职业五段的判断。该强度同时用于形势判断与棋盘演示的权威 AI。"));
                 break;
         }
     };
     connect(analysisCombo_, &QComboBox::currentIndexChanged, this, updateHint);
 
-    // 载入当前设置（默认「一般」= 职业7段）。
+    // 载入当前设置（默认「一般」= 职业5段）。
     const int cur = ModelManager::instance().analysisLevel();
     const int idx = analysisCombo_->findData(cur);
     analysisCombo_->setCurrentIndex(idx >= 0 ? idx : 0);

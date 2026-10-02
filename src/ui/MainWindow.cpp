@@ -805,7 +805,9 @@ void MainWindow::onDemoAiMove() {
     }
     const vgo::Board req_board = variation_.board();
     const vgo::Color to_move = variation_.toMove();
-    eng->requestMove(req_board, to_move, vgo::strengthForLevel(19),
+    // 与形势判断同源：同一引擎 + 同一强度档位（设置里「形势分析 / 教学演示强度」）。
+    const int demo_level = vgo::ModelManager::instance().analysisLevel();
+    eng->requestMove(req_board, to_move, vgo::strengthForLevel(demo_level),
                      [this, req_board, to_move](vgo::EngineResult r) {
                          if (!demo_active_) return;
                          if (r.move.is_pass) {

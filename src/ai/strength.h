@@ -22,8 +22,8 @@ StrengthParams strengthForLevel(int level);
 // Short Chinese rank label for a level, e.g. "新手", "业余3段", "职业1段".
 std::string rankLabel(int level);
 
-// 形势判断（analysis）强度档位，对应对局难度之外的职业段 visits（标准模型）。
-// 用户可在设置中选择；默认「一般」= 职业5段。
+// 形势判断 / 教学演示强度档位，对应对局难度之外的职业段 visits（标准模型）。
+// 形势判断与棋盘演示的「权威 AI 后续」共用此档位；用户可在设置中选择，默认「一般」= 职业5段。
 constexpr int kAnalysisLevelNormal = 15;    // 职业5段：300 visits（一般）
 constexpr int kAnalysisLevelStronger = 17;  // 职业7段：3000 visits（更强）
 constexpr int kAnalysisLevelFull = 19;      // 职业9段：100000 visits（完全正确，超人类）

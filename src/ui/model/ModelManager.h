@@ -47,7 +47,7 @@ public:
     bool onboardingDone() const;
     void setOnboardingDone(bool);
 
-    // 形势分析强度档位（职业7/8/9段 = 17/18/19，见 ai/strength.h）。
+    // 形势分析 / 教学演示强度档位（职业5/7/9段 = 15/17/19，见 ai/strength.h）。
     int analysisLevel() const { return analysisLevel_; }
     void setAnalysisLevel(int level);
 
