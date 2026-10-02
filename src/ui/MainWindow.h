@@ -63,7 +63,10 @@ private slots:
     void startDemoFromQuestion(const vgo::DemoRequest& dr);  // 提问触发演示（N2.2）
     // LLM 工具调用（function-calling）：模型可主动请求打开演示并落子/续下。
     std::string handleDemoTool(const QString& name, const QJsonObject& args);
-    std::string runDemoTool(vgo::Point p, vgo::Color color, int plies);
+    // 打开（或续用/重置）试下，并落假设手；placed 输出如「黑 H6」，失败返回 false。
+    bool enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, std::string* placed);
+    std::vector<vgo::Move> collectAiMoves(int plies);  // 同步收集权威 AI 续下（阻塞到完成）
+    bool requestDemoMoveSync(const vgo::Board& b, vgo::Color to_move, vgo::Move* out);
 
     // 教学增强（M3b）
     void onBlunderToggled(bool on);
@@ -122,6 +125,7 @@ private:
 
     // 棋盘演示（N2）
     bool demo_active_ = false;
+    bool demo_busy_ = false;  // 同步收集中，抑制形势自动刷新，避免与落子争抢引擎
     vgo::VariationController variation_;
     vgo::Board variation_board_{9};
     std::vector<std::pair<vgo::Point, int>> variation_numbers_;

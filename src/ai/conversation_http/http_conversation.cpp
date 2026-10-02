@@ -158,11 +158,16 @@ QJsonArray buildTools() {
     QJsonObject pPlies;
     pPlies["type"] = "integer";
     pPlies["description"] = QStringLiteral("权威 AI 续下的手数，默认 4，范围 1-8");
+    QJsonObject pReset;
+    pReset["type"] = "boolean";
+    pReset["description"] = QStringLiteral(
+        "true 表示从头重新演示（丢弃当前变化图）；false 或省略表示在当前演示基础上继续");
 
     QJsonObject props;
     props["point"] = pPoint;
     props["color"] = pColor;
     props["plies"] = pPlies;
+    props["reset"] = pReset;
 
     QJsonObject params;
     params["type"] = "object";

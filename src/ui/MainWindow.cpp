@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QLabel>
@@ -553,7 +554,7 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
 void MainWindow::onChatMessage(const QString& text) {
     const std::string q = text.toStdString();
     // N2.2：提问触发演示——「如果白棋在H6长出，黑棋后面几步该如何应对」。
-    if (usingKata() && currentGame()) {
+    if (usingKata() && currentGame() && !demo_busy_) {
         const vgo::DemoRequest dr = vgo::parseDemoRequest(q, currentGame()->size());
         if (dr.valid) {
             startDemoFromQuestion(dr);
@@ -777,9 +778,10 @@ void MainWindow::updateVariationBoard() {
     variation_panel_->setCanUndo(!steps.empty());
 
     // 形势：打开时随试下/回退针对变化图当前局面自动刷新，不再被清空。
-    if (analyzeAction_ && analyzeAction_->isChecked() && usingKata()) {
+    // 同步收集中暂不刷新（避免与落子争抢同一引擎）。
+    if (analyzeAction_ && analyzeAction_->isChecked() && usingKata() && !demo_busy_) {
         QTimer::singleShot(0, this, [this] { requestAnalysis(false); });
-    } else {
+    } else if (!demo_busy_) {
         board_view_->clearOwnership();
         scoreStatus_->clear();
     }
@@ -825,19 +827,29 @@ void MainWindow::demoAiContinue(int plies) {
 void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     vgo::Game* g = currentGame();
     if (!g) return;
-    runDemoTool(dr.point, dr.color, 4);
+    std::string placed;
+    if (!enterDemoAndPlace(dr.point, dr.color, /*reset=*/false, &placed)) {
+        status_->setText(QString::fromStdString(placed));
+        return;
+    }
     const QString side = (dr.color == vgo::Color::Black) ? QStringLiteral("黑") : QStringLiteral("白");
     const QString resp = (dr.color == vgo::Color::Black) ? QStringLiteral("白") : QStringLiteral("黑");
     appendAi(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
                  .arg(side)
                  .arg(QString::fromStdString(vgo::gtpPoint(dr.point, g->size())))
                  .arg(resp));
+    demoAiContinue(4);  // 关键词路径：异步逐步演示（无需把坐标回传给 LLM）
 }
 
-std::string MainWindow::runDemoTool(vgo::Point p, vgo::Color color, int plies) {
+bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset,
+                                   std::string* placed) {
     vgo::Game* g = currentGame();
-    if (!g) return "当前没有棋局";
-    // 进入（或重置）试下，起点为真实对局当前局面。
+    if (!g) {
+        if (placed) *placed = "当前没有棋局";
+        return false;
+    }
+    if (placed) *placed = "";
+    // 进入（或续用/重置）试下：默认在当前演示基础上继续，reset=true 才从头。
     if (!demo_active_) {
         variation_.start(g->board(), g->current());
         demo_active_ = true;
@@ -845,36 +857,79 @@ std::string MainWindow::runDemoTool(vgo::Point p, vgo::Color color, int plies) {
         if (advisor_) advisor_->noteAnalysis(vgo::Analysis{});
         QSignalBlocker b(demoAction_);
         demoAction_->setChecked(true);
-    } else {
+    } else if (reset) {
         variation_.start(g->board(), g->current());
     }
-    std::string summary = "已进入试下模式";
-    if (p.x >= 0) {
-        const vgo::Color play = (color == vgo::Color::Empty) ? variation_.toMove() : color;
-        const vgo::Board b = variation_.board();
-        if (!b.in_bounds(p.x, p.y) || b.at(p.x, p.y) != vgo::Color::Empty) {
-            status_->setText(QStringLiteral("试下：该位置无法落子"));
-            return summary + "，但该位置无法落子";
-        }
-        vgo::Game probe(b, play);
-        if (!probe.play(p.x, p.y)) {
-            status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
-            return summary + "，但该位置不能落子（自杀/打劫）";
-        }
-        variation_.commitStep(vgo::Move{p, false}, play, false);
-        summary += "，落" + std::string(play == vgo::Color::Black ? "黑" : "白") + " " +
-                   vgo::gtpPoint(p, g->size());
+    // else: 保留现有变化图，继续追加。
+    if (p.x < 0) {
+        updateVariationBoard();
+        return true;
     }
+    const vgo::Color play = (color == vgo::Color::Empty) ? variation_.toMove() : color;
+    const vgo::Board b = variation_.board();
+    if (!b.in_bounds(p.x, p.y) || b.at(p.x, p.y) != vgo::Color::Empty) {
+        if (placed) *placed = "该位置无法落子";
+        status_->setText(QStringLiteral("试下：该位置无法落子"));
+        return false;
+    }
+    vgo::Game probe(b, play);
+    if (!probe.play(p.x, p.y)) {
+        if (placed) *placed = "该位置不能落子（自杀/打劫）";
+        status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
+        return false;
+    }
+    variation_.commitStep(vgo::Move{p, false}, play, false);
     updateVariationBoard();
+    if (placed)
+        *placed = std::string(play == vgo::Color::Black ? "黑" : "白") + " " + vgo::gtpPoint(p, g->size());
+    return true;
+}
+
+bool MainWindow::requestDemoMoveSync(const vgo::Board& b, vgo::Color to_move, vgo::Move* out) {
+    vgo::EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+    if (!eng) return false;
+    bool called = false;
+    bool ok = false;
+    QEventLoop loop;
+    eng->requestMove(b, to_move,
+                     vgo::strengthForLevel(vgo::ModelManager::instance().analysisLevel()),
+                     [&](vgo::EngineResult r) {
+                         called = true;
+                         if (!r.move.is_pass) {
+                             *out = r.move;
+                             ok = true;
+                         }
+                         loop.quit();
+                     });
+    if (!called) loop.exec();  // KataGo 异步；Fallback 同步时已调用 quit
+    return ok;
+}
+
+std::vector<vgo::Move> MainWindow::collectAiMoves(int plies) {
+    std::vector<vgo::Move> moves;
     if (plies < 1) plies = 1;
     if (plies > 8) plies = 8;
-    demoAiContinue(plies);
-    summary += "，权威 AI 正在续下后续应对";
-    return summary;
+    demo_busy_ = true;
+    for (int i = 0; i < plies && demo_active_; ++i) {
+        const vgo::Board b = variation_.board();
+        const vgo::Color to_move = variation_.toMove();
+        vgo::Move m;
+        if (!requestDemoMoveSync(b, to_move, &m)) break;
+        if (!demo_active_) break;  // 用户中途退出演示
+        vgo::Game probe(b, to_move);
+        if (!probe.play(m.p.x, m.p.y)) break;
+        variation_.commitStep(m, to_move, true);
+        moves.push_back(m);
+        updateVariationBoard();
+    }
+    demo_busy_ = false;
+    updateVariationBoard();  // 结束时刷新一次形势
+    return moves;
 }
 
 std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& args) {
     if (name != QStringLiteral("demonstrate_go_moves")) return "未知工具";
+    if (demo_busy_) return "正在演示中，请稍候";
     vgo::Point p{-1, -1};
     const QString pt = args["point"].toString();
     if (!pt.isEmpty() && currentGame()) {
@@ -886,7 +941,22 @@ std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& a
     if (c == "black") color = vgo::Color::Black;
     else if (c == "white") color = vgo::Color::White;
     const int plies = args["plies"].toInt(4);
-    return runDemoTool(p, color, plies);
+    const bool reset = args["reset"].toBool(false);
+
+    std::string placed;
+    if (!enterDemoAndPlace(p, color, reset, &placed)) return placed;
+
+    // 同步跑完权威 AI 续下，拿到具体坐标，再回传给 LLM，避免「没有具体坐标」。
+    const std::vector<vgo::Move> moves = collectAiMoves(plies);
+    const int size = currentGame() ? currentGame()->size() : 19;
+
+    std::string summary;
+    if (!placed.empty()) summary = "已在棋盘演示：" + placed + " 后，权威 AI 续下";
+    else summary = "已在棋盘演示：权威 AI 续下";
+    for (const vgo::Move& m : moves) summary += " " + vgo::gtpPoint(m.p, size);
+    if (moves.empty()) summary += "（无更多着法，AI 建议虚着/终局）";
+    summary += "。";
+    return summary;
 }
 
 void MainWindow::onDemoUndo() {
