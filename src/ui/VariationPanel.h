@@ -2,37 +2,30 @@
 
 #include <QWidget>
 
-#include "ai/variation.h"
-
 class QLabel;
 class QPushButton;
 
 namespace vgo {
 
-// Board-demo control strip (N2.3): shown only in demo mode. Lets the user step
-// through a variation with "权威 AI 后续", "确认下一步", "上一步", "重放" and
-// "退出演示". Purely a view — it emits requests, the MainWindow drives the
-// VariationController state machine.
+// Board-demo control strip (N2): shown only in 试下 (try-out) mode. The user
+// plays/undoes moves freely; there is no per-step confirmation. Buttons: "AI
+// 演示一手" (authoritative continuation), "回退" (undo) and "退出演示".
 class VariationPanel : public QWidget {
     Q_OBJECT
 public:
     explicit VariationPanel(QWidget* parent = nullptr);
 
-    void setState(VariationState s);
+    void setCanUndo(bool can);
 
 signals:
     void aiMoveRequested();
-    void confirmRequested();
-    void backRequested();
-    void replayRequested();
+    void undoRequested();
     void exitRequested();
 
 private:
     QLabel* stateLabel_ = nullptr;
     QPushButton* aiBtn_ = nullptr;
-    QPushButton* confirmBtn_ = nullptr;
-    QPushButton* backBtn_ = nullptr;
-    QPushButton* replayBtn_ = nullptr;
+    QPushButton* undoBtn_ = nullptr;
     QPushButton* exitBtn_ = nullptr;
 };
 

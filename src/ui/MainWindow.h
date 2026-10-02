@@ -52,12 +52,10 @@ private slots:
     void onAnalyzeToggled(bool on);
     void onChatMessage(const QString& text);
 
-    // 棋盘演示（N2）
+    // 棋盘演示（N2，试下模式）
     void onDemoToggled(bool on);
     void onDemoAiMove();
-    void onDemoConfirm();
-    void onDemoBack();
-    void onDemoReplay();
+    void onDemoUndo();
     void onDemoExit();
 
     // 教学增强（M3b）
@@ -79,13 +77,12 @@ private:
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
     void showScoreResult(int black, int white, double komi, double black_lead);
 
-    // 棋盘演示（N2）
+    // 棋盘演示（N2，试下模式）
     void startDemo();
     void exitDemo();
     void onDemoPointClicked(int x, int y);
     void updateVariationBoard();
-    void explainDemoStep();
-    vgo::GroundedFacts demoStepFacts() const;
+    vgo::Game demoGame() const;  // 当前试下棋盘还原成带历史的 Game，供讲解
 
     // 教学增强（M3b）
     void maybeWarnBlunder();

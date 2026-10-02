@@ -166,12 +166,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     variation_panel_ = new vgo::VariationPanel(this);
     connect(variation_panel_, &vgo::VariationPanel::aiMoveRequested, this,
             &MainWindow::onDemoAiMove);
-    connect(variation_panel_, &vgo::VariationPanel::confirmRequested, this,
-            &MainWindow::onDemoConfirm);
-    connect(variation_panel_, &vgo::VariationPanel::backRequested, this,
-            &MainWindow::onDemoBack);
-    connect(variation_panel_, &vgo::VariationPanel::replayRequested, this,
-            &MainWindow::onDemoReplay);
+    connect(variation_panel_, &vgo::VariationPanel::undoRequested, this,
+            &MainWindow::onDemoUndo);
     connect(variation_panel_, &vgo::VariationPanel::exitRequested, this,
             &MainWindow::onDemoExit);
     demo_dock_ = new QDockWidget(QStringLiteral("棋盘演示"), this);
@@ -560,6 +556,16 @@ void MainWindow::onChatMessage(const QString& text) {
         requestAnalysis(/*sayInChat=*/true);
         return;
     }
+    // 试下模式下，聊天问答针对变化图当前局面（而非真实对局）。
+    if (demo_active_) {
+        vgo::Game dg = demoGame();
+        if (advisor_) {
+            advisor_->ask(dg, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
+        } else {
+            appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
+        }
+        return;
+    }
     if (inAiMode()) {
         controller_->ask(q);
     } else if (advisor_) {
@@ -602,8 +608,19 @@ void MainWindow::requestAnalysis(bool sayInChat) {
     if (!usingKata()) return;
     // 仅当形势开关打开时才刷新；防止关闭后残留的延后 singleShot 再次触发。
     if (!analyzeAction_ || !analyzeAction_->isChecked()) return;
+    if (!advisor_) return;
+    // 试下模式：形势针对变化图当前局面。
+    if (demo_active_) {
+        vgo::Game dg = demoGame();
+        const vgo::Color to_move = dg.current();
+        advisor_->analyzePosition(dg, [this, to_move, sayInChat](const vgo::Analysis& a) {
+            if (!demo_active_) return;
+            applyAnalysis(a, to_move, sayInChat);
+        });
+        return;
+    }
     vgo::Game* g = currentGame();
-    if (!g || !advisor_) return;
+    if (!g) return;
     const vgo::Color to_move = g->current();
     advisor_->analyzePosition(*g, [this, to_move, sayInChat](const vgo::Analysis& a) {
         applyAnalysis(a, to_move, sayInChat);
@@ -660,7 +677,7 @@ void MainWindow::appendAi(const QString& text) {
 }
 
 // ---------------------------------------------------------------------------
-// 棋盘演示（N2）：变化图独立于真实对局，逐步确认/回退/退出，权威 AI 后续。
+// 棋盘演示（N2，试下模式）：独立变化图，自由试下/回退/退出，权威 AI 后续。
 // ---------------------------------------------------------------------------
 void MainWindow::onDemoToggled(bool on) {
     if (on) startDemo();
@@ -685,11 +702,13 @@ void MainWindow::startDemo() {
     demo_active_ = true;
     variation_board_ = g->board();
     variation_numbers_.clear();
+    // 试下模式的讲解以变化图当前局面为准，先清掉真实对局缓存的形势。
+    if (advisor_) advisor_->noteAnalysis(vgo::Analysis{});
     updateVariationBoard();
     demo_dock_->setVisible(true);
-    appendAi(QStringLiteral("已进入演示模式：棋盘上的变化图独立于真实对局，"
-                            "点棋盘摆出前几步，或让「AI 演示一手」续下。"));
-    status_->setText(QStringLiteral("演示模式中"));
+    appendAi(QStringLiteral("已进入试下模式：棋盘为独立变化图，点棋盘试下，"
+                            "或让「AI 演示一手」续下；用「回退」撤销，不影响真实对局。"));
+    status_->setText(QStringLiteral("试下模式中"));
 }
 
 void MainWindow::exitDemo() {
@@ -700,14 +719,10 @@ void MainWindow::exitDemo() {
     board_view_->setMoveNumbers({});
     board_view_->clearOwnership();
     refresh();
-    appendAi(QStringLiteral("已退出演示模式，回到真实对局。"));
+    appendAi(QStringLiteral("已退出试下模式，回到真实对局。"));
 }
 
 void MainWindow::onDemoPointClicked(int x, int y) {
-    if (variation_.state() != vgo::VariationState::WaitingForMove) {
-        status_->setText(QStringLiteral("请先确认当前这一步"));
-        return;
-    }
     const vgo::Board b = variation_.board();
     if (!b.in_bounds(x, y) || b.at(x, y) != vgo::Color::Empty) {
         status_->setText(QStringLiteral("该位置已有棋子"));
@@ -720,7 +735,15 @@ void MainWindow::onDemoPointClicked(int x, int y) {
     }
     variation_.commitStep(vgo::Move{{x, y}, false}, variation_.toMove(), false);
     updateVariationBoard();
-    explainDemoStep();
+}
+
+vgo::Game MainWindow::demoGame() const {
+    vgo::Game g(variation_.variation().start, variation_.variation().to_move);
+    for (const auto& s : variation_.variation().steps) {
+        if (s.move.is_pass) g.pass();
+        else g.play(s.move.p.x, s.move.p.y);
+    }
+    return g;
 }
 
 void MainWindow::updateVariationBoard() {
@@ -736,68 +759,19 @@ void MainWindow::updateVariationBoard() {
     board_view_->setGhostColor(variation_.toMove());
     board_view_->setLastMove({-1, -1}, false);
     board_view_->setHighlight({});
-    board_view_->clearOwnership();
-    variation_panel_->setState(variation_.state());
-}
+    variation_panel_->setCanUndo(!steps.empty());
 
-vgo::GroundedFacts MainWindow::demoStepFacts() const {
-    vgo::GroundedFacts f;
-    const auto& steps = variation_.variation().steps;
-    if (steps.empty()) return f;
-    const vgo::VariationStep& s = steps.back();
-    if (s.move.is_pass) return f;
-    const int cursor = variation_.variation().cursor;
-    const vgo::Board before = variation_.variation().boardAt(cursor - 1);
-    vgo::Game g(before, s.color);
-    const int beforeCap = g.captures(s.color);
-    g.play(s.move.p.x, s.move.p.y);
-    const int captured = g.captures(s.color) - beforeCap;
-    f.facts = vgo::extractBoardFacts(before, g.board(), s.move, captured, s.color);
-    return f;
-}
-
-void MainWindow::explainDemoStep() {
-    if (!demo_active_) return;
-    const vgo::VariationStep* s = variation_.currentStep();
-    if (!s) return;
-    vgo::GroundedFacts f = demoStepFacts();
-
-    // 未接 LLM 时回退模板文本（N3 验收）。
-    if (!usingHttp()) {
-        std::string t = vgo::renderExplanation(f.facts, s->color);
-        if (t.empty())
-            t = s->move.is_pass ? "这一步虚着（停一手）。" : "这是变化图里的一手棋。";
-        appendAi(QString::fromStdString(t));
-        variation_.finishExplanation();
-        variation_panel_->setState(variation_.state());
-        return;
+    // 形势：打开时随试下/回退针对变化图当前局面自动刷新，不再被清空。
+    if (analyzeAction_ && analyzeAction_->isChecked() && usingKata()) {
+        QTimer::singleShot(0, this, [this] { requestAnalysis(false); });
+    } else {
+        board_view_->clearOwnership();
+        scoreStatus_->clear();
     }
-
-    vgo::ConversationRequest req;
-    req.question = "请简要讲解这一手棋（这是棋盘演示的变化图）。";
-    req.facts = std::move(f);
-    req.board_context = vgo::boardToAscii(variation_board_);
-    req.size = variation_board_.size();
-    req.to_move = variation_.toMove();
-    req.last_move = s->move.p;
-    req.has_last_move = !s->move.is_pass;
-    req.last_mover = s->color;
-    req.profile = vgo::PlayerProfile{setup_.level, true};
-    chat_->beginAiStream();
-    conversation_->answerStream(req, [this](const std::string& delta, bool done) {
-        if (!demo_active_) return;
-        if (!delta.empty()) chat_->appendAiStream(QString::fromStdString(delta));
-        if (done) {
-            chat_->endAiStream();
-            variation_.finishExplanation();
-            variation_panel_->setState(variation_.state());
-        }
-    });
 }
 
 void MainWindow::onDemoAiMove() {
     if (!demo_active_) return;
-    if (variation_.state() != vgo::VariationState::WaitingForMove) return;
     vgo::EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
     if (!eng) {
         status_->setText(QStringLiteral("未接入 KataGo，无法 AI 演示"));
@@ -821,25 +795,11 @@ void MainWindow::onDemoAiMove() {
                              variation_.commitStep(r.move, to_move, true);
                          }
                          updateVariationBoard();
-                         explainDemoStep();
                      });
 }
 
-void MainWindow::onDemoConfirm() {
-    if (variation_.state() == vgo::VariationState::WaitingForConfirm) {
-        variation_.confirmNext();
-        variation_panel_->setState(variation_.state());
-        status_->setText(QStringLiteral("演示模式：继续摆棋或让 AI 续下"));
-    }
-}
-
-void MainWindow::onDemoBack() {
+void MainWindow::onDemoUndo() {
     if (variation_.back()) updateVariationBoard();
-}
-
-void MainWindow::onDemoReplay() {
-    variation_.replay();
-    updateVariationBoard();
 }
 
 void MainWindow::onDemoExit() {

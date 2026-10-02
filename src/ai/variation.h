@@ -8,29 +8,21 @@
 
 namespace vgo {
 
-// A variation is an independent demonstration sequence that never mutates the
-// real game: it starts from a board snapshot and replays a list of steps. Used
-// by the board-demo mode (N2). Pure data + state machine, no Qt.
-enum class VariationState {
-    WaitingForMove,   // ready to accept the next move (AI or user)
-    Explaining,       // a move was just played; explanation (possibly streaming)
-    WaitingForConfirm,  // explanation done; awaiting user confirmation
-    Finished,         // exited
-};
-
+// A variation is an independent "try-out" board (试下模式) that never mutates the
+// real game: it starts from a board snapshot and replays a list of moves. The
+// user plays and undoes moves freely — there is no per-step confirmation, and
+// undo simply removes the last step, so the visible last move is always the
+// actual last step. Pure data + a minimal controller, no Qt (N2).
 struct VariationStep {
     Move move;
-    Color color = Color::Black;     // who plays this step
-    std::string explanation;        // may be appended to incrementally
-    std::vector<Point> marks;       // points to highlight
-    bool by_ai = false;             // true if an engine chose this move
+    Color color = Color::Black;   // who plays this step
+    bool by_ai = false;           // true if an engine chose this move
 };
 
 struct Variation {
-    Board start;                    // board at demo start
+    Board start;                  // board at demo start
     Color to_move = Color::Black;
     std::vector<VariationStep> steps;
-    int cursor = 0;                 // number of steps currently revealed
 
     // Board after replaying the first `reveal` steps.
     Board boardAt(int reveal) const;
@@ -39,29 +31,19 @@ struct Variation {
 class VariationController {
 public:
     void start(const Board& start, Color to_move);
-
-    // Play a move. Truncates any branch beyond the current cursor first.
     void commitStep(const Move& m, Color color, bool by_ai);
-
-    void appendExplanation(const std::string& delta);
-    void setExplanation(const std::string& text);
-    void finishExplanation();
-
-    // Advance to the next move. Returns true if now WaitingForMove.
-    bool confirmNext();
-    bool back();      // hide one step; false at the start
-    void replay();    // hide all steps
+    bool back();       // remove the last step; false when already empty
     void exit();
 
+    bool active() const { return active_; }
     const Variation& variation() const { return v_; }
-    VariationState state() const { return state_; }
-    Board board() const { return v_.boardAt(v_.cursor); }
+    Board board() const { return v_.boardAt(static_cast<int>(v_.steps.size())); }
     Color toMove() const;
-    const VariationStep* currentStep() const;
+    const VariationStep* lastStep() const;  // steps.back(), or nullptr
 
 private:
     Variation v_;
-    VariationState state_ = VariationState::Finished;
+    bool active_ = false;
 };
 
 }  // namespace vgo
