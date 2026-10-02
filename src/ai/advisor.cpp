@@ -99,22 +99,25 @@ void AiAdvisor::evaluateMove(const Game& game, const Point& p, MoveEvaluator::Ca
 
 void AiAdvisor::handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb) {
     const Game snapshot = game;
-    Point p{-1, -1};
+    const int gen = ++generation_;
+    const auto deliver = [this, gen, snapshot, question, cb](const MoveEvaluation& e) {
+        if (gen != generation_) return;
+        GroundedFacts f = currentFacts(snapshot);
+        f.move_eval = e;
+        deliverAnswer(snapshot, question, std::move(f), cb);
+    };
     const PointMatch m = findPointInQuestion(question, game.size());
-    if (m.found) p = m.p;
-    else if (game.has_last_move()) p = game.last_move();
-    if (p.x < 0) {
-        deliverAnswer(snapshot, question, currentFacts(snapshot), cb);
+    if (m.found) {
+        // 提问中明确给了落点：作为「假想手」在副本上试下再评估。
+        evaluator()->evaluate(snapshot, m.p, deliver);
         return;
     }
-    const int gen = ++generation_;
-    evaluator()->evaluate(snapshot, p,
-                          [this, gen, snapshot, question, cb](const MoveEvaluation& e) {
-                              if (gen != generation_) return;
-                              GroundedFacts f = currentFacts(snapshot);
-                              f.move_eval = e;
-                              deliverAnswer(snapshot, question, std::move(f), cb);
-                          });
+    if (game.has_last_move()) {
+        // 无落点：评估「最近一手」（已在棋盘上，撤掉再比较前后）。
+        evaluator()->evaluateLastMove(snapshot, deliver);
+        return;
+    }
+    deliverAnswer(snapshot, question, currentFacts(snapshot), cb);
 }
 
 void AiAdvisor::handleLifeDeath(const Game& game, const std::string& question, ReplyCb cb) {

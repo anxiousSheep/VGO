@@ -163,10 +163,13 @@ std::string boardToAscii(const Board& board) {
 std::string renderMoveEvaluation(const MoveEvaluation& e, int size) {
     if (!e.legal) return "这个点不能落子（已占 / 自杀 / 打劫）。";
     if (!e.valid) return "未接入 KataGo，我无法量化评估这一步棋的得失。";
+    const char* side = (e.mover == Color::Black)   ? "黑方"
+                       : (e.mover == Color::White) ? "白方"
+                                                   : "落子方";
     const double dw = (e.winrate_after - e.winrate_before) * 100.0;
     const double dl = e.lead_after - e.lead_before;
     std::ostringstream os;
-    os << "若在 " << gtpPoint(e.p, size) << " 落子，你的胜率从 " << std::fixed
+    os << "若在 " << gtpPoint(e.p, size) << " 落子，" << side << "胜率从 " << std::fixed
        << std::setprecision(1) << e.winrate_before * 100.0 << "% 变为 "
        << e.winrate_after * 100.0 << "%";
     if (dw >= 0.05) os << "（升 " << std::abs(dw) << " 个百分点）";

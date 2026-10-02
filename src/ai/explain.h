@@ -35,6 +35,7 @@ struct MoveEvaluation {
     double winrate_after = 0.0;
     double lead_before = 0.0;     // points the mover leads by (mover perspective)
     double lead_after = 0.0;
+    Color mover = Color::Empty;   // who made the move (Black/White; Empty=unknown)
     std::string note;             // e.g. "非法落子（该点不可下）"
 };
 

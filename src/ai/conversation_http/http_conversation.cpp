@@ -16,17 +16,35 @@ namespace vgo {
 
 namespace {
 
-QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls, int level) {
-    QString s = QStringLiteral(
-        "你是一位耐心、友善的围棋老师，在陪一位棋手对弈。\n"
-        "重要约束：你只能依据下面提供的事实（棋盘、目数、落点评估、死活结论）作答，"
-        "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n"
-        "回答要简短、口语化、面向棋手，用中文。");
-    // M3b.4：难度 ↔ 语气联动——级别越低讲解越细致，级别越高越简洁。
-    if (level <= 6) {
-        s += QStringLiteral("对方是初学者，请把术语解释清楚、多给一点思路引导。\n");
-    } else if (level >= 12) {
-        s += QStringLiteral("对方水平较高，直接、简洁地给出要点即可，不必解释基础术语。\n");
+QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
+                          const ConversationRequest& req) {
+    QString s;
+    if (req.user_color != Color::Empty) {
+        // 人机对弈：有明确立场（用户执黑/白），从「对方」视角教学。
+        s = QStringLiteral(
+            "你是一位耐心、友善的围棋老师，在陪一位棋手对弈。\n"
+            "重要约束：你只能依据下面提供的事实（棋盘、目数、落点评估、死活结论）作答，"
+            "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n"
+            "回答要简短、口语化、面向棋手，用中文。");
+        // M3b.4：难度 ↔ 语气联动——级别越低讲解越细致，级别越高越简洁。
+        if (req.profile.level <= 6) {
+            s += QStringLiteral("对方是初学者，请把术语解释清楚、多给一点思路引导。\n");
+        } else if (req.profile.level >= 12) {
+            s += QStringLiteral("对方水平较高，直接、简洁地给出要点即可，不必解释基础术语。\n");
+        }
+    } else {
+        // 摆棋模式：无立场，从用户提问角度 / 棋盘实际情况出发，以黑方/白方称呼双方。
+        s = QStringLiteral(
+            "你是一位客观的围棋分析师，协助用户分析棋局。\n"
+            "重要约束：你只能依据下面提供的事实（棋盘、目数、落点评估、死活结论）作答，"
+            "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n"
+            "你没有立场：不要预设用户执黑或执白，一律从用户提问的角度、以黑方/白方称呼双方作答。\n"
+            "回答要简短、口语化、用中文。");
+        if (req.profile.level <= 6) {
+            s += QStringLiteral("用户可能是初学者，请把术语解释清楚、多给一点思路引导。\n");
+        } else if (req.profile.level >= 12) {
+            s += QStringLiteral("用户水平较高，直接、简洁地给出要点即可。\n");
+        }
     }
     // N4：按问题类型注入匹配的领域知识包。
     for (const Skill* sk : skills.forQuestion(cls)) {
@@ -147,7 +165,7 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
 
     const QuestionClass cls = classifyQuestion(req.question);
     const QJsonObject body =
-        buildBody(model_, false, buildSystemPrompt(skills_, cls, req.profile.level),
+        buildBody(model_, false, buildSystemPrompt(skills_, cls, req),
                   buildUserPrompt(req));
 
     QNetworkRequest request(url);
@@ -193,7 +211,7 @@ void HttpConversationService::answerStream(const ConversationRequest& req, Delta
 
     const QuestionClass cls = classifyQuestion(req.question);
     const QJsonObject body =
-        buildBody(model_, true, buildSystemPrompt(skills_, cls, req.profile.level),
+        buildBody(model_, true, buildSystemPrompt(skills_, cls, req),
                   buildUserPrompt(req));
 
     QNetworkRequest request(url);

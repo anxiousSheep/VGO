@@ -25,6 +25,7 @@ struct ConversationReply;
 struct Analysis;
 struct MoveEvaluation;
 struct GroundedFacts;
+struct DemoRequest;
 }
 
 // Main window: holds the current game (a placement Game, or an AIMatchController
@@ -57,6 +58,8 @@ private slots:
     void onDemoAiMove();
     void onDemoUndo();
     void onDemoExit();
+    void demoAiContinue(int plies);                       // 权威 AI 连续续下 plies 手
+    void startDemoFromQuestion(const vgo::DemoRequest& dr);  // 提问触发演示（N2.2）
 
     // 教学增强（M3b）
     void onBlunderToggled(bool on);

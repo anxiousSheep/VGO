@@ -142,9 +142,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tb->addAction(toggleChatAction_);
 
     // 棋盘演示（N2）：一个可开关的演示态，含独立演示面板（底部 dock）。
-    demoAction_ = new QAction(QStringLiteral("演示"), this);
+    demoAction_ = new QAction(QStringLiteral("演示/试下"), this);
     demoAction_->setCheckable(true);
-    demoAction_->setToolTip(QStringLiteral("进入/退出棋盘演示（不改变真实对局）"));
+    demoAction_->setToolTip(QStringLiteral("进入/退出棋盘演示（试下，不改变真实对局）"));
     connect(demoAction_, &QAction::toggled, this, &MainWindow::onDemoToggled);
     gameMenu->insertAction(actQuit, demoAction_);
     gameMenu->insertSeparator(actQuit);
@@ -170,7 +170,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             &MainWindow::onDemoUndo);
     connect(variation_panel_, &vgo::VariationPanel::exitRequested, this,
             &MainWindow::onDemoExit);
-    demo_dock_ = new QDockWidget(QStringLiteral("棋盘演示"), this);
+    demo_dock_ = new QDockWidget(QStringLiteral("棋盘演示 / 试下"), this);
     demo_dock_->setObjectName(QStringLiteral("demoDock"));
     demo_dock_->setWidget(variation_panel_);
     demo_dock_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
@@ -545,6 +545,14 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
 
 void MainWindow::onChatMessage(const QString& text) {
     const std::string q = text.toStdString();
+    // N2.2：提问触发演示——「如果白棋在H6长出，黑棋后面几步该如何应对」。
+    if (usingKata() && currentGame()) {
+        const vgo::DemoRequest dr = vgo::parseDemoRequest(q, currentGame()->size());
+        if (dr.valid) {
+            startDemoFromQuestion(dr);
+            return;
+        }
+    }
     // 形势类提问（谁领先/形势）走 analyzePosition：一次引擎调用同时产出
     // 领地热力 + 领先目数，避免与文本问答争抢单飞引擎。同时打开形势开关，
     // 让热力图继续随落子自动刷新。
@@ -771,7 +779,11 @@ void MainWindow::updateVariationBoard() {
 }
 
 void MainWindow::onDemoAiMove() {
-    if (!demo_active_) return;
+    demoAiContinue(1);
+}
+
+void MainWindow::demoAiContinue(int plies) {
+    if (!demo_active_ || plies <= 0) return;
     vgo::EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
     if (!eng) {
         status_->setText(QStringLiteral("未接入 KataGo，无法 AI 演示"));
@@ -782,7 +794,7 @@ void MainWindow::onDemoAiMove() {
     // 与形势判断同源：同一引擎 + 同一强度档位（设置里「形势分析 / 教学演示强度」）。
     const int demo_level = vgo::ModelManager::instance().analysisLevel();
     eng->requestMove(req_board, to_move, vgo::strengthForLevel(demo_level),
-                     [this, req_board, to_move](vgo::EngineResult r) {
+                     [this, plies, req_board, to_move](vgo::EngineResult r) {
                          if (!demo_active_) return;
                          if (r.move.is_pass) {
                              variation_.commitStep(vgo::Move{{-1, -1}, true}, to_move, true);
@@ -795,7 +807,49 @@ void MainWindow::onDemoAiMove() {
                              variation_.commitStep(r.move, to_move, true);
                          }
                          updateVariationBoard();
+                         // 连续演示后续几步，短暂停顿让用户看清每一手。
+                         if (plies > 1) {
+                             QTimer::singleShot(450, this,
+                                                [this, plies] { demoAiContinue(plies - 1); });
+                         }
                      });
+}
+
+void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
+    vgo::Game* g = currentGame();
+    if (!g) return;
+    // 进入（或重置）试下，起点为真实对局当前局面。
+    if (!demo_active_) {
+        variation_.start(g->board(), g->current());
+        demo_active_ = true;
+        demo_dock_->setVisible(true);
+        if (advisor_) advisor_->noteAnalysis(vgo::Analysis{});
+        QSignalBlocker b(demoAction_);
+        demoAction_->setChecked(true);
+    } else {
+        variation_.start(g->board(), g->current());
+    }
+    // 放置提问中的假设手（如「白在 H6 长出」）。
+    const vgo::Board b = variation_.board();
+    if (!b.in_bounds(dr.point.x, dr.point.y) ||
+        b.at(dr.point.x, dr.point.y) != vgo::Color::Empty) {
+        status_->setText(QStringLiteral("试下：该位置无法落子"));
+        return;
+    }
+    vgo::Game probe(b, dr.color);
+    if (!probe.play(dr.point.x, dr.point.y)) {
+        status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
+        return;
+    }
+    variation_.commitStep(vgo::Move{dr.point, false}, dr.color, false);
+    updateVariationBoard();
+    const QString side = (dr.color == vgo::Color::Black) ? QStringLiteral("黑") : QStringLiteral("白");
+    const QString resp = (dr.color == vgo::Color::Black) ? QStringLiteral("白") : QStringLiteral("黑");
+    appendAi(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
+                 .arg(side)
+                 .arg(QString::fromStdString(vgo::gtpPoint(dr.point, g->size())))
+                 .arg(resp));
+    demoAiContinue(4);  // 演示后续几步（黑应、白再走、黑再应…）
 }
 
 void MainWindow::onDemoUndo() {

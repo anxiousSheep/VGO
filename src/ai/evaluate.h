@@ -20,6 +20,18 @@ struct PointMatch {
 // `size` is the board size, used to bound the coordinate range.
 PointMatch findPointInQuestion(const std::string& text, int size);
 
+// A "demonstrate how to respond" request, e.g. "如果白棋在H6长出，黑棋后面几步
+// 该如何应对". `color` is who plays the proposed move.
+struct DemoRequest {
+    bool valid = false;
+    Point point{-1, -1};
+    Color color = Color::Empty;
+};
+
+// Detect a demo request: a proposed move (point + color) plus a continuation
+// intent ("应对/后面几步/接下来…"). Pure and unit-testable (N2.2).
+DemoRequest parseDemoRequest(const std::string& text, int size);
+
 // Pure: fill mover-perspective winrate/lead before/after from two analyses.
 MoveEvaluation computeMoveEvaluation(const MoveEvaluation& in,
                                      const Analysis& before, Color before_to_move,
@@ -35,6 +47,12 @@ public:
 
     explicit MoveEvaluator(EngineInterface* engine);
     void evaluate(const Game& game, const Point& p, Callback cb);
+
+    // Evaluate the move already played (game.last_move()): undo it to obtain the
+    // "before" position and compare against the current position. This is the
+    // correct semantics for "这步怎么样" (a move that is already on the board).
+    void evaluateLastMove(const Game& game, Callback cb);
+
     void cancel();
 
 private:

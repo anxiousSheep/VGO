@@ -53,6 +53,7 @@ TEST(compute_move_evaluation_perspective) {
         computeMoveEvaluation(in, validAnalysis(0.55, 2.0), Color::Black,
                               validAnalysis(0.40, -1.0), Color::White, Color::Black);
     CHECK(e.valid);
+    CHECK(e.mover == Color::Black);
     CHECK(std::abs(e.winrate_before - 0.55) < 1e-9);
     CHECK(std::abs(e.winrate_after - 0.60) < 1e-9);  // 1 - 0.40
     CHECK(std::abs(e.lead_before - 2.0) < 1e-9);
@@ -135,11 +136,58 @@ TEST(render_move_evaluation_and_hint) {
     e.winrate_after = 0.40;
     e.lead_before = 2.0;
     e.lead_after = -1.0;
+    e.mover = Color::Black;
     const std::string s = renderMoveEvaluation(e, 9);
     CHECK(!s.empty());
     CHECK(s.find("55") != std::string::npos);
     CHECK(s.find("40") != std::string::npos);
+    CHECK(s.find("黑方") != std::string::npos);  // 无立场：以黑方/白方称呼，不再用「你」
 
     CHECK_EQ(moveHint({0, 0}, 9), std::string("往左上方向看"));
     CHECK_EQ(moveHint({8, 8}, 9), std::string("往右下方向看"));
+}
+
+TEST(parse_demo_request) {
+    const DemoRequest dr = parseDemoRequest("如果白棋在H6长出，黑棋后面几步该如何应对", 9);
+    CHECK(dr.valid);
+    CHECK(dr.color == Color::White);
+    CHECK_EQ(dr.point.x, 7);  // H
+    CHECK_EQ(dr.point.y, 3);  // row 6
+
+    // 无「应对/后面」意图 → 不是演示请求
+    CHECK(!parseDemoRequest("白棋下H6好不好", 9).valid);
+
+    // 黑方提出假设手，白方应对
+    const DemoRequest dr2 = parseDemoRequest("黑棋在C3长，白棋怎么应对", 9);
+    CHECK(dr2.valid);
+    CHECK(dr2.color == Color::Black);
+    CHECK_EQ(dr2.point.x, 2);  // C
+    CHECK_EQ(dr2.point.y, 6);  // row 3
+
+    // 无落点 → 不是演示请求
+    CHECK(!parseDemoRequest("白棋后面几步该怎么下", 9).valid);
+}
+
+TEST(move_evaluator_last_move) {
+    ScriptedAnalyzeEngine eng;
+    eng.analyses = {validAnalysis(0.55, 2.0), validAnalysis(0.40, -1.0)};
+    MoveEvaluator ev(&eng);
+    Game g(9);
+    g.play(3, 3);  // 黑下，轮到白
+
+    MoveEvaluation got;
+    bool done = false;
+    ev.evaluateLastMove(g, [&](const MoveEvaluation& e) {
+        got = e;
+        done = true;
+    });
+    CHECK(done);
+    CHECK(got.legal);
+    CHECK(got.valid);
+    CHECK(got.mover == Color::Black);
+    CHECK_EQ(got.p.x, 3);
+    CHECK_EQ(got.p.y, 3);
+    CHECK(std::abs(got.winrate_before - 0.55) < 1e-9);
+    CHECK(std::abs(got.winrate_after - 0.60) < 1e-9);  // 黑方视角 1 - 0.40
+    CHECK_EQ(eng.calls, 2);
 }
