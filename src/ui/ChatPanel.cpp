@@ -3,10 +3,44 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextDocumentFragment>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
 namespace vgo {
+
+namespace {
+
+// Render a markdown string (as produced by the LLM) into a document fragment
+// using Qt's built-in GitHub-flavoured markdown parser, so the AI reply shows
+// headings / bold / lists / code blocks instead of raw markdown source.
+QTextDocumentFragment markdownFragment(const QString& markdown) {
+    QTextDocument doc;
+    doc.setMarkdown(markdown);
+    return QTextDocumentFragment(&doc);
+}
+
+// Append one chat message: a bold "<label>：" header followed by the content,
+// rendered as markdown when `markdown` is true and plain text otherwise. Each
+// message ends on its own paragraph so consecutive messages stay separated.
+void appendMessage(QTextEdit* log, const QString& label, const QString& text,
+                   bool markdown) {
+    QTextCursor cursor(log->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.beginEditBlock();
+    cursor.insertHtml(QStringLiteral("<b>%1：</b>").arg(label.toHtmlEscaped()));
+    if (markdown)
+        cursor.insertFragment(markdownFragment(text));
+    else
+        cursor.insertText(text);
+    cursor.insertBlock();
+    cursor.endEditBlock();
+    log->ensureCursorVisible();
+}
+
+}  // namespace
 
 ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
     log_ = new QTextEdit(this);
@@ -56,35 +90,48 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
 }
 
 void ChatPanel::appendHuman(const QString& text) {
-    log_->append(QStringLiteral("<b>你：</b>") + text.toHtmlEscaped());
+    appendMessage(log_, QStringLiteral("你"), text, /*markdown=*/false);
 }
 
 void ChatPanel::appendAi(const QString& text) {
-    log_->append(QStringLiteral("<b>AI：</b>") + text.toHtmlEscaped());
+    appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/true);
 }
 
 void ChatPanel::clear() {
     log_->clear();
+    stream_buffer_.clear();
     streaming_ = false;
 }
 
 void ChatPanel::beginAiStream() {
-    stream_cursor_ = QTextCursor(log_->document());
-    stream_cursor_.movePosition(QTextCursor::End);
-    stream_cursor_.insertHtml(QStringLiteral("<b>AI：</b>"));
+    stream_buffer_.clear();
+    QTextCursor cursor(log_->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertHtml(QStringLiteral("<b>AI：</b>"));
+    stream_content_pos_ = cursor.position();
     streaming_ = true;
 }
 
 void ChatPanel::appendAiStream(const QString& text) {
     if (!streaming_) beginAiStream();
-    stream_cursor_.insertText(text);
+    stream_buffer_ += text;
+    // Show raw text as it arrives; it is replaced with rendered markdown in endAiStream().
+    QTextCursor cursor(log_->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText(text);
     log_->ensureCursorVisible();
 }
 
 void ChatPanel::endAiStream() {
     if (!streaming_) return;
-    stream_cursor_.insertBlock();
+    QTextCursor cursor(log_->document());
+    cursor.setPosition(stream_content_pos_);
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    cursor.removeSelectedText();
+    cursor.insertFragment(markdownFragment(stream_buffer_));
+    cursor.insertBlock();
     streaming_ = false;
+    stream_buffer_.clear();
 }
 
 }  // namespace vgo

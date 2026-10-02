@@ -1,6 +1,5 @@
 #pragma once
 
-#include <QTextCursor>
 #include <QWidget>
 
 class QLineEdit;
@@ -33,7 +32,8 @@ signals:
 private:
     QTextEdit* log_ = nullptr;
     QLineEdit* input_ = nullptr;
-    QTextCursor stream_cursor_;
+    QString stream_buffer_;
+    int stream_content_pos_ = 0;
     bool streaming_ = false;
 };
 
