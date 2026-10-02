@@ -259,6 +259,13 @@ void MainWindow::createAiServices(int level) {
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
     loadSkills();  // N4：按问题类型注入围棋知识包（可从 skills/ 目录热更）
+    // 给 LLM 挂上「打开演示并模拟下棋」的工具（function-calling），让模型自己决定
+    // 何时演示、演示哪一手（解析自然语言），而非靠关键词。
+    if (auto* h = dynamic_cast<vgo::HttpConversationService*>(conversation_)) {
+        h->setToolHandler([this](const QString& name, const QJsonObject& args) {
+            return handleDemoTool(name, args);
+        });
+    }
 
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
@@ -818,6 +825,18 @@ void MainWindow::demoAiContinue(int plies) {
 void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     vgo::Game* g = currentGame();
     if (!g) return;
+    runDemoTool(dr.point, dr.color, 4);
+    const QString side = (dr.color == vgo::Color::Black) ? QStringLiteral("黑") : QStringLiteral("白");
+    const QString resp = (dr.color == vgo::Color::Black) ? QStringLiteral("白") : QStringLiteral("黑");
+    appendAi(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
+                 .arg(side)
+                 .arg(QString::fromStdString(vgo::gtpPoint(dr.point, g->size())))
+                 .arg(resp));
+}
+
+std::string MainWindow::runDemoTool(vgo::Point p, vgo::Color color, int plies) {
+    vgo::Game* g = currentGame();
+    if (!g) return "当前没有棋局";
     // 进入（或重置）试下，起点为真实对局当前局面。
     if (!demo_active_) {
         variation_.start(g->board(), g->current());
@@ -829,27 +848,45 @@ void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     } else {
         variation_.start(g->board(), g->current());
     }
-    // 放置提问中的假设手（如「白在 H6 长出」）。
-    const vgo::Board b = variation_.board();
-    if (!b.in_bounds(dr.point.x, dr.point.y) ||
-        b.at(dr.point.x, dr.point.y) != vgo::Color::Empty) {
-        status_->setText(QStringLiteral("试下：该位置无法落子"));
-        return;
+    std::string summary = "已进入试下模式";
+    if (p.x >= 0) {
+        const vgo::Color play = (color == vgo::Color::Empty) ? variation_.toMove() : color;
+        const vgo::Board b = variation_.board();
+        if (!b.in_bounds(p.x, p.y) || b.at(p.x, p.y) != vgo::Color::Empty) {
+            status_->setText(QStringLiteral("试下：该位置无法落子"));
+            return summary + "，但该位置无法落子";
+        }
+        vgo::Game probe(b, play);
+        if (!probe.play(p.x, p.y)) {
+            status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
+            return summary + "，但该位置不能落子（自杀/打劫）";
+        }
+        variation_.commitStep(vgo::Move{p, false}, play, false);
+        summary += "，落" + std::string(play == vgo::Color::Black ? "黑" : "白") + " " +
+                   vgo::gtpPoint(p, g->size());
     }
-    vgo::Game probe(b, dr.color);
-    if (!probe.play(dr.point.x, dr.point.y)) {
-        status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
-        return;
-    }
-    variation_.commitStep(vgo::Move{dr.point, false}, dr.color, false);
     updateVariationBoard();
-    const QString side = (dr.color == vgo::Color::Black) ? QStringLiteral("黑") : QStringLiteral("白");
-    const QString resp = (dr.color == vgo::Color::Black) ? QStringLiteral("白") : QStringLiteral("黑");
-    appendAi(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
-                 .arg(side)
-                 .arg(QString::fromStdString(vgo::gtpPoint(dr.point, g->size())))
-                 .arg(resp));
-    demoAiContinue(4);  // 演示后续几步（黑应、白再走、黑再应…）
+    if (plies < 1) plies = 1;
+    if (plies > 8) plies = 8;
+    demoAiContinue(plies);
+    summary += "，权威 AI 正在续下后续应对";
+    return summary;
+}
+
+std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& args) {
+    if (name != QStringLiteral("demonstrate_go_moves")) return "未知工具";
+    vgo::Point p{-1, -1};
+    const QString pt = args["point"].toString();
+    if (!pt.isEmpty() && currentGame()) {
+        vgo::Point parsed;
+        if (vgo::gtpParsePoint(pt.toStdString(), currentGame()->size(), &parsed)) p = parsed;
+    }
+    vgo::Color color = vgo::Color::Empty;
+    const QString c = args["color"].toString().toLower();
+    if (c == "black") color = vgo::Color::Black;
+    else if (c == "white") color = vgo::Color::White;
+    const int plies = args["plies"].toInt(4);
+    return runDemoTool(p, color, plies);
 }
 
 void MainWindow::onDemoUndo() {

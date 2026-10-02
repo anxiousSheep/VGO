@@ -139,6 +139,45 @@ QJsonObject buildBody(const QString& model, bool stream, const QString& systemPr
     return body;
 }
 
+// The demo tool exposed to the model via function-calling. The model decides
+// when to call it and with which arguments (parsing natural language).
+QJsonArray buildTools() {
+    QJsonObject fn;
+    fn["name"] = "demonstrate_go_moves";
+    fn["description"] = QStringLiteral(
+        "在棋盘上演示走法：进入试下模式，可选地落一手假设手，并用权威 AI 续下若干手。"
+        "当用户要求演示、展示变化、模拟对局、询问后续应对或「后面几步怎么下」时调用。");
+
+    QJsonObject pPoint;
+    pPoint["type"] = "string";
+    pPoint["description"] = QStringLiteral("假设手的 GTP 坐标（如 H6）；无明确落点时为空字符串");
+    QJsonObject pColor;
+    pColor["type"] = "string";
+    pColor["enum"] = QJsonArray{"black", "white", ""};
+    pColor["description"] = QStringLiteral("假设手的执子方（black/white），无落点可省略");
+    QJsonObject pPlies;
+    pPlies["type"] = "integer";
+    pPlies["description"] = QStringLiteral("权威 AI 续下的手数，默认 4，范围 1-8");
+
+    QJsonObject props;
+    props["point"] = pPoint;
+    props["color"] = pColor;
+    props["plies"] = pPlies;
+
+    QJsonObject params;
+    params["type"] = "object";
+    params["properties"] = props;
+    fn["parameters"] = params;
+
+    QJsonObject tool;
+    tool["type"] = "function";
+    tool["function"] = fn;
+
+    QJsonArray tools;
+    tools.append(tool);
+    return tools;
+}
+
 }  // namespace
 
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
@@ -154,7 +193,20 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
         cb(ConversationReply{});
         return;
     }
+    const QuestionClass cls = classifyQuestion(req.question);
+    QJsonArray messages;
+    QJsonObject system;
+    system["role"] = "system";
+    system["content"] = buildSystemPrompt(skills_, cls, req);
+    messages.append(system);
+    QJsonObject user;
+    user["role"] = "user";
+    user["content"] = buildUserPrompt(req);
+    messages.append(user);
+    doChat(messages, 0, std::move(cb));
+}
 
+void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb) {
     QUrl url(baseUrl_);
     if (!url.path().endsWith("/chat/completions")) {
         QString path = url.path();
@@ -163,10 +215,11 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
         url.setPath(path);
     }
 
-    const QuestionClass cls = classifyQuestion(req.question);
-    const QJsonObject body =
-        buildBody(model_, false, buildSystemPrompt(skills_, cls, req),
-                  buildUserPrompt(req));
+    QJsonObject body;
+    body["model"] = model_;
+    body["messages"] = messages;
+    if (tool_handler_ && depth < 2) body["tools"] = buildTools();
+    body["stream"] = false;
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -174,25 +227,57 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
         request.setRawHeader("Authorization", ("Bearer " + apiKey_).toUtf8());
 
     reply_ = nam_.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
-    connect(reply_, &QNetworkReply::finished, this, [this, cb = std::move(cb)]() {
-        ConversationReply r;
-        if (reply_->error() == QNetworkReply::NoError) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply_->readAll());
-            const QString content = doc.object()["choices"]
-                                        .toArray()
-                                        .first()
-                                        .toObject()["message"]
-                                        .toObject()["content"]
-                                        .toString();
-            r.text = content.toStdString();
-        } else {
-            r.text = "（语言服务暂时不可用：" + reply_->errorString().toStdString() + "）";
-            r.unsure = true;
-        }
-        reply_->deleteLater();
-        reply_ = nullptr;
-        cb(std::move(r));
-    });
+    connect(reply_, &QNetworkReply::finished, this,
+            [this, messages, depth, cb = std::move(cb)]() mutable {
+                ConversationReply r;
+                if (reply_->error() != QNetworkReply::NoError) {
+                    r.text = "（语言服务暂时不可用：" + reply_->errorString().toStdString() + "）";
+                    r.unsure = true;
+                    reply_->deleteLater();
+                    reply_ = nullptr;
+                    cb(std::move(r));
+                    return;
+                }
+                const QJsonDocument doc = QJsonDocument::fromJson(reply_->readAll());
+                const QJsonObject msg = doc.object()["choices"]
+                                            .toArray()
+                                            .first()
+                                            .toObject()["message"]
+                                            .toObject();
+                const QJsonArray toolCalls = msg["tool_calls"].toArray();
+                const QString content = msg["content"].toString();
+                reply_->deleteLater();
+                reply_ = nullptr;
+
+                if (toolCalls.isEmpty() || !tool_handler_) {
+                    r.text = content.toStdString();
+                    cb(std::move(r));
+                    return;
+                }
+
+                // Execute the first tool call, then feed the result back and
+                // ask the model for the final natural-language answer.
+                const QJsonObject call = toolCalls.first().toObject();
+                const QString fnName = call["function"].toObject()["name"].toString();
+                const QJsonValue av = call["function"].toObject()["arguments"];
+                QJsonObject args;
+                if (av.isString()) args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
+                else if (av.isObject()) args = av.toObject();
+                const std::string result = tool_handler_(fnName, args);
+
+                QJsonArray next = messages;
+                QJsonObject assistantMsg;
+                assistantMsg["role"] = "assistant";
+                if (!content.isEmpty()) assistantMsg["content"] = content;
+                assistantMsg["tool_calls"] = toolCalls;
+                next.append(assistantMsg);
+                QJsonObject toolMsg;
+                toolMsg["role"] = "tool";
+                toolMsg["tool_call_id"] = call["id"].toString();
+                toolMsg["content"] = QString::fromStdString(result);
+                next.append(toolMsg);
+                doChat(next, depth + 1, std::move(cb));
+            });
 }
 
 void HttpConversationService::answerStream(const ConversationRequest& req, DeltaCallback cb) {

@@ -12,6 +12,7 @@
 class QLabel;
 class QAction;
 class QDockWidget;
+class QJsonObject;
 
 namespace vgo {
 class GobanWidget;
@@ -60,6 +61,9 @@ private slots:
     void onDemoExit();
     void demoAiContinue(int plies);                       // 权威 AI 连续续下 plies 手
     void startDemoFromQuestion(const vgo::DemoRequest& dr);  // 提问触发演示（N2.2）
+    // LLM 工具调用（function-calling）：模型可主动请求打开演示并落子/续下。
+    std::string handleDemoTool(const QString& name, const QJsonObject& args);
+    std::string runDemoTool(vgo::Point p, vgo::Color color, int plies);
 
     // 教学增强（M3b）
     void onBlunderToggled(bool on);
