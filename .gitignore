@@ -14,3 +14,6 @@
 
 # Local runtime config (may contain API keys)
 vgo_config.json
+
+# Release packaging artifacts
+/release/
