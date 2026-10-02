@@ -53,6 +53,8 @@ add_library(vgo_ai STATIC
     src/ai/skill.cpp
     src/ai/variation.h
     src/ai/variation.cpp
+    src/ai/record.h
+    src/ai/record.cpp
     src/ai/evaluate.h
     src/ai/evaluate.cpp
     src/ai/lifedeath.h
@@ -87,6 +89,7 @@ add_executable(vgo_ai_tests
     tests/test_variation.cpp
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
+    tests/test_record.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)

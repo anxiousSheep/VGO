@@ -85,10 +85,16 @@ QString buildUserPrompt(const ConversationRequest& req) {
         int shown = 0;
         for (const auto& c : req.facts.analysis.candidates) {
             if (shown >= 4) break;
-            s += QStringLiteral("  候选点 %1：胜率 %2%，领先 %3 目\n")
+            // 候选点的 winrate/score_lead 是「行棋方」视角；统一转成黑方视角，
+            // 与上方「形势」行的「黑方胜率/黑领先」口径一致，避免 LLM 混淆。
+            const double cWinrate =
+                (req.to_move == Color::Black) ? c.winrate : 1.0 - c.winrate;
+            const double cLead =
+                (req.to_move == Color::Black) ? c.score_lead : -c.score_lead;
+            s += QStringLiteral("  候选点 %1：黑方胜率 %2%，黑领先 %3 目\n")
                      .arg(QString::fromStdString(gtpPoint(c.p, req.size)))
-                     .arg(c.winrate * 100.0, 0, 'f', 1)
-                     .arg(c.score_lead, 0, 'f', 1);
+                     .arg(cWinrate * 100.0, 0, 'f', 1)
+                     .arg(cLead, 0, 'f', 1);
             ++shown;
         }
     }

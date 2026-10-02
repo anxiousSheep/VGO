@@ -44,9 +44,10 @@ EngineInterface* makeEngine(const QString& binary, const QString& stdModel,
                             const QString& humanModel, const QString& config, int level) {
     const StrengthParams sp = strengthForLevel(level);
     const bool useHuman = !sp.human_profile.empty() && !humanModel.isEmpty();
-    const QString model = useHuman ? humanModel : stdModel;
     const QString profile = useHuman ? QString::fromStdString(sp.human_profile) : QString();
-    auto* k = new KataGoEngine(binary, model, config, profile);
+    // 业余段：标准模型做搜索（-model），人类模型做选子（-human-model）。
+    auto* k = new KataGoEngine(binary, stdModel, config, profile,
+                               useHuman ? humanModel : QString());
     if (k->available()) return k;
     delete k;
     return nullptr;

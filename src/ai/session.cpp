@@ -77,6 +77,17 @@ void AIMatchController::beginAiTurn() {
 void AIMatchController::onAiResult(EngineResult r) {
     thinking_ = false;
 
+    // AI 主动认输（KataGo allowResignation 判定明显劣势）：直接结束对局。
+    if (r.move.is_resign && !game_.is_over() && !resigned_) {
+        ai_turn_ = false;
+        settle_proposed_ = false;
+        resigned_ = true;
+        if (onChanged) onChanged();  // 先刷新棋盘/状态，再提示认输（避免被 updateStatus 覆盖）
+        if (onAiResign) onAiResign();
+        if (onActivity) onActivity(AiActivity::Idle);
+        return;
+    }
+
     // 人类刚请求数目：AI 用这一手「评估」——虚着=同意终局，落子=拒绝并继续。
     if (settle_proposed_ && settle_proposer_ == human_color_) {
         settle_proposed_ = false;

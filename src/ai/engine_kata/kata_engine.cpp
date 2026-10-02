@@ -170,9 +170,10 @@ bool parseKataAnalysis(const QByteArray& text, int size, Color perspective, Anal
 }
 
 KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QString& config,
-                           const QString& human_profile, QObject* parent)
+                           const QString& human_profile, const QString& human_model,
+                           QObject* parent)
     : QObject(parent), binary_(binary), model_(model), config_(config),
-      human_profile_(human_profile) {
+      human_profile_(human_profile), human_model_(human_model) {
     start();
 }
 
@@ -201,10 +202,17 @@ void KataGoEngine::start() {
 
     QStringList args;
     args << QStringLiteral("gtp") << QStringLiteral("-model") << model_;
+    // HumanSL：标准模型负责搜索/评估，人类模型经 -human-model 传入负责选子。
+    // 若把人类模型直接当作 -model（普通网络）使用，humanSLProfile 不会生效。
+    if (!human_model_.isEmpty())
+        args << QStringLiteral("-human-model") << human_model_;
     if (!config_.isEmpty()) args << QStringLiteral("-config") << config_;
     // HumanSL 档位只能经 -override-config 下发（kata-set-param 不支持该配置项）。
+    // humanSLChosenMoveProp=1.0 表示按人类模型选子（否则该机制完全不参与选子）。
     if (!human_profile_.isEmpty())
-        args << QStringLiteral("-override-config") << (QStringLiteral("humanSLProfile=") + human_profile_);
+        args << QStringLiteral("-override-config")
+             << (QStringLiteral("humanSLProfile=") + human_profile_ +
+                 QStringLiteral(",humanSLChosenMoveProp=1.0,humanSLChosenMoveIgnorePass=true"));
     // 固定工作目录到 kata 二进制所在目录，使 OpenCL 调优缓存（KataGoData/）
     // 落盘位置稳定，首次调优后无需重复。
     proc_->setWorkingDirectory(QFileInfo(binary_).absolutePath());
@@ -261,9 +269,19 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
 
 void KataGoEngine::analyze(const Board& board, Color to_move,
                            const StrengthParams& params, AnalysisCallback cb) {
-    if (!available_ || busy()) {
+    // 落子请求在途时拒绝（落子优先）；但已有在途分析时改为「取消并重启」，
+    // 让最新局面的分析总能被受理，而不是返回空分析导致形势图停在「引擎忙」。
+    if (!available_ || pending_) {
         cb(Analysis{});
         return;
+    }
+    if (pending_analysis_) {
+        // 取消上一段分析：KataGo 会回一段残留输出（info/rootInfo/ownership + play
+        // cancelled），由 handleAnalyzeLine 在「play cancelled」处丢弃。
+        proc_->write("stop\n");
+        pending_analysis_ = nullptr;
+        pending_kind_ = PendingKind::None;
+        analysis_buffer_.clear();
     }
     pending_analysis_ = std::move(cb);
     pending_kind_ = PendingKind::Analyze;
@@ -334,11 +352,15 @@ void KataGoEngine::onStdout() {
             // 取消在途形势分析（kata-search_analyze_cancellable）后的残留输出，忽略。
             if (tok == "cancelled") continue;
             EngineResult r;
-            Point p;
-            if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {
-                r.move = {p, false};
+            if (tok == "resign") {
+                r.move.is_resign = true;  // KataGo 主动认输
             } else {
-                r.move.is_pass = true;
+                Point p;
+                if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {
+                    r.move = {p, false};
+                } else {
+                    r.move.is_pass = true;
+                }
             }
             if (!pending_candidates_.empty()) {
                 const MoveCandidate& best = pending_candidates_.front();
@@ -365,6 +387,8 @@ void KataGoEngine::onStdout() {
             EngineResult r;
             if (tok == "pass") {
                 r.move.is_pass = true;
+            } else if (tok == "resign") {
+                r.move.is_resign = true;
             } else {
                 Point p;
                 if (gtpParsePoint(QString::fromLatin1(tok).toStdString(), size_, &p)) {
@@ -400,6 +424,13 @@ void KataGoEngine::onStdout() {
 void KataGoEngine::handleAnalyzeLine(const QByteArray& line) {
     // Skip empty lines and the GTP ack ("=") that precedes the analysis text.
     if (line.isEmpty() || line == "=") return;
+
+    // 取消在途分析后的残留结束标志：清空在此之前累积的残留正文（被取消的那段
+    // 分析），下一段输出才是新分析的正文。
+    if (line == "play cancelled") {
+        analysis_buffer_.clear();
+        return;
+    }
 
     // Completion: the final "play <move>" line (kata-search_analyze reports the
     // chosen move without committing it), or a GTP error ("? ...").

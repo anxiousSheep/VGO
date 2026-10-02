@@ -31,6 +31,7 @@ public:
     ActivityCb onActivity;             // Thinking/Explaining/Idle
     std::function<void()> onCountProposed;  // AI 提议终局（需人类确认）
     std::function<void()> onSettled;        // 双方同意终局 / 智能裁判，可数子
+    std::function<void()> onAiResign;       // AI 主动认输（中盘明显劣势）
 
     AIMatchController(int size, Color human_color, EngineInterface* engine,
                       AiAdvisor* advisor, int level = 5);

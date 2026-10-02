@@ -122,6 +122,21 @@ bool Game::undo() {
     return true;
 }
 
+std::vector<std::pair<Color, Move>> Game::moves() const {
+    std::vector<std::pair<Color, Move>> out;
+    out.reserve(history_.size());
+    for (std::size_t i = 1; i < history_.size(); ++i) {
+        const State& s = history_[i];
+        const Color mover = opponent(s.current);  // current was advanced past the mover
+        if (s.has_last_move) {
+            out.emplace_back(mover, Move{s.last_move, false});
+        } else {
+            out.emplace_back(mover, Move{{-1, -1}, true});  // pass
+        }
+    }
+    return out;
+}
+
 std::vector<Point> Game::legal_moves() const {
     std::vector<Point> moves;
     const int n = size();

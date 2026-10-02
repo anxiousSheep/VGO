@@ -1,21 +1,28 @@
 #include "MainWindow.h"
 
 #include <QAction>
+#include <QAbstractButton>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
+#include <QVBoxLayout>
+
+#include <algorithm>
 
 #include "ChatPanel.h"
 #include "GobanWidget.h"
@@ -57,8 +64,37 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     vgo::ModelManager::instance().load();
 
     board_view_ = new vgo::GobanWidget(this);
-    setCentralWidget(board_view_);
     connect(board_view_, &vgo::GobanWidget::pointClicked, this, &MainWindow::onPointClicked);
+    setCentralWidget(board_view_);
+
+    // 三个同级标签页：摆棋 / 人机对弈 / 复盘（各自独立，不再经「新对局」选模式）。
+    mode_bar_ = new QTabBar(this);
+    mode_bar_->addTab(QStringLiteral("摆棋"));
+    mode_bar_->addTab(QStringLiteral("人机对弈"));
+    mode_bar_->addTab(QStringLiteral("复盘"));
+    mode_bar_->setExpanding(false);
+    connect(mode_bar_, &QTabBar::currentChanged, this, &MainWindow::onModeChanged);
+
+    // 顶部：菜单栏在上、标签栏在下。菜单栏手动创建并随标签栏放入同一个顶部容器，
+    // 经 setMenuWidget 置顶（取代默认 menuBar 的自动定位）。
+    auto* menubar = new QMenuBar(this);
+    auto* topWidget = new QWidget(this);
+    auto* topLayout = new QVBoxLayout(topWidget);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(0);
+    topLayout->addWidget(menubar);
+    topLayout->addWidget(mode_bar_);
+    setMenuWidget(topWidget);
+
+    // 尺寸微调：菜单栏（对局/视图/设置）稍小，标签栏稍大。
+    {
+        QFont menuFont = menubar->font();
+        menuFont.setPointSize(std::max(menuFont.pointSize() - 1, 6));
+        menubar->setFont(menuFont);
+        QFont tabFont = mode_bar_->font();
+        tabFont.setPointSize(tabFont.pointSize() + 2);
+        mode_bar_->setFont(tabFont);
+    }
 
     status_ = new QLabel(this);
     statusBar()->addWidget(status_, 1);
@@ -73,6 +109,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     dock_->setObjectName(QStringLiteral("aiChatDock"));
     dock_->setWidget(chat_);
     dock_->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+    // 保留全部特征（折叠 toggleViewAction 与拖拽调整大小依赖 Closable/Movable），
+    // 浮动/关闭按钮经样式表隐藏（见下方 setStyleSheet）。
+    dock_->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
+                       QDockWidget::DockWidgetFloatable);
     addDockWidget(Qt::RightDockWidgetArea, dock_);
     connect(chat_, &vgo::ChatPanel::messageSent, this, &MainWindow::onChatMessage);
     connect(chat_, &vgo::ChatPanel::newChatRequested, this, [this] {
@@ -80,14 +120,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
 
     // Menu: 对局 (new game + in-game actions), 视图 (AI panel), 设置 (models).
-    auto* actNew = new QAction(QStringLiteral("新对局…"), this);
-    actNew->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
-    auto* actPass = new QAction(QStringLiteral("虚着/停一手"), this);
-    auto* actCount = new QAction(QStringLiteral("请求数目"), this);
-    auto* actUndo = new QAction(QStringLiteral("悔棋"), this);
-    actUndo->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
-    auto* actResign = new QAction(QStringLiteral("认输"), this);
-    auto* actScore = new QAction(QStringLiteral("计分/终局"), this);
+    actNew_ = new QAction(QStringLiteral("新对局…"), this);
+    actNew_->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
+    actPass_ = new QAction(QStringLiteral("虚着/停一手"), this);
+    actCount_ = new QAction(QStringLiteral("请求数目"), this);
+    actUndo_ = new QAction(QStringLiteral("悔棋"), this);
+    actUndo_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
+    actResign_ = new QAction(QStringLiteral("认输"), this);
+    actScore_ = new QAction(QStringLiteral("计分/终局"), this);
+    saveAction_ = new QAction(QStringLiteral("保存棋谱"), this);
+    saveAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+S")));
+    importAction_ = new QAction(QStringLiteral("导入棋谱"), this);
+    importAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+O")));
+    prevAction_ = new QAction(QStringLiteral("上一步"), this);
+    prevAction_->setShortcut(QKeySequence(QStringLiteral("Left")));
+    nextAction_ = new QAction(QStringLiteral("下一步"), this);
+    nextAction_->setShortcut(QKeySequence(QStringLiteral("Right")));
     analyzeAction_ = new QAction(QStringLiteral("形势"), this);
     analyzeAction_->setCheckable(true);  // 手动开关：开=显示并随落子刷新，关=隐藏
     analyzeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
@@ -96,26 +144,36 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     auto* actSettings = new QAction(QStringLiteral("模型设置…"), this);
 
-    connect(actNew, &QAction::triggered, this, &MainWindow::newGame);
-    connect(actPass, &QAction::triggered, this, &MainWindow::onPass);
-    connect(actCount, &QAction::triggered, this, &MainWindow::onRequestCount);
-    connect(actUndo, &QAction::triggered, this, &MainWindow::onUndo);
-    connect(actResign, &QAction::triggered, this, &MainWindow::onResign);
-    connect(actScore, &QAction::triggered, this, &MainWindow::onScore);
+    connect(actNew_, &QAction::triggered, this, &MainWindow::newGame);
+    connect(actPass_, &QAction::triggered, this, &MainWindow::onPass);
+    connect(actCount_, &QAction::triggered, this, &MainWindow::onRequestCount);
+    connect(actUndo_, &QAction::triggered, this, &MainWindow::onUndo);
+    connect(actResign_, &QAction::triggered, this, &MainWindow::onResign);
+    connect(actScore_, &QAction::triggered, this, &MainWindow::onScore);
+    connect(saveAction_, &QAction::triggered, this, &MainWindow::saveRecord);
+    connect(importAction_, &QAction::triggered, this, &MainWindow::importReview);
+    connect(prevAction_, &QAction::triggered, this, [this] { stepReview(-1); });
+    connect(nextAction_, &QAction::triggered, this, [this] { stepReview(1); });
     connect(analyzeAction_, &QAction::toggled, this, &MainWindow::onAnalyzeToggled);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
     connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
-    QMenu* gameMenu = menuBar()->addMenu(QStringLiteral("对局"));
-    gameMenu->addAction(actNew);
+    QMenu* gameMenu = menubar->addMenu(QStringLiteral("对局"));
+    gameMenu->addAction(actNew_);
     gameMenu->addSeparator();
-    gameMenu->addAction(actUndo);
-    gameMenu->addAction(actPass);
-    gameMenu->addAction(actCount);
-    gameMenu->addAction(actResign);
+    gameMenu->addAction(actUndo_);
+    gameMenu->addAction(actPass_);
+    gameMenu->addAction(actCount_);
+    gameMenu->addAction(actResign_);
     gameMenu->addSeparator();
-    gameMenu->addAction(actScore);
+    gameMenu->addAction(actScore_);
     gameMenu->addAction(analyzeAction_);
+    gameMenu->addSeparator();
+    gameMenu->addAction(saveAction_);
+    gameMenu->addAction(importAction_);
+    gameMenu->addSeparator();
+    gameMenu->addAction(prevAction_);
+    gameMenu->addAction(nextAction_);
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
@@ -123,24 +181,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     toggleChatAction_->setText(QStringLiteral("AI 交流面板"));
     toggleChatAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+A")));
 
-    QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
+    QMenu* viewMenu = menubar->addMenu(QStringLiteral("视图"));
     viewMenu->addAction(toggleChatAction_);
 
-    QMenu* settingsMenu = menuBar()->addMenu(QStringLiteral("设置"));
+    QMenu* settingsMenu = menubar->addMenu(QStringLiteral("设置"));
     settingsMenu->addAction(actSettings);
 
     QToolBar* tb = addToolBar(QStringLiteral("工具"));
     tb->setMovable(false);
-    tb->addAction(actNew);
+    tb->addAction(actNew_);
     tb->addSeparator();
-    tb->addAction(actUndo);
-    tb->addAction(actPass);
-    tb->addAction(actCount);
-    tb->addAction(actResign);
-    tb->addAction(actScore);
+    tb->addAction(actUndo_);
+    tb->addAction(actPass_);
+    tb->addAction(actCount_);
+    tb->addAction(actResign_);
+    tb->addAction(actScore_);
     tb->addAction(analyzeAction_);
     tb->addSeparator();
-    tb->addAction(toggleChatAction_);
+    tb->addAction(saveAction_);
+    tb->addAction(importAction_);
+    tb->addSeparator();
+    tb->addAction(prevAction_);
+    tb->addAction(nextAction_);
 
     // 棋盘演示（N2）：一个可开关的演示态，含独立演示面板（底部 dock）。
     demoAction_ = new QAction(QStringLiteral("演示/试下"), this);
@@ -149,7 +211,21 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(demoAction_, &QAction::toggled, this, &MainWindow::onDemoToggled);
     gameMenu->insertAction(actQuit, demoAction_);
     gameMenu->insertSeparator(actQuit);
-    tb->addAction(demoAction_);
+
+    // 侧边工具栏（仿 IDEA 工具窗口栏，靠右）：AI 交流（上）、演示/试下（下）。
+    {
+        auto* sideBar = new QToolBar(QStringLiteral("侧边栏"), this);
+        sideBar->setObjectName(QStringLiteral("sideBar"));
+        sideBar->setMovable(false);
+        sideBar->setOrientation(Qt::Vertical);
+        sideBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        addToolBar(Qt::RightToolBarArea, sideBar);
+        sideBar->addAction(toggleChatAction_);
+        auto* spacer = new QWidget(sideBar);
+        spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        sideBar->addWidget(spacer);
+        sideBar->addAction(demoAction_);
+    }
 
     // 教学增强（M3b.2）：局中预警开关。
     blunderAction_ = new QAction(QStringLiteral("局中预警"), this);
@@ -175,8 +251,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     demo_dock_->setObjectName(QStringLiteral("demoDock"));
     demo_dock_->setWidget(variation_panel_);
     demo_dock_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    demo_dock_->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
+                            QDockWidget::DockWidgetFloatable);
     demo_dock_->setVisible(false);
     addDockWidget(Qt::BottomDockWidgetArea, demo_dock_);
+
+    // 隐藏浮动/关闭按钮（保留特征以便折叠/调整大小），分隔条保持默认样式。
+    setStyleSheet(QStringLiteral(
+        "QDockWidget::close-button, QDockWidget::float-button { max-width: 0px; max-height: 0px; }"));
 
     // 首次运行：未配置任何模型时，自动打开设置引导。
     if (!vgo::ModelManager::instance().onboardingDone() &&
@@ -189,6 +271,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     initial.mode = vgo::GameMode::Placement;
     initial.size = 9;
     applySetup(initial);
+    updateActionsForMode();
 }
 
 MainWindow::~MainWindow() {
@@ -196,7 +279,15 @@ MainWindow::~MainWindow() {
 }
 
 vgo::Game* MainWindow::currentGame() const {
-    return inAiMode() ? &controller_->game() : game_;
+    switch (app_mode_) {
+        case vgo::GameMode::HumanVsAi:
+            return controller_ ? &controller_->game() : nullptr;
+        case vgo::GameMode::Review:
+            return review_game_.get();
+        case vgo::GameMode::Placement:
+        default:
+            return game_;
+    }
 }
 
 void MainWindow::applySetup(const vgo::GameSetup& setup) {
@@ -211,35 +302,46 @@ void MainWindow::applySetup(const vgo::GameSetup& setup) {
 void MainWindow::createAiServices(int level) {
     const vgo::KataGoSettings& ks = vgo::ModelManager::instance().katago();
 
-    // 落子引擎按难度选模型：业余段（1-11）用人类风格模型 + humanSLProfile，
-    // 职业段（12-19）用标准模型 + 递增 visits（M3a.10 标定前置）。
+    // 落子引擎按难度选模型：业余段（1-11）用标准模型搜索 + 人类模型选子
+    // （-human-model + humanSLProfile），职业段（12-19）用标准模型 + 递增 visits。
     const vgo::StrengthParams sp = vgo::strengthForLevel(level);
     const bool useHuman = !sp.human_profile.empty() && !ks.humanModel.isEmpty() &&
                           QFileInfo::exists(ks.humanModel);
-    const QString moveModel = useHuman ? ks.humanModel : ks.model;
     const QString humanProfile = useHuman ? QString::fromStdString(sp.human_profile) : QString();
 
     engine_ = nullptr;
-    if (ks.enabled && !ks.binary.isEmpty() && !moveModel.isEmpty() &&
-        QFileInfo::exists(ks.binary) && QFileInfo::exists(moveModel)) {
-        auto* k = new vgo::KataGoEngine(ks.binary, moveModel, ks.config, humanProfile);
-        if (k->available()) {
-            engine_ = k;
-            connect(k, &vgo::KataGoEngine::statusMessage, this,
-                    [this](const QString& msg) { status_->setText(msg); });
+    const bool stdOk = ks.enabled && !ks.binary.isEmpty() && !ks.model.isEmpty() &&
+                       QFileInfo::exists(ks.binary) && QFileInfo::exists(ks.model);
+    if (stdOk) {
+        if (useHuman) {
+            auto* k = new vgo::KataGoEngine(ks.binary, ks.model, ks.config, humanProfile,
+                                            ks.humanModel);
+            if (k->available()) {
+                engine_ = k;
+                connect(k, &vgo::KataGoEngine::statusMessage, this,
+                        [this](const QString& msg) { status_->setText(msg); });
+            } else {
+                delete k;
+            }
         } else {
-            delete k;
+            auto* k = new vgo::KataGoEngine(ks.binary, ks.model, ks.config);
+            if (k->available()) {
+                engine_ = k;
+                connect(k, &vgo::KataGoEngine::statusMessage, this,
+                        [this](const QString& msg) { status_->setText(msg); });
+            } else {
+                delete k;
+            }
         }
     }
     if (!engine_) engine_ = new vgo::FallbackEngine();
 
     // 形势判断引擎：始终用标准模型满血（职业9段/超人类），与落子引擎解耦，保证
-    // 形势判断的正确性。落子已是标准模型时复用；业余段落子用了人类模型则另起一个。
+    // 形势判断的正确性。职业段（落子即标准模型）时复用；业余段则另起一个。
     analysis_engine_ = nullptr;
-    if (dynamic_cast<vgo::KataGoEngine*>(engine_) && moveModel == ks.model) {
+    if (dynamic_cast<vgo::KataGoEngine*>(engine_) && !useHuman) {
         analysis_engine_ = engine_;  // 复用（每次请求各自 kata-set-param maxVisits）
-    } else if (ks.enabled && !ks.binary.isEmpty() && !ks.model.isEmpty() &&
-               QFileInfo::exists(ks.binary) && QFileInfo::exists(ks.model)) {
+    } else if (stdOk) {
         auto* ak = new vgo::KataGoEngine(ks.binary, ks.model, ks.config);
         if (ak->available()) {
             analysis_engine_ = ak;
@@ -290,8 +392,12 @@ void MainWindow::createAiServices(int level) {
 }
 
 void MainWindow::startPlacement(int size) {
-    teardown();
-    createAiServices(setup_.level);
+    if (demo_active_) exitDemo();
+    delete game_;
+    game_ = nullptr;
+    // AI 服务跨模式共享：仅首次创建；已有则沿用并重置语气档位。
+    if (!advisor_) createAiServices(setup_.level);
+    else advisor_->setLevel(setup_.level);
     game_ = new vgo::Game(size);
     resigned_ = false;
     chat_->clear();
@@ -301,9 +407,13 @@ void MainWindow::startPlacement(int size) {
 }
 
 void MainWindow::startAi(const vgo::GameSetup& setup) {
-    teardown();
+    if (demo_active_) exitDemo();
+    blunders_.clear();
+    if (analyzeAction_) analyzeAction_->setChecked(false);
+    delete controller_;
+    controller_ = nullptr;
+    teardownServices();  // 按新难度重建落子引擎与 advisor
     createAiServices(setup.level);
-    game_ = nullptr;
 
     controller_ = new vgo::AIMatchController(setup.size, setup.human_color, engine_,
                                              advisor_, setup.level);
@@ -322,6 +432,18 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     };
     controller_->onCountProposed = [this] { promptConfirmSettle(); };
     controller_->onSettled = [this] { onScore(); };
+    controller_->onAiResign = [this] {
+        appendAi(QStringLiteral("我认输了，你（%1方）获胜。").arg(colorName(setup_.human_color)));
+        status_->setText(QStringLiteral("AI 认输，你获胜"));
+        // AI 认输弹窗：附带「保存棋谱」。
+        QMessageBox box(this);
+        box.setWindowTitle(QStringLiteral("AI 认输"));
+        box.setText(QStringLiteral("AI 认输，你（%1方）获胜。").arg(colorName(setup_.human_color)));
+        auto* save = box.addButton(QStringLiteral("保存棋谱"), QMessageBox::ActionRole);
+        box.addButton(QMessageBox::Ok);
+        box.exec();
+        if (box.clickedButton() == save) saveRecord();
+    };
 
     chat_->clear();
     if (setup.nigiri) {
@@ -338,13 +460,24 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
 }
 
 void MainWindow::teardown() {
-    // 新对局：退出演示态、清空复盘记录。
     if (demo_active_) exitDemo();
     blunders_.clear();
-    // 新对局重置形势开关为关（toggled(false) 会清空显示并取消在途分析）。
     if (analyzeAction_) analyzeAction_->setChecked(false);
     delete controller_;
     controller_ = nullptr;
+    delete game_;
+    game_ = nullptr;
+    review_game_.reset();
+    review_record_ = vgo::GameRecord{};
+    review_cursor_ = 0;
+    teardownServices();
+    board_view_->setHighlight({});
+    board_view_->setCandidates({});
+    board_view_->setOwnership({});
+    if (scoreStatus_) scoreStatus_->clear();
+}
+
+void MainWindow::teardownServices() {
     delete advisor_;
     advisor_ = nullptr;
     if (analysis_engine_ && analysis_engine_ != engine_) delete analysis_engine_;
@@ -353,16 +486,15 @@ void MainWindow::teardown() {
     engine_ = nullptr;
     delete conversation_;
     conversation_ = nullptr;
-    delete game_;
-    game_ = nullptr;
-    board_view_->setHighlight({});
-    board_view_->setCandidates({});
-    board_view_->setOwnership({});
-    if (scoreStatus_) scoreStatus_->clear();
 }
 
 void MainWindow::newGame() {
-    NewGameDialog dlg(this);
+    if (app_mode_ == vgo::GameMode::Review) {
+        importReview();
+        return;
+    }
+    const bool human = (app_mode_ == vgo::GameMode::HumanVsAi);
+    NewGameDialog dlg(human, this);
     if (dlg.exec() == QDialog::Accepted) applySetup(dlg.setup());
 }
 
@@ -381,10 +513,124 @@ void MainWindow::updateModelStatus() {
                               .arg(km.katagoStatusText(), km.llmStatusText()));
 }
 
+void MainWindow::onModeChanged(int index) {
+    if (demo_active_) exitDemo();
+    switch (index) {
+        case 0: app_mode_ = vgo::GameMode::Placement; break;
+        case 1: app_mode_ = vgo::GameMode::HumanVsAi; break;
+        case 2: app_mode_ = vgo::GameMode::Review; break;
+        default: return;
+    }
+    refresh();
+    updateActionsForMode();
+}
+
+void MainWindow::loadReview(const vgo::GameRecord& r) {
+    review_record_ = r;
+    review_cursor_ = 0;
+    rebuildReviewGame();
+    refresh();
+    updateActionsForMode();
+}
+
+void MainWindow::rebuildReviewGame() {
+    review_game_ =
+        std::make_unique<vgo::Game>(vgo::recordToGame(review_record_, review_cursor_));
+}
+
+void MainWindow::stepReview(int delta) {
+    if (app_mode_ != vgo::GameMode::Review || review_record_.moves.empty()) return;
+    const int n = static_cast<int>(review_record_.moves.size());
+    review_cursor_ = std::clamp(review_cursor_ + delta, 0, n);
+    rebuildReviewGame();
+    refresh();
+    updateActionsForMode();
+}
+
+void MainWindow::importReview() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("导入棋谱"), QString(),
+        QStringLiteral("VGO 棋谱 (*.vgo);;所有文件 (*)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, QStringLiteral("导入棋谱"),
+                             QStringLiteral("无法打开文件：%1").arg(path));
+        return;
+    }
+    vgo::GameRecord r;
+    if (!vgo::parseRecord(QString::fromUtf8(f.readAll()).toStdString(), &r)) {
+        QMessageBox::warning(this, QStringLiteral("导入棋谱"),
+                             QStringLiteral("棋谱格式不正确，无法导入。"));
+        return;
+    }
+    loadReview(r);
+    appendAi(QStringLiteral("已导入棋谱，共 %1 手。用「上一步/下一步」回看，"
+                            "或点「演示/试下」从当前局面继续。")
+                 .arg(review_record_.moves.size()));
+}
+
+void MainWindow::saveRecord() {
+    vgo::GameRecord r;
+    if (app_mode_ == vgo::GameMode::Review) {
+        r = review_record_;  // 复盘保存整张谱，不受当前光标影响
+    } else {
+        vgo::Game* g = currentGame();
+        if (!g) return;
+        r = vgo::recordFromGame(*g);
+    }
+    const QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("保存棋谱"), QStringLiteral("game.vgo"),
+        QStringLiteral("VGO 棋谱 (*.vgo)"));
+    if (path.isEmpty()) return;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        QMessageBox::warning(this, QStringLiteral("保存棋谱"),
+                             QStringLiteral("无法写入文件：%1").arg(path));
+        return;
+    }
+    f.write(QByteArray::fromStdString(vgo::serializeRecord(r)));
+    f.close();
+    status_->setText(QStringLiteral("已保存棋谱：%1").arg(QFileInfo(path).fileName()));
+}
+
+void MainWindow::updateActionsForMode() {
+    const bool placement = (app_mode_ == vgo::GameMode::Placement);
+    const bool ai = (app_mode_ == vgo::GameMode::HumanVsAi);
+    const bool review = (app_mode_ == vgo::GameMode::Review);
+    const int n = static_cast<int>(review_record_.moves.size());
+
+    // 菜单/工具栏从属当前标签页：只显示本模式相关动作（隐藏而非置灰）。
+    actNew_->setVisible(placement || ai);    // 新对局：摆棋/对弈
+    actUndo_->setVisible(placement || ai);   // 悔棋：摆棋/对弈
+    actPass_->setVisible(placement || ai);   // 虚着：摆棋/对弈
+    actCount_->setVisible(ai);               // 请求数目：对弈
+    actResign_->setVisible(ai);              // 认输：对弈
+    actScore_->setVisible(placement || ai);  // 计分/终局：摆棋/对弈
+    saveAction_->setVisible(placement || ai);  // 保存棋谱：摆棋/对弈
+    importAction_->setVisible(review);       // 导入棋谱：复盘
+    prevAction_->setVisible(review);         // 上一步：复盘
+    nextAction_->setVisible(review);         // 下一步：复盘
+    if (blunderAction_) blunderAction_->setVisible(ai);  // 局中预警：对弈
+
+    // 复盘导航随光标可用/不可用。
+    prevAction_->setEnabled(review && review_cursor_ > 0);
+    nextAction_->setEnabled(review && review_cursor_ < n);
+}
+
 void MainWindow::refresh() {
     if (demo_active_) return;  // 演示态下不触碰真实对局棋盘
     vgo::Game* g = currentGame();
-    if (!g) return;
+    if (!g) {
+        // 当前模式尚无对局（如复盘未导入棋谱）：清空棋盘显示。
+        board_view_->setBoard(nullptr);
+        board_view_->setLastMove({-1, -1}, false);
+        board_view_->setHighlight({});
+        board_view_->clearOwnership();
+        if (scoreStatus_) scoreStatus_->clear();
+        updateStatus();
+        return;
+    }
     board_view_->setBoard(&g->board());
     board_view_->setLastMove(g->last_move(), g->has_last_move());
     board_view_->setGhostColor(g->current());
@@ -408,9 +654,13 @@ void MainWindow::onPointClicked(int x, int y) {
         onDemoPointClicked(x, y);
         return;
     }
-    if (inAiMode()) {
-        if (!controller_->humanMayAct()) {
-            if (controller_->isAiTurn()) status_->setText(QStringLiteral("轮到 AI，请稍候…"));
+    if (app_mode_ == vgo::GameMode::Review) {
+        status_->setText(QStringLiteral("复盘模式下请点「演示/试下」才能落子"));
+        return;
+    }
+    if (app_mode_ == vgo::GameMode::HumanVsAi) {
+        if (!controller_ || !controller_->humanMayAct()) {
+            if (controller_ && controller_->isAiTurn()) status_->setText(QStringLiteral("轮到 AI，请稍候…"));
             return;
         }
         if (!controller_->game().is_legal(x, y)) {
@@ -432,8 +682,8 @@ void MainWindow::onPointClicked(int x, int y) {
 }
 
 void MainWindow::onPass() {
-    if (inAiMode()) {
-        controller_->humanPass();
+    if (app_mode_ == vgo::GameMode::HumanVsAi) {
+        if (controller_) controller_->humanPass();
         return;
     }
     if (!game_ || game_->is_over()) return;
@@ -443,8 +693,8 @@ void MainWindow::onPass() {
 }
 
 void MainWindow::onRequestCount() {
-    if (inAiMode()) {
-        controller_->humanRequestCount();
+    if (app_mode_ == vgo::GameMode::HumanVsAi) {
+        if (controller_) controller_->humanRequestCount();
         return;
     }
     // 摆棋模式无对手，直接数目。
@@ -452,7 +702,7 @@ void MainWindow::onRequestCount() {
 }
 
 void MainWindow::promptConfirmSettle() {
-    if (!inAiMode()) return;
+    if (!inAiMode() || !controller_) return;
     const int ret = QMessageBox::question(
         this, QStringLiteral("终局提议"),
         QStringLiteral("AI 认为棋局已结束，提议数子。是否同意？"),
@@ -462,7 +712,8 @@ void MainWindow::promptConfirmSettle() {
 }
 
 void MainWindow::onUndo() {
-    if (inAiMode()) {
+    if (app_mode_ == vgo::GameMode::HumanVsAi) {
+        if (!controller_) return;
         if (controller_->game().move_number() < 2 && !controller_->isThinking()) {
             status_->setText(QStringLiteral("没有可悔的棋"));
             return;
@@ -479,13 +730,19 @@ void MainWindow::onUndo() {
 }
 
 void MainWindow::onResign() {
-    if (inAiMode()) {
-        if (controller_->resigned() || controller_->game().is_over()) return;
+    if (app_mode_ == vgo::GameMode::HumanVsAi) {
+        if (!controller_ || controller_->resigned() || controller_->game().is_over()) return;
         const vgo::Color winner = vgo::opponent(controller_->humanColor());
         controller_->resign();
         status_->setText(QStringLiteral("你认输，%1方获胜").arg(colorName(winner)));
-        QMessageBox::information(this, QStringLiteral("认输"),
-                                 QStringLiteral("你认输，%1方获胜").arg(colorName(winner)));
+        // 认输弹窗：附带「保存棋谱」。
+        QMessageBox box(this);
+        box.setWindowTitle(QStringLiteral("认输"));
+        box.setText(QStringLiteral("你认输，%1方获胜").arg(colorName(winner)));
+        auto* save = box.addButton(QStringLiteral("保存棋谱"), QMessageBox::ActionRole);
+        box.addButton(QMessageBox::Ok);
+        box.exec();
+        if (box.clickedButton() == save) saveRecord();
         return;
     }
     status_->setText(QStringLiteral("摆棋模式下没有对手，无需认输。"));
@@ -541,14 +798,19 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
     else if (black_lead < 0.0) result = QStringLiteral("白胜");
     else result = QStringLiteral("平局");
 
-    QMessageBox::information(
-        this, QStringLiteral("计分（数子法）"),
-        QStringLiteral("黑方：%1 子（含目）\n白方：%2 子（含目）\n贴目：%3\n结果：%4（黑领先 %5 目）")
-            .arg(black)
-            .arg(white)
-            .arg(komi)
-            .arg(result)
-            .arg(black_lead));
+    // 终局计分弹窗：附带「保存棋谱」。
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("计分（数子法）"));
+    box.setText(QStringLiteral("黑方：%1 子（含目）\n白方：%2 子（含目）\n贴目：%3\n结果：%4（黑领先 %5 目）")
+                    .arg(black)
+                    .arg(white)
+                    .arg(komi)
+                    .arg(result)
+                    .arg(black_lead));
+    auto* save = box.addButton(QStringLiteral("保存棋谱"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Ok);
+    box.exec();
+    if (box.clickedButton() == save) saveRecord();
 }
 
 void MainWindow::onChatMessage(const QString& text) {
@@ -585,10 +847,12 @@ void MainWindow::onChatMessage(const QString& text) {
         return;
     }
     if (advisor_) advisor_->setDemoState(false, "");
-    if (inAiMode()) {
+    if (inAiMode() && controller_) {
         controller_->ask(q);
-    } else if (advisor_) {
-        advisor_->ask(*game_, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
+    } else if (advisor_ && currentGame()) {
+        vgo::Game* g = currentGame();
+        advisor_->setUserColor(vgo::Color::Empty);  // 摆棋/复盘无立场
+        advisor_->ask(*g, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
     } else {
         appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
     }
@@ -609,7 +873,7 @@ bool MainWindow::usingHttp() const {
 }
 
 vgo::Color MainWindow::userColor() const {
-    return inAiMode() ? controller_->humanColor() : vgo::Color::Empty;
+    return (inAiMode() && controller_) ? controller_->humanColor() : vgo::Color::Empty;
 }
 
 void MainWindow::onAnalyzeToggled(bool on) {
@@ -699,8 +963,17 @@ void MainWindow::appendAi(const QString& text) {
 // 棋盘演示（N2，试下模式）：独立变化图，自由试下/回退/退出，权威 AI 后续。
 // ---------------------------------------------------------------------------
 void MainWindow::onDemoToggled(bool on) {
-    if (on) startDemo();
-    else exitDemo();
+    if (on) {
+        if (demo_active_) {
+            // 重新展开被折叠的演示（保留现有状态）。
+            demo_dock_->setVisible(true);
+        } else {
+            startDemo();
+        }
+    } else {
+        // 折叠：隐藏演示面板但保留演示状态；真正退出走面板里的「结束演示」。
+        if (demo_active_) demo_dock_->setVisible(false);
+    }
 }
 
 void MainWindow::startDemo() {
@@ -711,7 +984,7 @@ void MainWindow::startDemo() {
         demoAction_->setChecked(false);
         return;
     }
-    if (inAiMode() && !controller_->humanMayAct()) {
+    if (inAiMode() && controller_ && !controller_->humanMayAct()) {
         status_->setText(QStringLiteral("请等 AI 落子后再进入演示"));
         QSignalBlocker b(demoAction_);
         demoAction_->setChecked(false);
@@ -736,7 +1009,10 @@ void MainWindow::exitDemo() {
     variation_.exit();
     demo_dock_->setVisible(false);
     board_view_->setMoveNumbers({});
+    // 立即清掉试下局面的形势显示（热力图 + 领先文案），再由 refresh() 触发对
+    // 真实对局的重新分析，避免退出试下后残留试下局面的形势结果。
     board_view_->clearOwnership();
+    scoreStatus_->clear();
     refresh();
     appendAi(QStringLiteral("已退出试下模式，回到真实对局。"));
 }
@@ -1053,7 +1329,19 @@ void MainWindow::loadSkills() {
 
 void MainWindow::updateStatus() {
     vgo::Game* g = currentGame();
-    if (!g) return;
+    if (!g) {
+        status_->setText(app_mode_ == vgo::GameMode::Review
+                             ? QStringLiteral("复盘：尚未导入棋谱")
+                             : QString());
+        return;
+    }
+
+    if (app_mode_ == vgo::GameMode::Review) {
+        status_->setText(QStringLiteral("复盘：第 %1 / %2 手")
+                             .arg(review_cursor_)
+                             .arg(static_cast<int>(review_record_.moves.size())));
+        return;
+    }
 
     if (g->is_over()) {
         const auto [black, white] = g->score_area();
@@ -1067,7 +1355,7 @@ void MainWindow::updateStatus() {
     }
 
     QString mover;
-    if (inAiMode()) {
+    if (inAiMode() && controller_) {
         mover = (g->current() == controller_->humanColor()) ? QStringLiteral("你") : QStringLiteral("AI");
     } else {
         mover = colorName(g->current()) + QStringLiteral("方");

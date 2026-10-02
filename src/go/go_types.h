@@ -36,10 +36,11 @@ struct Point {
     bool operator!=(const Point& o) const { return !(*this == o); }
 };
 
-// A move: either a stone placement or a pass.
+// A move: a stone placement, a pass, or a resignation.
 struct Move {
     Point p;
     bool is_pass = false;
+    bool is_resign = false;
 };
 
 }  // namespace vgo

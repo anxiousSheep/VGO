@@ -43,6 +43,10 @@ public:
     // Undoes the last move/pass. Returns false if there is nothing to undo.
     bool undo();
 
+    // The move sequence (color + move) played so far, in order. A pass is
+    // represented by a Move with is_pass set. Used by the record / review layer.
+    std::vector<std::pair<Color, Move>> moves() const;
+
     // Enumerates all legal moves for the current player.
     std::vector<Point> legal_moves() const;
 

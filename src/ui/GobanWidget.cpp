@@ -151,8 +151,8 @@ void GobanWidget::paintEvent(QPaintEvent*) {
         p.drawLine(intersectionToPixel(0, i), intersectionToPixel(s - 1, i));
     }
 
-    // Star points.
-    if (board_) {
+    // Star points（星位）：即使尚未落子（board_ 为空）也应画出，避免空盘无星位。
+    {
         p.setPen(Qt::NoPen);
         p.setBrush(QColor("#3A2A18"));
         const double r = cell * 0.11;

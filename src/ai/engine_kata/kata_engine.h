@@ -26,7 +26,8 @@ class KataGoEngine : public QObject, public EngineInterface {
     Q_OBJECT
 public:
     KataGoEngine(const QString& binary, const QString& model, const QString& config,
-                 const QString& human_profile = QString(), QObject* parent = nullptr);
+                 const QString& human_profile = QString(),
+                 const QString& human_model = QString(), QObject* parent = nullptr);
     ~KataGoEngine() override;
 
     bool available() const { return available_; }
@@ -49,12 +50,12 @@ private:
     void onStdout();
     void handleAnalyzeLine(const QByteArray& line);
     void onErrorOccurred(QProcess::ProcessError);
-    bool busy() const { return pending_ != nullptr || pending_analysis_ != nullptr; }
 
     QString binary_;
     QString model_;
     QString config_;
     QString human_profile_;  // HumanSL 档位（如 rank_1d），空 = 标准模型
+    QString human_model_;    // 人类风格模型路径（经 -human-model 传入，选子用）
     QProcess* proc_ = nullptr;
     bool available_ = false;
     QString error_;

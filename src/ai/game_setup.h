@@ -4,9 +4,9 @@
 
 namespace vgo {
 
-// What a new game is: placement (human arranges stones, AI only answers) or
-// human-vs-AI.
-enum class GameMode { Placement, HumanVsAi };
+// What a new game is: placement (human arranges stones, AI only answers),
+// human-vs-AI, or review (replay an imported record).
+enum class GameMode { Placement, HumanVsAi, Review };
 
 // Parameters produced by the New Game dialog. Immutable once a game starts.
 struct GameSetup {
