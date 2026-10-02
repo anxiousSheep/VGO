@@ -768,11 +768,16 @@ vgo::Game MainWindow::demoGame() const {
 std::string MainWindow::demoMovesDescription() const {
     std::string out;
     const int size = variation_.variation().start.size();
+    int n = 0;
     for (const auto& s : variation_.variation().steps) {
-        if (s.move.is_pass) continue;
-        if (!out.empty()) out += "、";
-        out += (s.color == vgo::Color::Black ? "黑 " : "白 ");
-        out += vgo::gtpPoint(s.move.p, size);
+        ++n;
+        if (!out.empty()) out += ' ';
+        out += std::to_string(n) + '.';
+        if (s.move.is_pass)
+            out += "虚着";
+        else
+            out += std::string(s.color == vgo::Color::Black ? "黑" : "白") +
+                   vgo::gtpPoint(s.move.p, size);
     }
     return out;
 }
@@ -959,7 +964,14 @@ std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& a
     else if (c == "white") color = vgo::Color::White;
     const int plies = args["plies"].toInt(4);
     const bool reset = args["reset"].toBool(false);
-    const int undo = args["undo"].toInt(0);
+    // undo_to = 回退到第 k 手之前（保留前 k-1 手），转成「撤销几步」交给 enterDemoAndPlace。
+    int undo = 0;
+    const int undo_to = args["undo_to"].toInt(0);
+    if (undo_to > 0) {
+        const int total = static_cast<int>(variation_.variation().steps.size());
+        undo = total - undo_to + 1;
+        if (undo < 0) undo = 0;
+    }
 
     std::string placed;
     if (!enterDemoAndPlace(p, color, reset, undo, &placed)) return placed;

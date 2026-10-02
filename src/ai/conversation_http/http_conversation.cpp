@@ -116,11 +116,13 @@ QString buildUserPrompt(const ConversationRequest& req) {
     const std::string dead = renderDeadGroups(req.facts.dead_groups, req.size);
     if (!dead.empty()) s += QString::fromStdString(dead) + QStringLiteral("\n");
 
-    // 试下模式上下文：让模型知道已有进行中的演示，从而正确判断继续/重置。
+    // 试下模式上下文：让模型知道已有进行中的演示，从而正确判断继续/重置/回退。
     if (req.in_demo) {
-        s += QStringLiteral("注意：当前已有一个进行中的棋盘演示（试下模式），其变化图已包含：%1。\n"
-                            "若用户要求「继续/接着/再演示」，请调用演示工具并在当前基础上续下（reset=false）；"
-                            "只有用户明确要求「重新/从头/重来」时才 reset=true。\n")
+        s += QStringLiteral("注意：当前已有一个进行中的棋盘演示（试下模式），已下的手按编号为：%1\n"
+                            "· 用户说「继续/接着/再演示」→ 调用演示工具，reset=false（在当前基础上续下）。\n"
+                            "· 用户说「重新假设/重下/改第 k 手」或要回到某一步 → 调用演示工具，"
+                            "undo_to = k（回退到第 k 手之前），再落新子续下。\n"
+                            "· 用户明确说「完全重新/从头」→ reset=true。\n")
                  .arg(req.demo_moves.empty() ? QStringLiteral("（尚未落子）")
                                              : QString::fromStdString(req.demo_moves));
     }
@@ -174,14 +176,15 @@ QJsonArray buildTools() {
     QJsonObject pUndo;
     pUndo["type"] = "integer";
     pUndo["description"] = QStringLiteral(
-        "回退的手数（撤销最近几步），用于回到某个局部局面后再演示；默认 0 不回退");
+        "回退到第 k 手之前（保留前 k-1 手，撤销第 k 手及之后的所有手）。"
+        "例如用户说「重新假设/改第9手」就传 9；省略或 0 = 不回退");
 
     QJsonObject props;
     props["point"] = pPoint;
     props["color"] = pColor;
     props["plies"] = pPlies;
     props["reset"] = pReset;
-    props["undo"] = pUndo;
+    props["undo_to"] = pUndo;
 
     QJsonObject params;
     params["type"] = "object";
