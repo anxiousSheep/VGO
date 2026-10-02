@@ -116,6 +116,15 @@ QString buildUserPrompt(const ConversationRequest& req) {
     const std::string dead = renderDeadGroups(req.facts.dead_groups, req.size);
     if (!dead.empty()) s += QString::fromStdString(dead) + QStringLiteral("\n");
 
+    // 试下模式上下文：让模型知道已有进行中的演示，从而正确判断继续/重置。
+    if (req.in_demo) {
+        s += QStringLiteral("注意：当前已有一个进行中的棋盘演示（试下模式），其变化图已包含：%1。\n"
+                            "若用户要求「继续/接着/再演示」，请调用演示工具并在当前基础上续下（reset=false）；"
+                            "只有用户明确要求「重新/从头/重来」时才 reset=true。\n")
+                 .arg(req.demo_moves.empty() ? QStringLiteral("（尚未落子）")
+                                             : QString::fromStdString(req.demo_moves));
+    }
+
     s += QStringLiteral("\n棋手的问题：%1").arg(QString::fromStdString(req.question));
     return s;
 }

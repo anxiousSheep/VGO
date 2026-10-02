@@ -110,6 +110,10 @@ struct ConversationRequest {
     Point last_move{-1, -1};    // 最近一手的坐标（供 LLM 定位）
     bool has_last_move = false;
     bool hint = false;          // 半提示模式：只给方向，不给具体坐标（M3b.1）
+    // 试下模式上下文：让 LLM 知道当前已有一个进行中的棋盘演示及其走法，
+    // 从而正确判断「继续（reset=false）」还是「重新（reset=true）」。
+    bool in_demo = false;
+    std::string demo_moves;     // 如 "白 H6、黑 G5、白 F6"
     PlayerProfile profile;
 };
 

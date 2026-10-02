@@ -572,16 +572,18 @@ void MainWindow::onChatMessage(const QString& text) {
         requestAnalysis(/*sayInChat=*/true);
         return;
     }
-    // 试下模式下，聊天问答针对变化图当前局面（而非真实对局）。
+    // 试下模式下，聊天问答针对变化图当前局面（而非真实对局），并告知 LLM 已有演示。
     if (demo_active_) {
         vgo::Game dg = demoGame();
         if (advisor_) {
+            advisor_->setDemoState(true, demoMovesDescription());
             advisor_->ask(dg, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
         } else {
             appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
         }
         return;
     }
+    if (advisor_) advisor_->setDemoState(false, "");
     if (inAiMode()) {
         controller_->ask(q);
     } else if (advisor_) {
@@ -760,6 +762,18 @@ vgo::Game MainWindow::demoGame() const {
         else g.play(s.move.p.x, s.move.p.y);
     }
     return g;
+}
+
+std::string MainWindow::demoMovesDescription() const {
+    std::string out;
+    const int size = variation_.variation().start.size();
+    for (const auto& s : variation_.variation().steps) {
+        if (s.move.is_pass) continue;
+        if (!out.empty()) out += "、";
+        out += (s.color == vgo::Color::Black ? "黑 " : "白 ");
+        out += vgo::gtpPoint(s.move.p, size);
+    }
+    return out;
 }
 
 void MainWindow::updateVariationBoard() {

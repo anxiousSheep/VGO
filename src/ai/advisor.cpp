@@ -175,6 +175,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.last_move = game.last_move();
     req.has_last_move = game.has_last_move();
     req.hint = isHintRequest(question);
+    req.in_demo = demo_active_ctx_;
+    req.demo_moves = demo_moves_;
     req.profile = PlayerProfile{level_, true};
     const int gen = ++generation_;
     conversation_->answer(req, [this, gen, cb](ConversationReply r) {

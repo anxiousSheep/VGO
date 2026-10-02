@@ -93,6 +93,7 @@ private:
     void onDemoPointClicked(int x, int y);
     void updateVariationBoard();
     vgo::Game demoGame() const;  // 当前试下棋盘还原成带历史的 Game，供讲解
+    std::string demoMovesDescription() const;  // 变化图走法描述，如「白 H6、黑 G5」
 
     // 教学增强（M3b）
     void maybeWarnBlunder();

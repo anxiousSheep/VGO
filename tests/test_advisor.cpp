@@ -68,3 +68,29 @@ TEST(advisor_cancel_is_safe) {
     Game g(9);
     a.ask(g, "谁领先", [](const ConversationReply&) {});
 }
+
+TEST(advisor_injects_demo_context) {
+    struct CaptureConversation : ConversationService {
+        ConversationRequest captured;
+        bool got = false;
+        void answer(const ConversationRequest& req, Callback cb) override {
+            captured = req;
+            got = true;
+            cb(ConversationReply{});
+        }
+    };
+    ScriptedEngine eng;
+    CaptureConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    a.setDemoState(true, "白 H6、黑 G5");
+    Game g(9);
+    a.ask(g, "继续", [](const ConversationReply&) {});
+    CHECK(conv.got);
+    CHECK(conv.captured.in_demo);
+    CHECK_EQ(conv.captured.demo_moves, std::string("白 H6、黑 G5"));
+
+    // 退出试下后不再注入。
+    a.setDemoState(false, "");
+    a.ask(g, "继续", [](const ConversationReply&) {});
+    CHECK(!conv.captured.in_demo);
+}

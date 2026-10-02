@@ -56,6 +56,12 @@ public:
     // 形势判断强度档位（职业7/8/9段，见 strength.h 的 kAnalysisLevel*）。
     void setAnalysisLevel(int l) { analysis_level_ = l; }
 
+    // 试下模式上下文：注入 LLM prompt，让模型知道已有进行中的演示及其走法。
+    void setDemoState(bool active, const std::string& moves) {
+        demo_active_ctx_ = active;
+        demo_moves_ = moves;
+    }
+
     // What-if evaluate a single move (N1.2). Wrapped for the UI (blunder alerts).
     void evaluateMove(const Game& game, const Point& p, MoveEvaluator::Callback cb);
 
@@ -76,6 +82,8 @@ private:
     Analysis last_analysis_;
     std::unique_ptr<MoveEvaluator> move_evaluator_;
     int generation_ = 0;
+    bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
+    std::string demo_moves_;
 };
 
 }  // namespace vgo
