@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "lifedeath.h"
 #include "strength.h"
 
 namespace vgo {
@@ -12,6 +13,15 @@ AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation,
 void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
     const QuestionClass cls = classifyQuestion(question);
+    // 讲解增强（N1）：落点质量走 what-if，死活走 ownership 判死，二者异步查引擎。
+    if (cls == QuestionClass::MoveQuality) {
+        handleMoveQuality(game, question, cb);
+        return;
+    }
+    if (cls == QuestionClass::LifeDeath) {
+        handleLifeDeath(game, question, cb);
+        return;
+    }
     // 「我该下哪」为用户执子方建议；「谁领先」用当前局面分析。二者都查引擎拿真实分析。
     const bool needEngine = (cls == QuestionClass::WhereToPlay || cls == QuestionClass::WhoIsWinning);
 
@@ -68,11 +78,73 @@ void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
 void AiAdvisor::cancel() {
     ++generation_;
     if (conversation_) conversation_->cancel();
+    if (move_evaluator_) move_evaluator_->cancel();
+}
+
+MoveEvaluator* AiAdvisor::evaluator() {
+    if (!move_evaluator_) {
+        move_evaluator_ =
+            std::make_unique<MoveEvaluator>(analysis_engine_ ? analysis_engine_ : engine_);
+    }
+    return move_evaluator_.get();
+}
+
+void AiAdvisor::evaluateMove(const Game& game, const Point& p, MoveEvaluator::Callback cb) {
+    const int gen = ++generation_;
+    evaluator()->evaluate(game, p, [this, gen, cb](const MoveEvaluation& e) {
+        if (gen != generation_) return;
+        cb(e);
+    });
+}
+
+void AiAdvisor::handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb) {
+    const Game snapshot = game;
+    Point p{-1, -1};
+    const PointMatch m = findPointInQuestion(question, game.size());
+    if (m.found) p = m.p;
+    else if (game.has_last_move()) p = game.last_move();
+    if (p.x < 0) {
+        deliverAnswer(snapshot, question, currentFacts(snapshot), cb);
+        return;
+    }
+    const int gen = ++generation_;
+    evaluator()->evaluate(snapshot, p,
+                          [this, gen, snapshot, question, cb](const MoveEvaluation& e) {
+                              if (gen != generation_) return;
+                              GroundedFacts f = currentFacts(snapshot);
+                              f.move_eval = e;
+                              deliverAnswer(snapshot, question, std::move(f), cb);
+                          });
+}
+
+void AiAdvisor::handleLifeDeath(const Game& game, const std::string& question, ReplyCb cb) {
+    EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+    if (!eng) {
+        deliverAnswer(game, question, currentFacts(game), cb);
+        return;
+    }
+    const Game snapshot = game;
+    const Color to_move = game.current();
+    const int gen = ++generation_;
+    eng->analyze(game.board(), to_move, strengthForLevel(analysis_level_),
+                 [this, gen, snapshot, question, cb](const Analysis& a) {
+                     if (gen != generation_) return;
+                     GroundedFacts f = currentFacts(snapshot);
+                     f.analysis = a;
+                     if (!a.ownership.empty()) {
+                         f.dead_groups = deadGroups(snapshot.board(), a.ownership);
+                         f.life_death = analyzeLifeDeath(snapshot.board(), a.ownership);
+                     }
+                     deliverAnswer(snapshot, question, std::move(f), cb);
+                 });
 }
 
 GroundedFacts AiAdvisor::currentFacts(const Game& game) const {
     GroundedFacts f;
     f.analysis = last_analysis_;
+    if (!last_analysis_.ownership.empty()) {
+        f.dead_groups = deadGroups(game.board(), last_analysis_.ownership);
+    }
     if (game.move_number() > 0 && game.has_last_move()) {
         const Color mover = opponent(game.current());
         Game before = game;
@@ -99,6 +171,7 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.user_color = user_color_;
     req.last_move = game.last_move();
     req.has_last_move = game.has_last_move();
+    req.hint = isHintRequest(question);
     req.profile = PlayerProfile{level_, true};
     const int gen = ++generation_;
     conversation_->answer(req, [this, gen, cb](ConversationReply r) {

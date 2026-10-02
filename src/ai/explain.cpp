@@ -1,8 +1,12 @@
 #include "explain.h"
 
 #include <array>
+#include <cmath>
+#include <iomanip>
 #include <sstream>
 #include <utility>
+
+#include "gtp.h"
 
 namespace vgo {
 
@@ -154,6 +158,63 @@ std::string boardToAscii(const Board& board) {
     }
     os << '\n';
     return os.str();
+}
+
+std::string renderMoveEvaluation(const MoveEvaluation& e, int size) {
+    if (!e.legal) return "这个点不能落子（已占 / 自杀 / 打劫）。";
+    if (!e.valid) return "未接入 KataGo，我无法量化评估这一步棋的得失。";
+    const double dw = (e.winrate_after - e.winrate_before) * 100.0;
+    const double dl = e.lead_after - e.lead_before;
+    std::ostringstream os;
+    os << "若在 " << gtpPoint(e.p, size) << " 落子，你的胜率从 " << std::fixed
+       << std::setprecision(1) << e.winrate_before * 100.0 << "% 变为 "
+       << e.winrate_after * 100.0 << "%";
+    if (dw >= 0.05) os << "（升 " << std::abs(dw) << " 个百分点）";
+    else if (dw <= -0.05) os << "（降 " << std::abs(dw) << " 个百分点）";
+    else os << "（基本不变）";
+    os << "；领先从 " << std::setprecision(1) << e.lead_before << " 目变为 " << e.lead_after
+       << " 目";
+    if (dl >= 0.05) os << "（约多得 " << std::abs(dl) << " 目）";
+    else if (dl <= -0.05) os << "（约亏 " << std::abs(dl) << " 目）";
+    else os << "（目数基本不变）";
+    os << "。";
+    return os.str();
+}
+
+std::string renderLifeDeath(const LifeDeathResult& r, int size) {
+    if (r.alive || r.group.empty()) return "当前没有能被确认判死的棋。";
+    std::ostringstream os;
+    os << "有一块棋被判死：";
+    for (std::size_t i = 0; i < r.group.size() && i < 6; ++i)
+        os << gtpPoint(r.group[i], size) << ' ';
+    if (r.saving_moves.empty()) {
+        os << "。它没有任何气口，试遍候选点也无法做出两只眼，所以做不活。";
+    } else {
+        os << "。可能的挣扎点是 ";
+        for (std::size_t i = 0; i < r.saving_moves.size() && i < 4; ++i)
+            os << gtpPoint(r.saving_moves[i], size) << ' ';
+        os << "，但能否救活需要进一步分析确认。";
+    }
+    return os.str();
+}
+
+std::string renderDeadGroups(const std::vector<std::vector<Point>>& groups, int) {
+    if (groups.empty()) return {};
+    return "已确认的死棋块：" + std::to_string(groups.size()) + " 块。";
+}
+
+std::string moveHint(const Point& p, int size) {
+    if (p.x < 0 || p.y < 0 || size <= 1) return "整盘都可以考虑";
+    const double fx = static_cast<double>(p.x) / (size - 1);
+    const double fy = static_cast<double>(p.y) / (size - 1);
+    std::string v;
+    if (fy < 0.33) v = "上";
+    else if (fy > 0.67) v = "下";
+    std::string h;
+    if (fx < 0.33) h = "左";
+    else if (fx > 0.67) h = "右";
+    if (v.empty() && h.empty()) return "棋盘中央附近";
+    return "往" + h + v + "方向看";
 }
 
 }  // namespace vgo

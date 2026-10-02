@@ -11,7 +11,14 @@
 
 namespace vgo {
 
-enum class QuestionClass { WhyThisMove, WhereToPlay, WhoIsWinning, Other };
+enum class QuestionClass {
+    WhyThisMove,  // 为什么下这里（无落点，讲最近一手）
+    WhereToPlay,  // 我该下哪 / 建议 / 指点
+    WhoIsWinning, // 谁领先 / 形势 / 目数
+    MoveQuality,  // 为什么这步不好 / 这步行吗 / X 点如何（what-if 量化）
+    LifeDeath,    // 为什么做不活 / 这块棋死没死 / 能活吗
+    Other,
+};
 
 inline std::string lower_ascii(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
@@ -26,6 +33,21 @@ inline bool contains(const std::string& hay, const std::string& needle) {
 
 inline QuestionClass classifyQuestion(const std::string& text) {
     const std::string q = lower_ascii(text);
+    // 死活类（最优先）：做不活 / 死没死 / 能活吗 / 这块棋
+    if (contains(q, "做不活") || contains(q, "死活") || contains(q, "死没死") ||
+        contains(q, "能活吗") || contains(q, "救活") || contains(q, "这块棋") ||
+        contains(q, "这块") || contains(q, "活棋") || contains(q, "被吃") ||
+        contains(q, "死棋") || contains(q, "眼睛") || contains(q, "眼") ||
+        contains(q, "life") || contains(q, "dead") || contains(q, "alive"))
+        return QuestionClass::LifeDeath;
+    // 落点质量（先于 WhyThisMove，避免「为什么下这里不好」被误判）：
+    if (contains(q, "不好") || contains(q, "行吗") || contains(q, "行不行") ||
+        contains(q, "好不好") || contains(q, "怎么样") || contains(q, "如何") ||
+        contains(q, "值得") || contains(q, "亏") || contains(q, "赚") ||
+        contains(q, "坏棋") || contains(q, "好棋") || contains(q, "恶手") ||
+        contains(q, "妙手") || contains(q, "坏手") || contains(q, "是不是") ||
+        contains(q, "对不对") || contains(q, "对错") || contains(q, "quality"))
+        return QuestionClass::MoveQuality;
     if (contains(q, "领先") || contains(q, "形势") || contains(q, "谁赢") ||
         contains(q, "优势") || contains(q, "领先多少") || contains(q, "score") ||
         contains(q, "目数") || contains(q, "胜负"))
@@ -39,6 +61,35 @@ inline QuestionClass classifyQuestion(const std::string& text) {
         contains(q, "想干嘛") || contains(q, "什么意思"))
         return QuestionClass::WhyThisMove;
     return QuestionClass::Other;
+}
+
+// QuestionClass <-> stable string (used by Skill "applies" lists).
+inline const char* questionClassToString(QuestionClass q) {
+    switch (q) {
+        case QuestionClass::WhyThisMove:  return "why-this-move";
+        case QuestionClass::WhereToPlay:  return "where-to-play";
+        case QuestionClass::WhoIsWinning: return "who-is-winning";
+        case QuestionClass::MoveQuality:  return "move-quality";
+        case QuestionClass::LifeDeath:    return "life-death";
+        default:                          return "other";
+    }
+}
+
+inline bool questionClassFromString(const std::string& s, QuestionClass* out) {
+    if (s == "why-this-move") *out = QuestionClass::WhyThisMove;
+    else if (s == "where-to-play") *out = QuestionClass::WhereToPlay;
+    else if (s == "who-is-winning") *out = QuestionClass::WhoIsWinning;
+    else if (s == "move-quality") *out = QuestionClass::MoveQuality;
+    else if (s == "life-death") *out = QuestionClass::LifeDeath;
+    else if (s == "other") *out = QuestionClass::Other;
+    else return false;
+    return true;
+}
+
+// 半提示模式（M3b.1）：求指点/给方向，而不是直接报坐标。
+inline bool isHintRequest(const std::string& text) {
+    const std::string q = lower_ascii(text);
+    return contains(q, "指点") || contains(q, "提示") || contains(q, "方向");
 }
 
 struct PlayerProfile {
@@ -58,6 +109,7 @@ struct ConversationRequest {
     Color user_color = Color::Empty;  // 用户执子颜色；Empty=无（摆棋模式）
     Point last_move{-1, -1};    // 最近一手的坐标（供 LLM 定位）
     bool has_last_move = false;
+    bool hint = false;          // 半提示模式：只给方向，不给具体坐标（M3b.1）
     PlayerProfile profile;
 };
 
@@ -71,7 +123,15 @@ class ConversationService {
 public:
     virtual ~ConversationService() = default;
     using Callback = std::function<void(ConversationReply)>;
+    // Streaming: `delta` is incremental text; `done=true` signals completion.
+    using DeltaCallback = std::function<void(const std::string& delta, bool done)>;
     virtual void answer(const ConversationRequest& req, Callback cb) = 0;
+    virtual bool supportsStreaming() const { return false; }
+    // Default: synthesize a single delta from a non-streaming answer, so the
+    // template conversation works for the demo flow too (N3 fallback).
+    virtual void answerStream(const ConversationRequest& req, DeltaCallback cb) {
+        answer(req, [cb](const ConversationReply& r) { cb(r.text, true); });
+    }
     virtual void cancel() {}
 };
 

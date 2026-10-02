@@ -31,7 +31,7 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
     });
 
     auto* quickRow = new QHBoxLayout;
-    for (const char* q : {"为什么下这里", "我该下哪", "谁领先"}) {
+    for (const char* q : {"为什么下这里", "我该下哪", "谁领先", "求指点", "这步怎么样"}) {
         auto* b = new QPushButton(QString::fromUtf8(q), this);
         connect(b, &QPushButton::clicked, this, [this, q]() {
             appendHuman(QString::fromUtf8(q));
@@ -65,6 +65,26 @@ void ChatPanel::appendAi(const QString& text) {
 
 void ChatPanel::clear() {
     log_->clear();
+    streaming_ = false;
+}
+
+void ChatPanel::beginAiStream() {
+    stream_cursor_ = QTextCursor(log_->document());
+    stream_cursor_.movePosition(QTextCursor::End);
+    stream_cursor_.insertHtml(QStringLiteral("<b>AI：</b>"));
+    streaming_ = true;
+}
+
+void ChatPanel::appendAiStream(const QString& text) {
+    if (!streaming_) beginAiStream();
+    stream_cursor_.insertText(text);
+    log_->ensureCursorVisible();
+}
+
+void ChatPanel::endAiStream() {
+    if (!streaming_) return;
+    stream_cursor_.insertBlock();
+    streaming_ = false;
 }
 
 }  // namespace vgo

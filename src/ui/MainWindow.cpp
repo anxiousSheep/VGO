@@ -3,13 +3,16 @@
 #include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDir>
 #include <QDockWidget>
+#include <QFile>
 #include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
 
@@ -17,6 +20,7 @@
 #include "GobanWidget.h"
 #include "NewGameDialog.h"
 #include "SettingsDialog.h"
+#include "VariationPanel.h"
 
 #include "ai/advisor.h"
 #include "ai/fallback_engine.h"
@@ -25,6 +29,9 @@
 #include "ai/template_conversation.h"
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
+#include "ai/evaluate.h"
+#include "ai/skill.h"
+#include "ai/variation.h"
 #include "model/ModelManager.h"
 
 namespace {
@@ -134,6 +141,46 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     tb->addSeparator();
     tb->addAction(toggleChatAction_);
 
+    // 棋盘演示（N2）：一个可开关的演示态，含独立演示面板（底部 dock）。
+    demoAction_ = new QAction(QStringLiteral("演示"), this);
+    demoAction_->setCheckable(true);
+    demoAction_->setToolTip(QStringLiteral("进入/退出棋盘演示（不改变真实对局）"));
+    connect(demoAction_, &QAction::toggled, this, &MainWindow::onDemoToggled);
+    gameMenu->insertAction(actQuit, demoAction_);
+    gameMenu->insertSeparator(actQuit);
+    tb->addAction(demoAction_);
+
+    // 教学增强（M3b.2）：局中预警开关。
+    blunderAction_ = new QAction(QStringLiteral("局中预警"), this);
+    blunderAction_->setCheckable(true);
+    blunderAction_->setChecked(true);
+    blunderAction_->setToolTip(QStringLiteral("明显恶手时自动提醒（需 KataGo）"));
+    connect(blunderAction_, &QAction::toggled, this, &MainWindow::onBlunderToggled);
+    gameMenu->insertAction(actQuit, blunderAction_);
+
+    // 教学增强（N4.2）：技能知识热更。
+    auto* actReloadSkills = new QAction(QStringLiteral("重载技能知识"), this);
+    connect(actReloadSkills, &QAction::triggered, this, &MainWindow::onReloadSkills);
+    settingsMenu->addAction(actReloadSkills);
+
+    variation_panel_ = new vgo::VariationPanel(this);
+    connect(variation_panel_, &vgo::VariationPanel::aiMoveRequested, this,
+            &MainWindow::onDemoAiMove);
+    connect(variation_panel_, &vgo::VariationPanel::confirmRequested, this,
+            &MainWindow::onDemoConfirm);
+    connect(variation_panel_, &vgo::VariationPanel::backRequested, this,
+            &MainWindow::onDemoBack);
+    connect(variation_panel_, &vgo::VariationPanel::replayRequested, this,
+            &MainWindow::onDemoReplay);
+    connect(variation_panel_, &vgo::VariationPanel::exitRequested, this,
+            &MainWindow::onDemoExit);
+    demo_dock_ = new QDockWidget(QStringLiteral("棋盘演示"), this);
+    demo_dock_->setObjectName(QStringLiteral("demoDock"));
+    demo_dock_->setWidget(variation_panel_);
+    demo_dock_->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    demo_dock_->setVisible(false);
+    addDockWidget(Qt::BottomDockWidgetArea, demo_dock_);
+
     // 首次运行：未配置任何模型时，自动打开设置引导。
     if (!vgo::ModelManager::instance().onboardingDone() &&
         !vgo::ModelManager::instance().katagoReady() &&
@@ -215,6 +262,7 @@ void MainWindow::createAiServices(int level) {
         if (h->available()) conversation_ = h; else delete h;
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
+    loadSkills();  // N4：按问题类型注入围棋知识包（可从 skills/ 目录热更）
 
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
@@ -286,6 +334,9 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
 }
 
 void MainWindow::teardown() {
+    // 新对局：退出演示态、清空复盘记录。
+    if (demo_active_) exitDemo();
+    blunders_.clear();
     // 新对局重置形势开关为关（toggled(false) 会清空显示并取消在途分析）。
     if (analyzeAction_) analyzeAction_->setChecked(false);
     delete controller_;
@@ -327,6 +378,7 @@ void MainWindow::updateModelStatus() {
 }
 
 void MainWindow::refresh() {
+    if (demo_active_) return;  // 演示态下不触碰真实对局棋盘
     vgo::Game* g = currentGame();
     if (!g) return;
     board_view_->setBoard(&g->board());
@@ -348,6 +400,10 @@ void MainWindow::refresh() {
 }
 
 void MainWindow::onPointClicked(int x, int y) {
+    if (demo_active_) {
+        onDemoPointClicked(x, y);
+        return;
+    }
     if (inAiMode()) {
         if (!controller_->humanMayAct()) {
             if (controller_->isAiTurn()) status_->setText(QStringLiteral("轮到 AI，请稍候…"));
@@ -358,12 +414,14 @@ void MainWindow::onPointClicked(int x, int y) {
             return;
         }
         controller_->humanPlay({x, y});
+        if (blunderAction_ && blunderAction_->isChecked()) maybeWarnBlunder();
         return;
     }
     // Placement mode: the human arranges both sides.
     if (!game_ || game_->is_over()) return;
     if (game_->play(x, y)) {
         refresh();
+        if (blunderAction_ && blunderAction_->isChecked()) maybeWarnBlunder();
     } else {
         status_->setText(QStringLiteral("该位置不能落子（已占/自杀/打劫）"));
     }
@@ -463,6 +521,17 @@ void MainWindow::onScore() {
 }
 
 void MainWindow::showScoreResult(int black, int white, double komi, double black_lead) {
+    // M3b.3：终局复盘——汇总本局检测到的明显恶手（如开启局中预警）。
+    if (!blunders_.empty()) {
+        QString summary =
+            QStringLiteral("终局复盘：本局检测到 %1 次明显恶手").arg(blunders_.size());
+        for (const auto& b : blunders_)
+            summary += QStringLiteral("（第 %1 手）").arg(b.first);
+        summary += QStringLiteral("。");
+        appendAi(summary);
+        blunders_.clear();
+    }
+
     QString result;
     if (black_lead > 0.0) result = QStringLiteral("黑胜");
     else if (black_lead < 0.0) result = QStringLiteral("白胜");
@@ -508,6 +577,10 @@ void MainWindow::handleReply(const vgo::ConversationReply& r) {
 bool MainWindow::usingKata() const {
     // 形势显示依赖形势判断引擎（标准模型满血），而非落子引擎。
     return dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr;
+}
+
+bool MainWindow::usingHttp() const {
+    return dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr;
 }
 
 vgo::Color MainWindow::userColor() const {
@@ -584,6 +657,245 @@ void MainWindow::applyAnalysis(const vgo::Analysis& a, vgo::Color to_move,
 
 void MainWindow::appendAi(const QString& text) {
     chat_->appendAi(text);
+}
+
+// ---------------------------------------------------------------------------
+// 棋盘演示（N2）：变化图独立于真实对局，逐步确认/回退/退出，权威 AI 后续。
+// ---------------------------------------------------------------------------
+void MainWindow::onDemoToggled(bool on) {
+    if (on) startDemo();
+    else exitDemo();
+}
+
+void MainWindow::startDemo() {
+    if (demo_active_) return;
+    vgo::Game* g = currentGame();
+    if (!g) {
+        QSignalBlocker b(demoAction_);
+        demoAction_->setChecked(false);
+        return;
+    }
+    if (inAiMode() && !controller_->humanMayAct()) {
+        status_->setText(QStringLiteral("请等 AI 落子后再进入演示"));
+        QSignalBlocker b(demoAction_);
+        demoAction_->setChecked(false);
+        return;
+    }
+    variation_.start(g->board(), g->current());
+    demo_active_ = true;
+    variation_board_ = g->board();
+    variation_numbers_.clear();
+    updateVariationBoard();
+    demo_dock_->setVisible(true);
+    appendAi(QStringLiteral("已进入演示模式：棋盘上的变化图独立于真实对局，"
+                            "点棋盘摆出前几步，或让「AI 演示一手」续下。"));
+    status_->setText(QStringLiteral("演示模式中"));
+}
+
+void MainWindow::exitDemo() {
+    if (!demo_active_) return;
+    demo_active_ = false;
+    variation_.exit();
+    demo_dock_->setVisible(false);
+    board_view_->setMoveNumbers({});
+    board_view_->clearOwnership();
+    refresh();
+    appendAi(QStringLiteral("已退出演示模式，回到真实对局。"));
+}
+
+void MainWindow::onDemoPointClicked(int x, int y) {
+    if (variation_.state() != vgo::VariationState::WaitingForMove) {
+        status_->setText(QStringLiteral("请先确认当前这一步"));
+        return;
+    }
+    const vgo::Board b = variation_.board();
+    if (!b.in_bounds(x, y) || b.at(x, y) != vgo::Color::Empty) {
+        status_->setText(QStringLiteral("该位置已有棋子"));
+        return;
+    }
+    vgo::Game probe(b, variation_.toMove());
+    if (!probe.play(x, y)) {
+        status_->setText(QStringLiteral("该位置不能落子（自杀/打劫）"));
+        return;
+    }
+    variation_.commitStep(vgo::Move{{x, y}, false}, variation_.toMove(), false);
+    updateVariationBoard();
+    explainDemoStep();
+}
+
+void MainWindow::updateVariationBoard() {
+    variation_board_ = variation_.board();
+    variation_numbers_.clear();
+    const auto& steps = variation_.variation().steps;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        if (!steps[i].move.is_pass)
+            variation_numbers_.push_back({steps[i].move.p, static_cast<int>(i) + 1});
+    }
+    board_view_->setBoard(&variation_board_);
+    board_view_->setMoveNumbers(variation_numbers_);
+    board_view_->setGhostColor(variation_.toMove());
+    board_view_->setLastMove({-1, -1}, false);
+    board_view_->setHighlight({});
+    board_view_->clearOwnership();
+    variation_panel_->setState(variation_.state());
+}
+
+vgo::GroundedFacts MainWindow::demoStepFacts() const {
+    vgo::GroundedFacts f;
+    const auto& steps = variation_.variation().steps;
+    if (steps.empty()) return f;
+    const vgo::VariationStep& s = steps.back();
+    if (s.move.is_pass) return f;
+    const int cursor = variation_.variation().cursor;
+    const vgo::Board before = variation_.variation().boardAt(cursor - 1);
+    vgo::Game g(before, s.color);
+    const int beforeCap = g.captures(s.color);
+    g.play(s.move.p.x, s.move.p.y);
+    const int captured = g.captures(s.color) - beforeCap;
+    f.facts = vgo::extractBoardFacts(before, g.board(), s.move, captured, s.color);
+    return f;
+}
+
+void MainWindow::explainDemoStep() {
+    if (!demo_active_) return;
+    const vgo::VariationStep* s = variation_.currentStep();
+    if (!s) return;
+    vgo::GroundedFacts f = demoStepFacts();
+
+    // 未接 LLM 时回退模板文本（N3 验收）。
+    if (!usingHttp()) {
+        std::string t = vgo::renderExplanation(f.facts, s->color);
+        if (t.empty())
+            t = s->move.is_pass ? "这一步虚着（停一手）。" : "这是变化图里的一手棋。";
+        appendAi(QString::fromStdString(t));
+        variation_.finishExplanation();
+        variation_panel_->setState(variation_.state());
+        return;
+    }
+
+    vgo::ConversationRequest req;
+    req.question = "请简要讲解这一手棋（这是棋盘演示的变化图）。";
+    req.facts = std::move(f);
+    req.board_context = vgo::boardToAscii(variation_board_);
+    req.size = variation_board_.size();
+    req.to_move = variation_.toMove();
+    req.last_move = s->move.p;
+    req.has_last_move = !s->move.is_pass;
+    req.last_mover = s->color;
+    req.profile = vgo::PlayerProfile{setup_.level, true};
+    chat_->beginAiStream();
+    conversation_->answerStream(req, [this](const std::string& delta, bool done) {
+        if (!demo_active_) return;
+        if (!delta.empty()) chat_->appendAiStream(QString::fromStdString(delta));
+        if (done) {
+            chat_->endAiStream();
+            variation_.finishExplanation();
+            variation_panel_->setState(variation_.state());
+        }
+    });
+}
+
+void MainWindow::onDemoAiMove() {
+    if (!demo_active_) return;
+    if (variation_.state() != vgo::VariationState::WaitingForMove) return;
+    vgo::EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+    if (!eng) {
+        status_->setText(QStringLiteral("未接入 KataGo，无法 AI 演示"));
+        return;
+    }
+    const vgo::Board req_board = variation_.board();
+    const vgo::Color to_move = variation_.toMove();
+    eng->requestMove(req_board, to_move, vgo::strengthForLevel(19),
+                     [this, req_board, to_move](vgo::EngineResult r) {
+                         if (!demo_active_) return;
+                         if (r.move.is_pass) {
+                             variation_.commitStep(vgo::Move{{-1, -1}, true}, to_move, true);
+                         } else {
+                             vgo::Game probe(req_board, to_move);
+                             if (!probe.play(r.move.p.x, r.move.p.y)) {
+                                 status_->setText(QStringLiteral("AI 演示：无合适落点"));
+                                 return;
+                             }
+                             variation_.commitStep(r.move, to_move, true);
+                         }
+                         updateVariationBoard();
+                         explainDemoStep();
+                     });
+}
+
+void MainWindow::onDemoConfirm() {
+    if (variation_.state() == vgo::VariationState::WaitingForConfirm) {
+        variation_.confirmNext();
+        variation_panel_->setState(variation_.state());
+        status_->setText(QStringLiteral("演示模式：继续摆棋或让 AI 续下"));
+    }
+}
+
+void MainWindow::onDemoBack() {
+    if (variation_.back()) updateVariationBoard();
+}
+
+void MainWindow::onDemoReplay() {
+    variation_.replay();
+    updateVariationBoard();
+}
+
+void MainWindow::onDemoExit() {
+    QSignalBlocker b(demoAction_);
+    demoAction_->setChecked(false);
+    exitDemo();
+}
+
+// ---------------------------------------------------------------------------
+// 教学增强（M3b）：局中预警 + 终局复盘 + 技能热更。
+// ---------------------------------------------------------------------------
+void MainWindow::onBlunderToggled(bool on) {
+    status_->setText(on ? QStringLiteral("局中预警已开启")
+                        : QStringLiteral("局中预警已关闭"));
+}
+
+void MainWindow::maybeWarnBlunder() {
+    if (!usingKata() || !advisor_) return;
+    vgo::Game* g = currentGame();
+    if (!g || g->move_number() == 0 || !g->has_last_move()) return;
+    const vgo::Point p = g->last_move();
+    advisor_->evaluateMove(*g, p, [this](const vgo::MoveEvaluation& e) {
+        const std::string w = vgo::blunderWarning(e);
+        if (w.empty()) return;
+        blunders_.push_back({currentGame() ? currentGame()->move_number() : 0, w});
+        appendAi(QString::fromStdString(w));
+    });
+}
+
+void MainWindow::onReloadSkills() {
+    loadSkills();
+    appendAi(QStringLiteral("已重新加载技能知识。"));
+}
+
+void MainWindow::loadSkills() {
+    auto* http = dynamic_cast<vgo::HttpConversationService*>(conversation_);
+    if (!http) return;
+    vgo::SkillRegistry reg = vgo::SkillRegistry::builtin();
+    const QStringList dirs = {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/skills"),
+        QCoreApplication::applicationDirPath() + QStringLiteral("/../resources/skills"),
+        vgo::ModelManager::instance().dataDir() + QStringLiteral("/skills"),
+    };
+    for (const QString& dir : dirs) {
+        QDir d(dir);
+        if (!d.exists()) continue;
+        const QStringList files =
+            d.entryList({QStringLiteral("*.md"), QStringLiteral("*.skill")}, QDir::Files);
+        for (const QString& f : files) {
+            QFile file(d.filePath(f));
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            const QByteArray bytes = file.readAll();
+            vgo::Skill s;
+            if (vgo::SkillRegistry::fromText(QString::fromUtf8(bytes).toStdString(), &s))
+                reg.upsert(s);
+        }
+    }
+    http->setSkills(std::move(reg));
 }
 
 void MainWindow::updateStatus() {

@@ -1,11 +1,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "analysis.h"
 #include "conversation.h"
 #include "engine.h"
+#include "evaluate.h"
 #include "go/game.h"
 
 namespace vgo {
@@ -54,10 +56,16 @@ public:
     // 形势判断强度档位（职业7/8/9段，见 strength.h 的 kAnalysisLevel*）。
     void setAnalysisLevel(int l) { analysis_level_ = l; }
 
+    // What-if evaluate a single move (N1.2). Wrapped for the UI (blunder alerts).
+    void evaluateMove(const Game& game, const Point& p, MoveEvaluator::Callback cb);
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
                        GroundedFacts facts, ReplyCb cb);
+    void handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb);
+    void handleLifeDeath(const Game& game, const std::string& question, ReplyCb cb);
+    MoveEvaluator* evaluator();
 
     EngineInterface* engine_;
     EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用，可空
@@ -66,6 +74,7 @@ private:
     int analysis_level_ = kAnalysisLevelNormal;  // 形势判断强度档位
     Color user_color_ = Color::Empty;
     Analysis last_analysis_;
+    std::unique_ptr<MoveEvaluator> move_evaluator_;
     int generation_ = 0;
 };
 

@@ -49,6 +49,14 @@ add_library(vgo_ai STATIC
     src/ai/ownership.cpp
     src/ai/llm_presets.h
     src/ai/llm_presets.cpp
+    src/ai/skill.h
+    src/ai/skill.cpp
+    src/ai/variation.h
+    src/ai/variation.cpp
+    src/ai/evaluate.h
+    src/ai/evaluate.cpp
+    src/ai/lifedeath.h
+    src/ai/lifedeath.cpp
 )
 target_include_directories(vgo_ai PUBLIC src)
 target_link_libraries(vgo_ai PUBLIC vgo_core)
@@ -75,6 +83,10 @@ add_executable(vgo_ai_tests
     tests/test_advisor.cpp
     tests/test_ownership.cpp
     tests/test_llm_presets.cpp
+    tests/test_skill.cpp
+    tests/test_variation.cpp
+    tests/test_evaluate.cpp
+    tests/test_lifedeath.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)
@@ -153,6 +165,8 @@ add_executable(vgo_app WIN32
     src/ui/MainWindow.cpp
     src/ui/ChatPanel.h
     src/ui/ChatPanel.cpp
+    src/ui/VariationPanel.h
+    src/ui/VariationPanel.cpp
     src/ui/NewGameDialog.h
     src/ui/NewGameDialog.cpp
     src/ui/SettingsDialog.h

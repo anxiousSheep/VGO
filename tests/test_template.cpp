@@ -78,3 +78,50 @@ TEST(template_other) {
     CHECK(r.unsure);
     CHECK(!r.text.empty());
 }
+
+TEST(template_classify_new_classes) {
+    CHECK(classifyQuestion("为什么下这里不好") == QuestionClass::MoveQuality);
+    CHECK(classifyQuestion("这步行吗") == QuestionClass::MoveQuality);
+    CHECK(classifyQuestion("下 G3 怎么样") == QuestionClass::MoveQuality);
+    CHECK(classifyQuestion("为什么做不活") == QuestionClass::LifeDeath);
+    CHECK(classifyQuestion("这块棋死没死") == QuestionClass::LifeDeath);
+    // 「为什么下这里」无「不好」，仍是 WhyThisMove。
+    CHECK(classifyQuestion("为什么下这里") == QuestionClass::WhyThisMove);
+}
+
+TEST(template_move_quality_with_eval) {
+    TemplateConversation tc;
+    GroundedFacts f;
+    MoveEvaluation e;
+    e.p = {3, 3};
+    e.legal = true;
+    e.valid = true;
+    e.winrate_before = 0.55;
+    e.winrate_after = 0.40;
+    e.lead_before = 2.0;
+    e.lead_after = -1.0;
+    f.move_eval = e;
+    auto r = ask(tc, "为什么这步不好", 1.5, f);
+    CHECK(!r.unsure);
+    CHECK(!r.text.empty());
+}
+
+TEST(template_move_quality_no_eval) {
+    TemplateConversation tc;
+    auto r = ask(tc, "这步怎么样");
+    CHECK(r.unsure);  // 无 KataGo，无法量化
+}
+
+TEST(template_life_death_with_result) {
+    TemplateConversation tc;
+    GroundedFacts f;
+    LifeDeathResult lr;
+    lr.alive = false;
+    lr.group = {{0, 0}, {1, 0}};
+    lr.saving_moves = {};
+    lr.reason = "无法做出两只眼";
+    f.life_death = lr;
+    auto r = ask(tc, "为什么做不活", 1.5, f);
+    CHECK(!r.unsure);
+    CHECK(!r.text.empty());
+}

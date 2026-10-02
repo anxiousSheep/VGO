@@ -60,6 +60,11 @@ void GobanWidget::setOwnership(const OwnershipMap& ownership) {
     update();
 }
 
+void GobanWidget::setMoveNumbers(const std::vector<std::pair<Point, int>>& nums) {
+    move_numbers_ = nums;
+    update();
+}
+
 double GobanWidget::cellSize() const {
     const int s = board_ ? board_->size() : 9;
     return std::min(width(), height()) / (s + 1.6);
@@ -202,6 +207,23 @@ void GobanWidget::paintEvent(QPaintEvent*) {
         p.setPen(Qt::NoPen);
         p.setBrush(mark);
         p.drawEllipse(c, cell * 0.13, cell * 0.13);
+    }
+
+    // Variation demo move numbers (N2.3): a small index on each played stone.
+    if (!move_numbers_.empty()) {
+        QFont nf = p.font();
+        nf.setPixelSize(std::max(8, static_cast<int>(cell * 0.5)));
+        nf.setBold(true);
+        p.setFont(nf);
+        for (const auto& [pt, num] : move_numbers_) {
+            if (!board_ || !board_->in_bounds(pt.x, pt.y)) continue;
+            const QPointF c = intersectionToPixel(pt.x, pt.y);
+            const QColor ink = (board_->at(pt.x, pt.y) == Color::Black) ? QColor("#FFFFFF")
+                                                                       : QColor("#000000");
+            p.setPen(ink);
+            p.drawText(QRectF(c.x() - cell / 2, c.y() - cell / 2, cell, cell),
+                       Qt::AlignCenter, QString::number(num));
+        }
     }
 
     // Hover ghost stone.

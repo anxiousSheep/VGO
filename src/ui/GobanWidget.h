@@ -2,6 +2,9 @@
 
 #include <QWidget>
 
+#include <utility>
+#include <vector>
+
 #include "ai/analysis.h"
 #include "go/board.h"
 #include "go/go_types.h"
@@ -29,6 +32,11 @@ public:
     void setOwnership(const OwnershipMap& ownership);
     void clearOwnership() { ownership_ = OwnershipMap{}; update(); }
 
+    // Variation demo: number each played stone with its step index (1-based),
+    // so demo moves are visually distinct from the real game (N2.3).
+    void setMoveNumbers(const std::vector<std::pair<Point, int>>& nums);
+    void clearMoveNumbers() { move_numbers_.clear(); update(); }
+
 signals:
     void pointClicked(int x, int y);
 
@@ -53,6 +61,7 @@ private:
     std::vector<Point> candidates_;
     std::vector<Point> highlight_;
     OwnershipMap ownership_;
+    std::vector<std::pair<Point, int>> move_numbers_;
 };
 
 }  // namespace vgo

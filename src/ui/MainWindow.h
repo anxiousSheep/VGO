@@ -2,7 +2,11 @@
 
 #include <QMainWindow>
 
+#include <utility>
+#include <vector>
+
 #include "ai/game_setup.h"
+#include "ai/variation.h"
 #include "go/game.h"
 
 class QLabel;
@@ -12,18 +16,22 @@ class QDockWidget;
 namespace vgo {
 class GobanWidget;
 class ChatPanel;
+class VariationPanel;
 class EngineInterface;
 class ConversationService;
 class AiAdvisor;
 class AIMatchController;
 struct ConversationReply;
 struct Analysis;
+struct MoveEvaluation;
+struct GroundedFacts;
 }
 
 // Main window: holds the current game (a placement Game, or an AIMatchController
 // for human-vs-AI), the board view, the chat side bar, and the menu/toolbar
 // actions. Game parameters are chosen once in the New Game dialog and cannot be
-// changed in-game; model settings live in a separate Settings dialog.
+// changed in-game; model settings live in a separate Settings dialog. Also hosts
+// the board-demo mode (N2) and teaching aids (M3b).
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -44,6 +52,18 @@ private slots:
     void onAnalyzeToggled(bool on);
     void onChatMessage(const QString& text);
 
+    // 棋盘演示（N2）
+    void onDemoToggled(bool on);
+    void onDemoAiMove();
+    void onDemoConfirm();
+    void onDemoBack();
+    void onDemoReplay();
+    void onDemoExit();
+
+    // 教学增强（M3b）
+    void onBlunderToggled(bool on);
+    void onReloadSkills();
+
 private:
     void applySetup(const vgo::GameSetup& setup);
     void startPlacement(int size);
@@ -59,10 +79,23 @@ private:
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
     void showScoreResult(int black, int white, double komi, double black_lead);
 
+    // 棋盘演示（N2）
+    void startDemo();
+    void exitDemo();
+    void onDemoPointClicked(int x, int y);
+    void updateVariationBoard();
+    void explainDemoStep();
+    vgo::GroundedFacts demoStepFacts() const;
+
+    // 教学增强（M3b）
+    void maybeWarnBlunder();
+    void loadSkills();
+
     bool inAiMode() const { return controller_ != nullptr; }
     vgo::Game* currentGame() const;
     vgo::Color userColor() const;
     bool usingKata() const;
+    bool usingHttp() const;
 
     vgo::GameSetup setup_;
 
@@ -82,4 +115,17 @@ private:
     QAction* toggleChatAction_ = nullptr;
     QAction* analyzeAction_ = nullptr;
     bool resigned_ = false;
+
+    // 棋盘演示（N2）
+    bool demo_active_ = false;
+    vgo::VariationController variation_;
+    vgo::Board variation_board_{9};
+    std::vector<std::pair<vgo::Point, int>> variation_numbers_;
+    vgo::VariationPanel* variation_panel_ = nullptr;
+    QDockWidget* demo_dock_ = nullptr;
+    QAction* demoAction_ = nullptr;
+
+    // 教学增强（M3b）
+    QAction* blunderAction_ = nullptr;
+    std::vector<std::pair<int, std::string>> blunders_;  // 手数 + 预警文本（M3b.3）
 };
