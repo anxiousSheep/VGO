@@ -554,7 +554,8 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
 void MainWindow::onChatMessage(const QString& text) {
     const std::string q = text.toStdString();
     // N2.2：提问触发演示——「如果白棋在H6长出，黑棋后面几步该如何应对」。
-    if (usingKata() && currentGame() && !demo_busy_) {
+    // 仅在无 LLM 时用关键词兜底；有 LLM 时交给模型走 function-calling，演示后还能继续讲解。
+    if (usingKata() && currentGame() && !demo_busy_ && !usingHttp()) {
         const vgo::DemoRequest dr = vgo::parseDemoRequest(q, currentGame()->size());
         if (dr.valid) {
             startDemoFromQuestion(dr);
@@ -842,7 +843,7 @@ void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     vgo::Game* g = currentGame();
     if (!g) return;
     std::string placed;
-    if (!enterDemoAndPlace(dr.point, dr.color, /*reset=*/false, &placed)) {
+    if (!enterDemoAndPlace(dr.point, dr.color, /*reset=*/false, /*undo=*/0, &placed)) {
         status_->setText(QString::fromStdString(placed));
         return;
     }
@@ -855,7 +856,7 @@ void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     demoAiContinue(4);  // 关键词路径：异步逐步演示（无需把坐标回传给 LLM）
 }
 
-bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset,
+bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, int undo,
                                    std::string* placed) {
     vgo::Game* g = currentGame();
     if (!g) {
@@ -875,6 +876,8 @@ bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset,
         variation_.start(g->board(), g->current());
     }
     // else: 保留现有变化图，继续追加。
+    // 回退若干步（撤销最近几步），用于回到某个局部局面后再演示。
+    for (int i = 0; i < undo && variation_.back(); ++i) {}
     if (p.x < 0) {
         updateVariationBoard();
         return true;
@@ -956,9 +959,10 @@ std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& a
     else if (c == "white") color = vgo::Color::White;
     const int plies = args["plies"].toInt(4);
     const bool reset = args["reset"].toBool(false);
+    const int undo = args["undo"].toInt(0);
 
     std::string placed;
-    if (!enterDemoAndPlace(p, color, reset, &placed)) return placed;
+    if (!enterDemoAndPlace(p, color, reset, undo, &placed)) return placed;
 
     // 同步跑完权威 AI 续下，拿到具体坐标，再回传给 LLM，避免「没有具体坐标」。
     const std::vector<vgo::Move> moves = collectAiMoves(plies);

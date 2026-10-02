@@ -63,8 +63,9 @@ private slots:
     void startDemoFromQuestion(const vgo::DemoRequest& dr);  // 提问触发演示（N2.2）
     // LLM 工具调用（function-calling）：模型可主动请求打开演示并落子/续下。
     std::string handleDemoTool(const QString& name, const QJsonObject& args);
-    // 打开（或续用/重置）试下，并落假设手；placed 输出如「黑 H6」，失败返回 false。
-    bool enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, std::string* placed);
+    // 打开（或续用/重置/回退）试下，并落假设手；placed 输出如「黑 H6」，失败返回 false。
+    bool enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, int undo,
+                           std::string* placed);
     std::vector<vgo::Move> collectAiMoves(int plies);  // 同步收集权威 AI 续下（阻塞到完成）
     bool requestDemoMoveSync(const vgo::Board& b, vgo::Color to_move, vgo::Move* out);
 

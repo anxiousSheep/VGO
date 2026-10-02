@@ -154,8 +154,8 @@ QJsonArray buildTools() {
     QJsonObject fn;
     fn["name"] = "demonstrate_go_moves";
     fn["description"] = QStringLiteral(
-        "在棋盘上演示走法：进入试下模式，可选地落一手假设手，并用权威 AI 续下若干手。"
-        "当用户要求演示、展示变化、模拟对局、询问后续应对或「后面几步怎么下」时调用。");
+        "在棋盘上演示走法：进入试下模式，可回退若干步、落一手假设手，并用权威 AI 续下若干手。"
+        "当用户要求演示、展示变化、模拟对局、询问后续应对、局部变化或「后面几步怎么下」时调用。");
 
     QJsonObject pPoint;
     pPoint["type"] = "string";
@@ -171,12 +171,17 @@ QJsonArray buildTools() {
     pReset["type"] = "boolean";
     pReset["description"] = QStringLiteral(
         "true 表示从头重新演示（丢弃当前变化图）；false 或省略表示在当前演示基础上继续");
+    QJsonObject pUndo;
+    pUndo["type"] = "integer";
+    pUndo["description"] = QStringLiteral(
+        "回退的手数（撤销最近几步），用于回到某个局部局面后再演示；默认 0 不回退");
 
     QJsonObject props;
     props["point"] = pPoint;
     props["color"] = pColor;
     props["plies"] = pPlies;
     props["reset"] = pReset;
+    props["undo"] = pUndo;
 
     QJsonObject params;
     params["type"] = "object";
