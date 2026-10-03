@@ -19,6 +19,15 @@ struct StrengthParams {
 // Clamps level to [1,19] and returns the corresponding parameters.
 StrengthParams strengthForLevel(int level);
 
+// D3.4 新手难度动态爬坡：带连续强度提示的 strengthForLevel。`level == 1`（新手）
+// 时据 `kyu_hint`（20 = 20k 新手，0 = 1d）在细粒度 HumanSL 阶梯上选档，其余档位
+// 忽略 kyu_hint。默认 kyu_hint = 20 与旧行为一致（新手 = rank_20k）。
+StrengthParams strengthForLevel(int level, double kyu_hint);
+
+// 连续 kyu 估计（20 = 20k 新手，<= 0 = 1d）→ 细粒度 HumanSL rank，形成新手爬坡
+// 阶梯 rank_20k → 15k → 10k → 7k → 5k → 3k → 1k → 1d。1d 及以上由 19 级表承担。
+std::string humanProfileForStrength(double kyu);
+
 // Short Chinese rank label for a level, e.g. "新手", "业余3段", "职业1段".
 std::string rankLabel(int level);
 

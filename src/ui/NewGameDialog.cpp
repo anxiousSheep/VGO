@@ -1,6 +1,9 @@
 #include "NewGameDialog.h"
 
+#include <algorithm>
+
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -12,8 +15,12 @@
 
 #include "ai/strength.h"
 
-NewGameDialog::NewGameDialog(bool human_vs_ai, QWidget* parent)
-    : QDialog(parent), human_vs_ai_(human_vs_ai) {
+NewGameDialog::NewGameDialog(bool human_vs_ai, int suggested_level, double suggested_kyu,
+                             QWidget* parent)
+    : QDialog(parent),
+      human_vs_ai_(human_vs_ai),
+      suggested_level_(std::clamp(suggested_level, 1, 19)),
+      suggested_kyu_(suggested_kyu) {
     setWindowTitle(QStringLiteral("新对局"));
 
     // 棋盘大小
@@ -55,17 +62,25 @@ NewGameDialog::NewGameDialog(bool human_vs_ai, QWidget* parent)
         colorLayout->addStretch(1);
         form->addRow(QStringLiteral("执子"), colorRow_);
 
-        // 难度（19 级下拉）
+        // 难度（19 级下拉）+ 自动难度开关（D3.4：据学习者画像自动标定，含新手爬坡）
+        autoLevel_ = new QCheckBox(QStringLiteral("自动难度（根据你的棋力推荐）"), this);
+        autoLevel_->setChecked(true);
+
         levelCombo_ = new QComboBox(this);
         for (int lv = 1; lv <= 19; ++lv) {
             levelCombo_->addItem(QString::fromStdString(vgo::rankLabel(lv)));
         }
-        levelCombo_->setCurrentIndex(0);
+        levelCombo_->setCurrentIndex(suggested_level_ - 1);
+        levelCombo_->setEnabled(false);  // 自动难度默认启用，下拉禁用
+
+        connect(autoLevel_, &QCheckBox::toggled, this,
+                [this](bool on) { levelCombo_->setEnabled(!on); });
 
         levelRow_ = new QWidget(this);
         auto* levelLayout = new QHBoxLayout(levelRow_);
         levelLayout->setContentsMargins(0, 0, 0, 0);
         levelLayout->addWidget(levelCombo_, 1);
+        form->addRow(autoLevel_);
         form->addRow(QStringLiteral("难度"), levelRow_);
     }
 
@@ -83,7 +98,14 @@ NewGameDialog::NewGameDialog(bool human_vs_ai, QWidget* parent)
 void NewGameDialog::accept() {
     setup_.mode = human_vs_ai_ ? vgo::GameMode::HumanVsAi : vgo::GameMode::Placement;
     setup_.size = sizeGroup_->checkedId();
-    setup_.level = levelCombo_ ? levelCombo_->currentIndex() + 1 : 1;
+    // D3.4：自动难度用画像估计（含新手爬坡 kyu），手动则固定新手 = 20k。
+    if (autoLevel_ && autoLevel_->isChecked()) {
+        setup_.level = suggested_level_;
+        setup_.kyu_hint = suggested_kyu_;
+    } else {
+        setup_.level = levelCombo_ ? levelCombo_->currentIndex() + 1 : 1;
+        setup_.kyu_hint = 20.0;  // 手动 override：新手 = 固定 20k
+    }
 
     if (human_vs_ai_) {
         const int color = colorGroup_->checkedId();

@@ -8,12 +8,13 @@
 namespace vgo {
 
 AIMatchController::AIMatchController(int size, Color human_color, EngineInterface* engine,
-                                     AiAdvisor* advisor, int level)
+                                     AiAdvisor* advisor, int level, double kyu_hint)
     : game_(size),
       human_color_(human_color),
       engine_(engine),
       advisor_(advisor),
-      level_(level) {
+      level_(level),
+      kyu_hint_(kyu_hint) {
     if (advisor_) advisor_->setUserColor(human_color_);  // 供 LLM 定位用户执子方
     ai_turn_ = (human_color_ == Color::White);  // AI opens if human is White
 }
@@ -67,7 +68,7 @@ void AIMatchController::beginAiTurn() {
             board.set(p.x, p.y, opponent(game_.current()));
         }
     }
-    engine_->requestMove(board, game_.current(), strengthForLevel(level_),
+    engine_->requestMove(board, game_.current(), strengthForLevel(level_, kyu_hint_),
                          [this, gen](EngineResult r) {
                              if (gen != generation_) return;  // stale / cancelled
                              onAiResult(std::move(r));

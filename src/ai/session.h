@@ -34,13 +34,15 @@ public:
     std::function<void()> onAiResign;       // AI 主动认输（中盘明显劣势）
 
     AIMatchController(int size, Color human_color, EngineInterface* engine,
-                      AiAdvisor* advisor, int level = 5);
+                      AiAdvisor* advisor, int level = 5, double kyu_hint = 20.0);
 
     Game& game() { return game_; }
     const Game& game() const { return game_; }
     Color humanColor() const { return human_color_; }
     int level() const { return level_; }
     void setLevel(int l);
+    // D3.4：新手难度爬坡的连续强度提示（20=20k 新手，0=1d；仅 level==1 生效）。
+    void setKyuHint(double k) { kyu_hint_ = k; }
 
     bool isAiTurn() const { return ai_turn_; }
     bool isThinking() const { return thinking_; }
@@ -76,6 +78,7 @@ private:
     EngineInterface* engine_;
     AiAdvisor* advisor_;
     int level_ = 5;
+    double kyu_hint_ = 20.0;  // D3.4 新手难度爬坡
     bool ai_turn_ = false;
     bool thinking_ = false;
     bool resigned_ = false;

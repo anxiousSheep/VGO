@@ -15,6 +15,7 @@ struct GameSetup {
     Color human_color = Color::Black;  // nigiri 时由 UI 先随机得出
     bool nigiri = false;
     int level = 1;  // 1..19，见 strength.h
+    double kyu_hint = 20.0;  // D3.4 新手难度爬坡：连续强度（20=20k 新手，0=1d），仅 level==1 生效
 };
 
 }  // namespace vgo

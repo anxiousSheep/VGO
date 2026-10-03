@@ -1,6 +1,7 @@
 #include "strength.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace vgo {
@@ -49,15 +50,45 @@ const Row& rowFor(int level) {
 }  // namespace
 
 StrengthParams strengthForLevel(int level) {
+    return strengthForLevel(level, 20.0);
+}
+
+StrengthParams strengthForLevel(int level, double kyu_hint) {
     level = std::max(1, std::min(19, level));
     const Row& r = rowFor(level);
     StrengthParams p;
     p.level = level;
     p.human_profile = r.human_profile;
+    if (level == 1) {
+        // D3.4 新手难度动态爬坡：据连续 kyu 估计在细粒度阶梯上选档，取代固定 20k。
+        p.human_profile = humanProfileForStrength(kyu_hint);
+    }
     p.temperature = r.temperature;
     p.max_visits = r.max_visits;
     p.randomness = r.randomness;
     return p;
+}
+
+std::string humanProfileForStrength(double kyu) {
+    // 新手带阶梯：20k → 15k → 10k → 7k → 5k → 3k → 1k → 1d。
+    // 1d 及以上（kyu <= 0）由 19 级表的业余/职业段承担，本函数只覆盖新手带。
+    if (kyu <= 0.0) return "rank_1d";
+    if (kyu >= 20.0) return "rank_20k";
+    static const struct Rung { double kyu; const char* profile; } kLadder[] = {
+        {20.0, "rank_20k"}, {15.0, "rank_15k"}, {10.0, "rank_10k"},
+        {7.0, "rank_7k"},   {5.0, "rank_5k"},   {3.0, "rank_3k"},
+        {1.0, "rank_1k"},   {0.0, "rank_1d"},
+    };
+    const char* best = "rank_20k";
+    double best_d = 1e18;
+    for (const Rung& r : kLadder) {
+        const double d = std::abs(kyu - r.kyu);
+        if (d < best_d) {
+            best_d = d;
+            best = r.profile;
+        }
+    }
+    return best;
 }
 
 std::string rankLabel(int level) {

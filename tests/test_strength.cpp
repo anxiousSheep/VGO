@@ -40,3 +40,28 @@ TEST(rank_labels) {
     CHECK(rankLabel(11) == "职业1段");
     CHECK(rankLabel(19) == "职业9段");
 }
+
+TEST(human_profile_ladder) {
+    CHECK_EQ(humanProfileForStrength(20.0), std::string("rank_20k"));
+    CHECK_EQ(humanProfileForStrength(15.0), std::string("rank_15k"));
+    CHECK_EQ(humanProfileForStrength(10.0), std::string("rank_10k"));
+    CHECK_EQ(humanProfileForStrength(7.0), std::string("rank_7k"));
+    CHECK_EQ(humanProfileForStrength(5.0), std::string("rank_5k"));
+    CHECK_EQ(humanProfileForStrength(3.0), std::string("rank_3k"));
+    CHECK_EQ(humanProfileForStrength(1.0), std::string("rank_1k"));
+    CHECK_EQ(humanProfileForStrength(0.0), std::string("rank_1d"));
+    CHECK_EQ(humanProfileForStrength(-5.0), std::string("rank_1d"));  // 1d 及以上钳制
+    CHECK_EQ(humanProfileForStrength(30.0), std::string("rank_20k")); // 20k 以下钳制
+}
+
+TEST(strength_level1_uses_kyu_hint) {
+    // 新手（level 1）据连续 kyu 提示在阶梯上选档，消除 20k→1d 断崖。
+    CHECK_EQ(strengthForLevel(1, 20.0).human_profile, std::string("rank_20k"));
+    CHECK_EQ(strengthForLevel(1, 10.0).human_profile, std::string("rank_10k"));
+    CHECK_EQ(strengthForLevel(1, 0.0).human_profile, std::string("rank_1d"));
+    // 默认（无 kyu 提示）仍是 20k，向后兼容。
+    CHECK_EQ(strengthForLevel(1).human_profile, std::string("rank_20k"));
+    // 非新手档位忽略 kyu 提示。
+    CHECK_EQ(strengthForLevel(2, 20.0).human_profile, std::string("rank_1d"));
+    CHECK_EQ(strengthForLevel(5, 20.0).human_profile, std::string("rank_3d"));
+}

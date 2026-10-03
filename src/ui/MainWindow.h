@@ -91,7 +91,7 @@ private:
     void applySetup(const vgo::GameSetup& setup);
     void startPlacement(int size);
     void startAi(const vgo::GameSetup& setup);
-    void createAiServices(int level);
+    void createAiServices(int level, double kyu_hint = 20.0);
     void teardown();
     void teardownServices();
     void refresh();

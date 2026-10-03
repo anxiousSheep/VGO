@@ -78,6 +78,16 @@ int LearnerModel::estimateLevel() const {
     return std::clamp(level, 1, 19);
 }
 
+double LearnerModel::estimateKyuRank() const {
+    if (games_.empty()) return 20.0;  // 无历史：默认新手 20k
+    double sum = 0.0;
+    for (const GameSummary& g : games_) sum += g.avg_loss_per_move;
+    const double avg = sum / static_cast<double>(games_.size());
+    // 连续 kyu：avg loss 1.0 目/手 → 0 kyu（1d）；20 目/手 → 20 kyu（20k）。
+    const double t = (avg - 1.0) / (20.0 - 1.0);
+    return std::clamp(20.0 * t, 0.0, 20.0);
+}
+
 std::string LearnerModel::coachMemory() const {
     if (games_.empty()) return {};
     const auto top = topWeakAreas(1);

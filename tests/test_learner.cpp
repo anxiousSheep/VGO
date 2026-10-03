@@ -31,6 +31,29 @@ TEST(learner_estimate_level) {
     CHECK_EQ(m2.estimateLevel(), 1);
 }
 
+TEST(learner_estimate_kyu_rank) {
+    LearnerModel m;
+    CHECK_EQ(m.estimateKyuRank(), 20.0);  // 无历史默认 20k 新手
+
+    LearnerModel strong;
+    GameSummary sg;
+    sg.avg_loss_per_move = 1.0;
+    strong.recordGame(sg);
+    CHECK_EQ(strong.estimateKyuRank(), 0.0);  // 1d
+
+    LearnerModel weak;
+    GameSummary wk;
+    wk.avg_loss_per_move = 20.0;
+    weak.recordGame(wk);
+    CHECK_EQ(weak.estimateKyuRank(), 20.0);  // 20k
+
+    LearnerModel mid;
+    GameSummary md;
+    md.avg_loss_per_move = 10.5;
+    mid.recordGame(md);
+    CHECK_EQ(mid.estimateKyuRank(), 10.0);  // 10k（线性映射中点）
+}
+
 TEST(learner_rolling_window_caps_20) {
     LearnerModel m;
     for (int i = 0; i < 25; ++i) m.recordGame(GameSummary{});

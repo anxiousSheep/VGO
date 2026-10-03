@@ -21,6 +21,16 @@ struct ScriptedEngine : EngineInterface {
     }
 };
 
+struct CapturingEngine : EngineInterface {
+    StrengthParams last;
+    void requestMove(const Board&, Color, const StrengthParams& p, Callback cb) override {
+        last = p;
+        EngineResult r;
+        r.move.is_pass = true;
+        cb(r);
+    }
+};
+
 }  // namespace
 
 TEST(session_human_black_flow) {
@@ -106,4 +116,21 @@ TEST(session_question_reaches_conversation) {
     c.onReply = [&](const ConversationReply& r) { got = r.text; };
     c.ask("谁领先");
     CHECK(!got.empty());
+}
+
+TEST(session_novice_kyu_hint_threaded) {
+    // D3.4：新手（level 1）时，连续 kyu 提示应透传到引擎，用于细粒度 HumanSL 阶梯。
+    CapturingEngine eng;
+    TemplateConversation conv;
+    AiAdvisor advisor(&eng, &conv, 1);
+    AIMatchController c(9, Color::White, &eng, &advisor, 1, 10.0);  // AI 执黑先行
+    c.start();
+    CHECK_EQ(eng.last.human_profile, std::string("rank_10k"));
+
+    // 手动 override（默认 kyu=20）时回到固定 20k。
+    CapturingEngine eng2;
+    AiAdvisor advisor2(&eng2, &conv, 1);
+    AIMatchController c2(9, Color::White, &eng2, &advisor2, 1);
+    c2.start();
+    CHECK_EQ(eng2.last.human_profile, std::string("rank_20k"));
 }

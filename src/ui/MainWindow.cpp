@@ -355,7 +355,7 @@ void MainWindow::applySetup(const vgo::GameSetup& setup) {
     }
 }
 
-void MainWindow::createAiServices(int level) {
+void MainWindow::createAiServices(int level, double kyu_hint) {
     const vgo::KataGoSettings& ks = vgo::ModelManager::instance().katago();
 
     // 落子引擎按难度选模型：业余段（1-11）用标准模型搜索 + 人类模型选子
@@ -434,6 +434,7 @@ void MainWindow::createAiServices(int level) {
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
     advisor_->setAnalysisLevel(vgo::ModelManager::instance().analysisLevel());
+    advisor_->setKyuHint(kyu_hint);  // D3.4：新手难度爬坡（「我该下哪」口径一致）
     // D3.6：把跨局教练记忆注入 prompt（隐私开关关闭或暂无数据时为空）。
     advisor_->setCoachMemoryProvider([this]() -> std::string {
         if (!learner_ || !learner_->enabled()) return {};
@@ -486,7 +487,7 @@ void MainWindow::startPlacement(int size) {
     delete game_;
     game_ = nullptr;
     // AI 服务跨模式共享：仅首次创建；已有则沿用并重置语气档位。
-    if (!advisor_) createAiServices(setup_.level);
+    if (!advisor_) createAiServices(setup_.level, setup_.kyu_hint);
     else advisor_->setLevel(setup_.level);
     game_ = new vgo::Game(size);
     resigned_ = false;
@@ -507,10 +508,10 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     delete controller_;
     controller_ = nullptr;
     teardownServices();  // 按新难度重建落子引擎与 advisor
-    createAiServices(setup.level);
+    createAiServices(setup.level, setup.kyu_hint);
 
     controller_ = new vgo::AIMatchController(setup.size, setup.human_color, engine_,
-                                             advisor_, setup.level);
+                                             advisor_, setup.level, setup.kyu_hint);
     controller_->onChanged = [this] { refresh(); };
     controller_->onAiMove = [this](const vgo::Move& m, const vgo::Analysis&) {
         if (m.is_pass) {
@@ -593,7 +594,15 @@ void MainWindow::newGame() {
         return;
     }
     const bool human = (app_mode_ == vgo::GameMode::HumanVsAi);
-    NewGameDialog dlg(human, this);
+    // D3.4：据学习者画像给「自动难度」提供建议档位（含新手爬坡 kyu）；无历史时从
+    // 新手（20k）起步。
+    int suggested_level = 1;
+    double suggested_kyu = 20.0;
+    if (learner_ && learner_->enabled() && learner_->model().gameCount() > 0) {
+        suggested_level = learner_->model().estimateLevel();
+        suggested_kyu = learner_->model().estimateKyuRank();
+    }
+    NewGameDialog dlg(human, suggested_level, suggested_kyu, this);
     if (dlg.exec() == QDialog::Accepted) applySetup(dlg.setup());
 }
 

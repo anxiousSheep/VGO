@@ -71,6 +71,10 @@ public:
     // Observed strength -> level 1..19 (default 5 with no history).
     int estimateLevel() const;
 
+    // D3.4：连续强度估计（kyu），供新手难度动态爬坡：20 = 20k 新手，0 = 1d。
+    // 与 estimateLevel 同源（都由平均每手损点线性映射），无历史时默认 20k。
+    double estimateKyuRank() const;
+
     // A short cross-game "coach memory" line, empty if there is no signal yet.
     std::string coachMemory() const;
 

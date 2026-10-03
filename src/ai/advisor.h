@@ -52,6 +52,8 @@ public:
 
     int level() const { return level_; }
     void setLevel(int l) { level_ = l; }
+    // D3.4：新手难度爬坡的连续强度提示，使「我该下哪」建议与对局实际强度口径一致。
+    void setKyuHint(double k) { kyu_hint_ = k; }
 
     // 用户执子颜色（人机对弈时由 controller 设置；摆棋模式保持 Empty）。
     void setUserColor(Color c) { user_color_ = c; }
@@ -108,6 +110,7 @@ private:
     EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用，可空
     ConversationService* conversation_;
     int level_;
+    double kyu_hint_ = 20.0;                  // D3.4 新手难度爬坡
     int analysis_level_ = kAnalysisLevelNormal;  // 形势判断强度档位
     Color user_color_ = Color::Empty;
     Analysis last_analysis_;

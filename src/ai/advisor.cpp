@@ -117,7 +117,7 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
             return;
         }
 
-        engine_->requestMove(game.board(), to_move, strengthForLevel(level_),
+        engine_->requestMove(game.board(), to_move, strengthForLevel(level_, kyu_hint_),
                              [this, gen, question, snapshot, cb](EngineResult r) {
                                  if (gen != generation_) return;  // stale / cancelled
                                  GroundedFacts f = currentFacts(snapshot);
