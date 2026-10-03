@@ -69,11 +69,16 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     return s;
 }
 
-QString buildUserPrompt(const ConversationRequest& req) {
+}  // namespace
+
+QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
     QString s;
+    // D1.9：Other（未命中任何专用路径）由模型走工具按需取引擎真值——prompt 只保留
+    // 无引擎基础事实（棋盘 / 规则计分 / 最近一手），胜率 / 候选点 / 死棋清单改由工具取。
+    const bool stripEngine = (cls == QuestionClass::Other);
     s += QStringLiteral("棋盘（X=黑 O=白 .=空，最下方是 A 列起的坐标）：\n");
     s += QString::fromStdString(req.board_context);
-    if (req.facts.analysis.valid) {
+    if (req.facts.analysis.valid && !stripEngine) {
         const double blackWinrate = (req.to_move == Color::Black)
                                         ? req.facts.analysis.winrate
                                         : 1.0 - req.facts.analysis.winrate;
@@ -96,7 +101,7 @@ QString buildUserPrompt(const ConversationRequest& req) {
     }
     s += QStringLiteral("当前轮到%1方落子。\n")
              .arg(req.to_move == Color::Black ? QStringLiteral("黑") : QStringLiteral("白"));
-    if (req.facts.analysis.valid && !req.hint) {
+    if (req.facts.analysis.valid && !req.hint && !stripEngine) {
         int shown = 0;
         for (const auto& c : req.facts.analysis.candidates) {
             if (shown >= 4) break;
@@ -134,8 +139,10 @@ QString buildUserPrompt(const ConversationRequest& req) {
         s += QStringLiteral("死活结论（硬事实）：%1\n")
                  .arg(QString::fromStdString(renderLifeDeath(*req.facts.life_death, req.size)));
     }
-    const std::string dead = renderDeadGroups(req.facts.dead_groups, req.size);
-    if (!dead.empty()) s += QString::fromStdString(dead) + QStringLiteral("\n");
+    if (!stripEngine) {
+        const std::string dead = renderDeadGroups(req.facts.dead_groups, req.size);
+        if (!dead.empty()) s += QString::fromStdString(dead) + QStringLiteral("\n");
+    }
 
     // 试下模式上下文：让模型知道已有进行中的演示，从而正确判断继续/重置/回退。
     if (req.in_demo) {
@@ -151,6 +158,8 @@ QString buildUserPrompt(const ConversationRequest& req) {
     s += QStringLiteral("\n棋手的问题：%1").arg(QString::fromStdString(req.question));
     return s;
 }
+
+namespace {
 
 QJsonObject buildBody(const QString& model, bool stream, const QString& systemPrompt,
                       const QString& userPrompt, int max_tokens) {
@@ -305,7 +314,7 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
     messages.append(system);
     QJsonObject user;
     user["role"] = "user";
-    user["content"] = buildUserPrompt(req);
+    user["content"] = buildUserPrompt(req, cls);
     messages.append(user);
     doChat(messages, 0, std::move(cb));
 }
@@ -410,7 +419,7 @@ void HttpConversationService::answerStream(const ConversationRequest& req, Delta
     const QuestionClass cls = classifyQuestion(req.question);
     const QJsonObject body =
         buildBody(model_, true, buildSystemPrompt(skills_, cls, req),
-                  buildUserPrompt(req), max_tokens_);
+                  buildUserPrompt(req, cls), max_tokens_);
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");

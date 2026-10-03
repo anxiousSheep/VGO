@@ -80,4 +80,9 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
                              const QJsonArray& toolCalls,
                              const std::function<std::string(const QJsonObject&)>& exec);
 
+// Builds the user prompt. For `Other` questions the engine facts (winrate /
+// candidates / dead groups) are omitted so the model fetches them via tools (D1.9).
+// Exposed (like buildToolFollowup) for unit-testing the convergence.
+QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls);
+
 }  // namespace vgo

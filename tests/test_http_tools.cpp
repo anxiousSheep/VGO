@@ -87,3 +87,48 @@ TEST(http_tool_followup_preserves_assistant_content) {
         [&](const QJsonObject&) { return std::string("r"); });
     CHECK(next.at(0).toObject()["content"].toString() == "我先演示一下");
 }
+
+// D1.9：Other 问题（未命中专用路径）的 user prompt 不再预灌引擎事实（胜率 / 候选点 /
+// 死棋清单），改由模型走工具按需取；只保留无引擎基础事实（棋盘 / 规则计分 / 问题）。
+TEST(http_user_prompt_other_strips_engine_facts) {
+    ConversationRequest req;
+    req.question = "你好";  // Other
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 10;
+    req.board_context = "X O .";
+    req.facts.analysis.valid = true;
+    req.facts.analysis.winrate = 0.6;
+    req.facts.analysis.score_lead = 5.0;
+    MoveCandidate c;
+    c.p = {3, 3};
+    c.winrate = 0.6;
+    c.score_lead = 5.0;
+    req.facts.analysis.candidates.push_back(c);
+
+    const QString s = buildUserPrompt(req, QuestionClass::Other);
+    CHECK(!s.contains(QStringLiteral("胜率")));     // 无引擎胜率
+    CHECK(!s.contains(QStringLiteral("候选点")));   // 无候选点
+    CHECK(s.contains(QStringLiteral("规则计分")));  // 保留规则计分基础事实
+    CHECK(s.contains(QStringLiteral("棋盘")));
+    CHECK(s.contains(QStringLiteral("你好")));
+}
+
+// D1.9：专用路径（谁领先）仍注入引擎事实（胜率），供模型直接作答。
+TEST(http_user_prompt_winning_keeps_engine_facts) {
+    ConversationRequest req;
+    req.question = "谁领先";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 10;
+    req.board_context = "X O .";
+    req.facts.analysis.valid = true;
+    req.facts.analysis.winrate = 0.6;
+    req.facts.analysis.score_lead = 5.0;
+
+    const QString s = buildUserPrompt(req, QuestionClass::WhoIsWinning);
+    CHECK(s.contains(QStringLiteral("胜率")));
+    CHECK(!s.contains(QStringLiteral("规则计分")));  // 有真值时走 KataGo 行
+}
