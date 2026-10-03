@@ -155,7 +155,7 @@ QString buildUserPrompt(const ConversationRequest& req) {
 }
 
 QJsonObject buildBody(const QString& model, bool stream, const QString& systemPrompt,
-                      const QString& userPrompt) {
+                      const QString& userPrompt, int max_tokens) {
     QJsonArray messages;
     QJsonObject system;
     system["role"] = "system";
@@ -169,6 +169,7 @@ QJsonObject buildBody(const QString& model, bool stream, const QString& systemPr
     QJsonObject body;
     body["model"] = model;
     body["messages"] = messages;
+    body["max_tokens"] = max_tokens;
     body["stream"] = stream;
     return body;
 }
@@ -282,10 +283,12 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
     body["messages"] = messages;
     if ((tool_handler_ || !tool_registry_.all().empty()) && depth < 4)
         body["tools"] = buildTools(&tool_registry_);
+    body["max_tokens"] = max_tokens_;  // D5.5：单次回答 token 上限
     body["stream"] = false;
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setTransferTimeout(timeout_ms_);  // D5.5：超时熔断
     if (!apiKey_.isEmpty())
         request.setRawHeader("Authorization", ("Bearer " + apiKey_).toUtf8());
 
@@ -372,10 +375,11 @@ void HttpConversationService::answerStream(const ConversationRequest& req, Delta
     const QuestionClass cls = classifyQuestion(req.question);
     const QJsonObject body =
         buildBody(model_, true, buildSystemPrompt(skills_, cls, req),
-                  buildUserPrompt(req));
+                  buildUserPrompt(req), max_tokens_);
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setTransferTimeout(timeout_ms_);  // D5.5：超时熔断
     if (!apiKey_.isEmpty())
         request.setRawHeader("Authorization", ("Bearer " + apiKey_).toUtf8());
 

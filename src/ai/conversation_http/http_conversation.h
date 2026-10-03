@@ -48,6 +48,10 @@ public:
     // tool, and its invoke() runs when the model calls one of them.
     void setTools(ToolRegistry tools) override { tool_registry_ = std::move(tools); }
 
+    // D5.5 预算守护：单次回答的 token 上限与 HTTP 超时（超限/超时熔断并明示）。
+    void setMaxTokens(int n) { max_tokens_ = n; }
+    void setTimeoutMs(int ms) { timeout_ms_ = ms; }
+
 private:
     void doChat(QJsonArray messages, int depth, Callback cb);
 
@@ -58,6 +62,8 @@ private:
     SkillRegistry skills_ = SkillRegistry::builtin();
     ToolHandler tool_handler_;
     ToolRegistry tool_registry_;  // D1：多工具（position-bound，advisor 注入）
+    int max_tokens_ = 1024;       // D5.5：单次回答 token 上限
+    int timeout_ms_ = 30000;      // D5.5：HTTP 传输超时（熔断）
     QNetworkAccessManager nam_;
     QNetworkReply* reply_ = nullptr;
     QByteArray stream_buffer_;  // SSE partial-line accumulation
