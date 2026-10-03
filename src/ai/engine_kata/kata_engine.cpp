@@ -459,6 +459,23 @@ void KataGoEngine::onErrorOccurred(QProcess::ProcessError) {
     if (available_ && proc_->state() != QProcess::Running) {
         available_ = false;
         error_ = proc_->errorString();
+        // 进程崩溃：完成在途请求（空结果），避免 EnginePool 槽位永久 busy——否则
+        // 后续形势刷新永不下发（表现为「重启才恢复」）。落子请求回退为虚着。
+        pending_kind_ = PendingKind::None;
+        pending_candidates_.clear();
+        analysis_buffer_.clear();
+        if (pending_) {
+            Callback cb = std::move(pending_);
+            pending_ = nullptr;
+            EngineResult r;
+            r.move.is_pass = true;
+            cb(std::move(r));
+        }
+        if (pending_analysis_) {
+            AnalysisCallback cb = std::move(pending_analysis_);
+            pending_analysis_ = nullptr;
+            cb(Analysis{});
+        }
     }
 }
 
