@@ -3,6 +3,8 @@
 #include <memory>
 #include <utility>
 
+#include <chrono>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -15,6 +17,13 @@
 namespace vgo {
 
 namespace {
+
+// Wall-clock ms since epoch, for the tool-loop deadline (D1.10). Monotonic (steady).
+qint64 nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 
 QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
                           const ConversationRequest& req) {
@@ -316,10 +325,11 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
     user["role"] = "user";
     user["content"] = buildUserPrompt(req, cls);
     messages.append(user);
-    doChat(messages, 0, std::move(cb));
+    doChat(messages, 0, nowMs() + max_loop_ms_, std::move(cb));
 }
 
-void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb) {
+void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 deadline_ms,
+                                     Callback cb) {
     QUrl url(baseUrl_);
     if (!url.path().endsWith("/chat/completions")) {
         QString path = url.path();
@@ -331,7 +341,10 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
     QJsonObject body;
     body["model"] = model_;
     body["messages"] = messages;
-    if ((tool_handler_ || !tool_registry_.all().empty()) && depth < 4)
+    // D1.10：depth 上限 + 墙钟预算双界——超时后本轮不再声明工具，模型必须给出最终
+    // 文本答案，环路自然终止。
+    if ((tool_handler_ || !tool_registry_.all().empty()) && depth < 4 &&
+        nowMs() < deadline_ms)
         body["tools"] = buildTools(&tool_registry_);
     body["max_tokens"] = max_tokens_;  // D5.5：单次回答 token 上限
     body["stream"] = false;
@@ -344,7 +357,7 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
 
     reply_ = nam_.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply_, &QNetworkReply::finished, this,
-            [this, messages, depth, cb = std::move(cb)]() mutable {
+            [this, messages, depth, deadline_ms, cb = std::move(cb)]() mutable {
                 ConversationReply r;
                 if (reply_->error() != QNetworkReply::NoError) {
                     r.text = "（语言服务暂时不可用：" + httpErrorDetail(reply_).toStdString() +
@@ -398,7 +411,7 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
                 };
 
                 const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
-                doChat(next, depth + 1, std::move(cb));
+                doChat(next, depth + 1, deadline_ms, std::move(cb));
             });
 }
 

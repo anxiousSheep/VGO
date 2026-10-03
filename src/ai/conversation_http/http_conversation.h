@@ -51,9 +51,11 @@ public:
     // D5.5 预算守护：单次回答的 token 上限与 HTTP 超时（超限/超时熔断并明示）。
     void setMaxTokens(int n) { max_tokens_ = n; }
     void setTimeoutMs(int ms) { timeout_ms_ = ms; }
+    // D1.10：工具环路墙钟预算（配合 depth 上限，保证环路有界）。
+    void setMaxLoopMs(qint64 ms) { max_loop_ms_ = ms; }
 
 private:
-    void doChat(QJsonArray messages, int depth, Callback cb);
+    void doChat(QJsonArray messages, int depth, qint64 deadline_ms, Callback cb);
 
     QString baseUrl_;
     QString apiKey_;
@@ -64,6 +66,7 @@ private:
     ToolRegistry tool_registry_;  // D1：多工具（position-bound，advisor 注入）
     int max_tokens_ = 1024;       // D5.5：单次回答 token 上限
     int timeout_ms_ = 120000;     // D5.5：HTTP 传输超时（熔断）；远端 LLM 慢，30s 过紧
+    qint64 max_loop_ms_ = 60000;  // D1.10：工具环路墙钟预算
     QNetworkAccessManager nam_;
     QNetworkReply* reply_ = nullptr;
     QByteArray stream_buffer_;  // SSE partial-line accumulation
