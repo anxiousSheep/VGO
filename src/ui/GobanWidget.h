@@ -37,6 +37,10 @@ public:
     void setMoveNumbers(const std::vector<std::pair<Point, int>>& nums);
     void clearMoveNumbers() { move_numbers_.clear(); update(); }
 
+    // D2.4 跳 PV：把引擎的最佳变化（主变化）逐点高亮并编号，与普通高亮区分。
+    void setPv(const std::vector<Point>& pts) { pv_ = pts; update(); }
+    void clearPv() { pv_.clear(); update(); }
+
 signals:
     void pointClicked(int x, int y);
 
@@ -62,6 +66,7 @@ private:
     std::vector<Point> highlight_;
     OwnershipMap ownership_;
     std::vector<std::pair<Point, int>> move_numbers_;
+    std::vector<Point> pv_;  // D2.4 主变化逐点
 };
 
 }  // namespace vgo

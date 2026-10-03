@@ -1,5 +1,6 @@
 #include "advisor.h"
 
+#include <chrono>
 #include <utility>
 
 #include "agent/agent_tools.h"
@@ -11,6 +12,26 @@
 namespace vgo {
 
 namespace {
+
+// Wall-clock ms since epoch, for trace timestamps (纯逻辑层，无 Qt)。
+std::int64_t nowEpochMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+// 把校验结果压缩成 trace 里的一档：none / pass / corrected / unverifiable。
+const char* verifySummary(const std::vector<ClaimVerdict>& verdicts) {
+    if (verdicts.empty()) return "none";
+    bool unverifiable = false;
+    bool corrected = false;
+    for (const ClaimVerdict& v : verdicts) {
+        if (v.disposition == ClaimDisposition::Unverifiable) unverifiable = true;
+        else if (v.disposition == ClaimDisposition::Corrected) corrected = true;
+    }
+    if (unverifiable) return "unverifiable";
+    if (corrected) return "corrected";
+    return "pass";
+}
 
 // D2 "Verify-then-Speak"：把模型回复里的断言抽出、对照真值校验，三档处置——
 // 通过 / 小偏差（追加「已按引擎数据修正」标注）/ 不可验证（置 unsure 灰显）。
@@ -26,7 +47,7 @@ void verifyAndAnnotate(ConversationReply& r, const Board& board,
     const std::vector<Claim> claims = ClaimExtractor{}.extract(r.text, size);
     if (claims.empty()) return;
 
-    const std::vector<ClaimVerdict> verdicts =
+    std::vector<ClaimVerdict> verdicts =
         ClaimVerifier{}.verify(claims, board, facts.analysis.ownership,
                                facts.analysis, score_black, to_move);
     bool corrected = false;
@@ -35,6 +56,8 @@ void verifyAndAnnotate(ConversationReply& r, const Board& board,
         if (v.disposition == ClaimDisposition::Corrected) corrected = true;
         else if (v.disposition == ClaimDisposition::Unverifiable) unverifiable = true;
     }
+    // D2.4：把校验后的断言（含 source / disposition）挂到回复上，供 UI hover 溯源。
+    r.verdicts = std::move(verdicts);
     if (corrected) r.text += "\n\n（注：以上部分数据已按引擎真值修正。）";
     if (unverifiable) r.unsure = true;
 }
@@ -254,12 +277,27 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     const Color verify_to_move = req.to_move;
     const int verify_size = req.size;
     const int gen = ++generation_;
+    const std::int64_t start_ms = nowEpochMs();
     conversation_->answer(
         req, [this, gen, cb, verify_facts, verify_board, verify_score, verify_to_move,
-              verify_size](ConversationReply r) mutable {
+              verify_size, start_ms](ConversationReply r) mutable {
             if (gen != generation_) return;  // stale / cancelled
             verifyAndAnnotate(r, verify_board, verify_facts, verify_score, verify_to_move,
                               verify_size);
+            // D2.4：挂上 grounding 分析的最佳变化，供 UI「跳 PV」。
+            if (verify_facts.analysis.valid && !verify_facts.analysis.best.pv.empty())
+                r.pv = verify_facts.analysis.best.pv;
+            // D5.6：落一条可观测 trace（position hash / route / latency / verify / model）。
+            if (trace_sink_) {
+                AgentTraceRecord rec;
+                rec.ts_ms = nowEpochMs();
+                rec.position_hash = positionHash(verify_board);
+                rec.route = trace_route_;
+                rec.model = trace_model_;
+                rec.latency_ms = static_cast<int>(nowEpochMs() - start_ms);
+                rec.verify = verifySummary(r.verdicts);
+                trace_sink_(rec);
+            }
             cb(std::move(r));
         });
 }

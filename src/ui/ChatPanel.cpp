@@ -6,12 +6,15 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBlockFormat>
+#include <QTextBrowser>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
-#include <QTextEdit>
+#include <QUrl>
 #include <QVBoxLayout>
+
+#include "ai/gtp.h"
 
 namespace vgo {
 
@@ -72,11 +75,41 @@ void appendMessage(QTextEdit* log, const QString& label, const QString& text,
     scrollToBottom(log);
 }
 
+// A one-line human-readable label for a verified claim (D2.4 evidence footer).
+QString claimLabel(const Claim& c, int size) {
+    const QString side = (c.color == Color::Black)   ? QStringLiteral("黑")
+                         : (c.color == Color::White) ? QStringLiteral("白")
+                                                     : QStringLiteral("—");
+    switch (c.type) {
+        case ClaimType::ScoreLead:
+            return QStringLiteral("%1领先 %2 目").arg(side).arg(c.value, 0, 'f', 1);
+        case ClaimType::Winrate:
+            return QStringLiteral("%1胜率 %2%")
+                .arg(side)
+                .arg(static_cast<int>(c.value * 100.0 + 0.5));
+        case ClaimType::GroupLife:
+            return QStringLiteral("%1 %2")
+                .arg(QString::fromStdString(gtpPoint(c.point, size)),
+                     c.alive ? QStringLiteral("活") : QStringLiteral("死"));
+    }
+    return {};
+}
+
 }  // namespace
 
 ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
-    log_ = new QTextEdit(this);
+    log_ = new QTextBrowser(this);
     log_->setReadOnly(true);
+    log_->setOpenLinks(false);  // 不自动跳转，仅靠 anchorClicked 处理内部「claim:」链接
+    // 证据行是超链接（hover 看来源、点击跳 PV），需要 TextBrowser 交互；只读 + 可选文本。
+    log_->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    connect(log_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+        const QString s = url.toString();
+        if (!s.startsWith(QStringLiteral("claim:"))) return;
+        bool ok = false;
+        const int idx = s.mid(6).toInt(&ok);
+        if (ok) emit evidenceActivated(idx);
+    });
 
     input_ = new QLineEdit(this);
     input_->setPlaceholderText(QStringLiteral("问 AI：为什么下这里 / 我该下哪 / 谁领先…"));
@@ -126,7 +159,46 @@ void ChatPanel::appendHuman(const QString& text) {
 }
 
 void ChatPanel::appendAi(const QString& text) {
+    appendAi(text, std::vector<ClaimVerdict>{}, 0);
+}
+
+void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& verdicts,
+                         int size) {
     appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/true, QColor());
+    if (verdicts.empty()) return;
+
+    // 证据行：每条断言一个可点击超链接，hover 显示来源与校验说明，点击跳 PV。
+    QTextCursor cursor(log_->document());
+    cursor.movePosition(QTextCursor::End);
+    QTextBlockFormat block;
+    block.setTopMargin(2);
+    cursor.setBlockFormat(block);
+
+    const QTextCharFormat plain;
+    cursor.insertText(QStringLiteral("证据："), plain);
+    for (std::size_t i = 0; i < verdicts.size(); ++i) {
+        if (i > 0) cursor.insertText(QStringLiteral("  "), plain);
+        const ClaimVerdict& v = verdicts[i];
+        QColor color;
+        switch (v.disposition) {
+            case ClaimDisposition::Corrected:    color = QColor(0x9a, 0x67, 0x00); break;  // 橙
+            case ClaimDisposition::Unverifiable: color = QColor(0x6e, 0x77, 0x81); break;  // 灰
+            default:                             color = QColor(0x1a, 0x7f, 0x37); break;  // 绿
+        }
+        QTextCharFormat link;
+        link.setAnchor(true);
+        link.setAnchorHref(QStringLiteral("claim:%1").arg(i));
+        link.setForeground(color);
+        link.setUnderlineStyle(QTextCharFormat::SingleUnderline);
+        link.setToolTip(
+            QStringLiteral("来源：%1%2")
+                .arg(QString::fromStdString(v.claim.source),
+                     v.note.empty() ? QString()
+                                    : QStringLiteral(" · ") + QString::fromStdString(v.note)));
+        cursor.insertText(claimLabel(v.claim, size), link);
+    }
+    cursor.insertBlock();
+    scrollToBottom(log_);
 }
 
 void ChatPanel::clear() {

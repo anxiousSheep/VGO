@@ -290,3 +290,29 @@ TEST(trace_jsonl_valid) {
     CHECK_EQ(j.get("tool")->asString(), std::string("x"));
     CHECK_EQ(j.get("route")->asString(), std::string("tools"));
 }
+
+TEST(trace_jsonl_verify_roundtrip) {
+    AgentTraceRecord r;
+    r.ts_ms = 1234567890;
+    r.position_hash = "deadbeef00000000";
+    r.route = "http";
+    r.model = "qwen2.5:7b";
+    r.latency_ms = 420;
+    r.verify = "corrected";
+    const std::string line = traceToJsonl(r);
+
+    AgentTraceRecord back;
+    CHECK(parseTraceRecord(line, &back));
+    CHECK_EQ(back.ts_ms, 1234567890);
+    CHECK_EQ(back.position_hash, std::string("deadbeef00000000"));
+    CHECK_EQ(back.route, std::string("http"));
+    CHECK_EQ(back.model, std::string("qwen2.5:7b"));
+    CHECK_EQ(back.latency_ms, 420);
+    CHECK_EQ(back.verify, std::string("corrected"));
+}
+
+TEST(trace_parse_rejects_garbage) {
+    AgentTraceRecord r;
+    CHECK(!parseTraceRecord("not json", &r));
+    CHECK(!parseTraceRecord("", &r));
+}

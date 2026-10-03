@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "agent/trace.h"
 #include "analysis.h"
 #include "conversation.h"
 #include "engine.h"
@@ -79,6 +80,16 @@ public:
         coach_memory_fn_ = std::move(fn);
     }
 
+    // D5.6 可观测：每次问答完成后，把一条 trace 记录交给 UI 落盘（纯逻辑层不碰 I/O）。
+    void setTraceSink(std::function<void(const AgentTraceRecord&)> fn) {
+        trace_sink_ = std::move(fn);
+    }
+    // trace 元信息（由 UI 在接线时提供：路由档位 + 模型 id）。
+    void setTraceMeta(const std::string& route, const std::string& model) {
+        trace_route_ = route;
+        trace_model_ = model;
+    }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
@@ -99,6 +110,9 @@ private:
     bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6
+    std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
+    std::string trace_route_ = "template";
+    std::string trace_model_;
 };
 
 }  // namespace vgo

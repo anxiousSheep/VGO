@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -233,8 +233,8 @@ struct Tool {
 | D2.1 | `Claim` / `ClaimExtractor` / `ClaimVerifier`（纯逻辑 + 单测） | `verify/` | ✅ |
 | D2.2 | 输出结构化：`<claims>` JSON（或 strict schema 分支）进 prompt | `conversation_http` + 模板 | ✅ |
 | D2.3 | 三档处置接线：改写标注 / 灰显 + unsure / 正常渲染 | `AiAdvisor` + `ConversationReply` | ✅ |
-| D2.4 | 证据挂载：`source` 字段 + hover 溯源 + 跳 PV | `ChatPanel` / `GobanWidget` | ⬜ |
-| D2.5 | 拦截失败进 telemetry（坏样本集） | 与 D5 观测共用 | ⬜ |
+| D2.4 | 证据挂载：`source` 字段 + hover 溯源 + 跳 PV | `ChatPanel` / `GobanWidget` | ✅ |
+| D2.5 | 拦截失败进 telemetry（坏样本集） | 与 D5 观测共用 | 🔄 |
 
 ### 4.4 验收标准
 
@@ -388,7 +388,7 @@ last_score: 0.71
 | D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_kata` / `AiAdvisor` | ⬜ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |
-| D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | 🔄 |
+| D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | ✅ |
 | D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ⬜ |
 
 ### 7.4 验收标准

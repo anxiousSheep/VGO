@@ -19,6 +19,7 @@ struct AgentTraceRecord {
     int latency_ms = 0;            // wall-clock ms consumed so far
     std::string route;             // "tools" / "dispatch" / "template"
     std::string model;             // model id, when known
+    std::string verify;            // D2.5/D5.6: "pass" / "corrected" / "unverifiable" / "none"
 };
 
 // Deterministic FNV-1a (64-bit) hash of the board snapshot, hex-encoded. Used as
@@ -27,5 +28,8 @@ std::string positionHash(const Board& board);
 
 // Serialize one record as a single-line JSON object (no trailing newline).
 std::string traceToJsonl(const AgentTraceRecord& r);
+
+// Parse a trace line back into a record. Returns false on malformed input.
+bool parseTraceRecord(const std::string& json, AgentTraceRecord* out);
 
 }  // namespace vgo

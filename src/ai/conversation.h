@@ -9,6 +9,7 @@
 #include "agent/tool_registry.h"
 #include "explain.h"
 #include "go/go_types.h"
+#include "verify/claim.h"
 
 namespace vgo {
 
@@ -123,6 +124,10 @@ struct ConversationReply {
     std::string text;
     bool unsure = false;
     std::vector<Point> highlight;  // points to highlight on the board
+    // D2.4 证据溯源：校验后的断言（含 source / disposition），供 UI hover 看来源。
+    std::vector<ClaimVerdict> verdicts;
+    // D2.4 跳 PV：grounding 分析的最佳变化（逐点），点击证据时在棋盘上高亮。
+    std::vector<Point> pv;
 };
 
 class ConversationService {

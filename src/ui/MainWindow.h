@@ -27,6 +27,7 @@ class ConversationService;
 class AiAdvisor;
 class AIMatchController;
 class LearnerStore;
+class TraceStore;
 struct ConversationReply;
 struct Analysis;
 struct MoveEvaluation;
@@ -82,6 +83,9 @@ private slots:
     // 教学增强（M3b）
     void onBlunderToggled(bool on);
     void onReloadSkills();
+
+    // 可观测（D5.6）：查看运行 trace 面板
+    void showTracePanel();
 
 private:
     void applySetup(const vgo::GameSetup& setup);
@@ -188,4 +192,8 @@ private:
     double game_total_loss_ = 0.0;   // 本局累计恶手点数损失（喂 avg_loss_per_move）
     int game_blunder_count_ = 0;
     bool game_recorded_ = false;
+
+    // 可观测（D5.6）：trace 落盘 + 最近一次回复的主变化（供证据点击跳 PV）
+    std::unique_ptr<vgo::TraceStore> trace_store_;
+    std::vector<vgo::Point> last_pv_;
 };

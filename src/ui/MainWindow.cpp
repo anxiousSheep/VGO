@@ -29,6 +29,7 @@
 #include "GobanWidget.h"
 #include "NewGameDialog.h"
 #include "SettingsDialog.h"
+#include "TracePanel.h"
 #include "VariationPanel.h"
 
 #include "ai/advisor.h"
@@ -45,6 +46,7 @@
 #include "ai/variation.h"
 #include "model/LearnerStore.h"
 #include "model/ModelManager.h"
+#include "model/TraceStore.h"
 
 namespace {
 
@@ -69,6 +71,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // D3.3：学习者画像持久化——重开应用后画像仍在。
     learner_ = std::make_unique<vgo::LearnerStore>(vgo::LearnerStore::defaultPath());
     learner_->load();
+    // D5.6：运行 trace 落盘（每次问答一条，供本地面板查看）。
+    trace_store_ = std::make_unique<vgo::TraceStore>(vgo::TraceStore::defaultPath());
 
     board_view_ = new vgo::GobanWidget(this);
     connect(board_view_, &vgo::GobanWidget::pointClicked, this, &MainWindow::onPointClicked);
@@ -156,6 +160,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(chat_, &vgo::ChatPanel::messageSent, this, &MainWindow::onChatMessage);
     connect(chat_, &vgo::ChatPanel::newChatRequested, this, [this] {
         if (advisor_) advisor_->cancel();
+    });
+    // D2.4：点击证据 → 在棋盘上高亮引擎主变化（跳 PV）。
+    connect(chat_, &vgo::ChatPanel::evidenceActivated, this, [this](int) {
+        board_view_->setPv(last_pv_);
+        if (!last_pv_.empty())
+            status_->setText(QStringLiteral("已高亮引擎主变化（PV），共 %1 手")
+                                 .arg(static_cast<int>(last_pv_.size())));
     });
 
     // Menu: 对局 (new game + in-game actions), 视图 (AI panel), 设置 (models).
@@ -278,6 +289,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* actReloadSkills = new QAction(QStringLiteral("重载技能知识"), this);
     connect(actReloadSkills, &QAction::triggered, this, &MainWindow::onReloadSkills);
     settingsMenu->addAction(actReloadSkills);
+
+    // 可观测（D5.6）：查看运行 trace 面板。
+    auto* actTrace = new QAction(QStringLiteral("查看运行 trace"), this);
+    connect(actTrace, &QAction::triggered, this, &MainWindow::showTracePanel);
+    settingsMenu->addAction(actTrace);
 
     variation_panel_ = new vgo::VariationPanel(this);
     connect(variation_panel_, &vgo::VariationPanel::aiMoveRequested, this,
@@ -422,6 +438,11 @@ void MainWindow::createAiServices(int level) {
         (dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr);
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
+    // D5.6：把每次问答的 trace 交给 TraceStore 落盘（route/model 由当前接线决定）。
+    advisor_->setTraceMeta(usingHttp ? "http" : "template", ls.model.toStdString());
+    advisor_->setTraceSink([this](const vgo::AgentTraceRecord& rec) {
+        if (trace_store_) trace_store_->append(rec);
+    });
     // 形势显示依赖 KataGo 的 ownership；未接 KataGo 时隐藏该功能（M6 验收）。
     analyzeAction_->setEnabled(usingKata);
     if (!usingKata) {
@@ -725,6 +746,7 @@ void MainWindow::refresh() {
         board_view_->setBoard(nullptr);
         board_view_->setLastMove({-1, -1}, false);
         board_view_->setHighlight({});
+        board_view_->clearPv();
         board_view_->clearOwnership();
         if (scoreStatus_) scoreStatus_->clear();
         updateStatus();
@@ -734,6 +756,7 @@ void MainWindow::refresh() {
     board_view_->setLastMove(g->last_move(), g->has_last_move());
     board_view_->setGhostColor(g->current());
     board_view_->setHighlight({});
+    board_view_->clearPv();
     updateStatus();
     // 智能裁判：达到手数阈值（随棋盘大小）后由模型自动判定胜负。
     if (inAiMode() && controller_ && !controller_->game().is_over() &&
@@ -962,8 +985,11 @@ void MainWindow::onChatMessage(const QString& text) {
 }
 
 void MainWindow::handleReply(const vgo::ConversationReply& r) {
-    appendAi(QString::fromStdString(r.text));
+    const int size = currentGame() ? currentGame()->size() : 9;
+    // D2.4：正文后追加证据行（hover 看来源、点击跳 PV）；记录主变化供跳 PV。
+    chat_->appendAi(QString::fromStdString(r.text), r.verdicts, size);
     board_view_->setHighlight(r.highlight);
+    last_pv_ = r.pv;
 }
 
 bool MainWindow::usingKata() const {
@@ -1460,6 +1486,12 @@ void MainWindow::recordGameSummary() {
 void MainWindow::onReloadSkills() {
     loadSkills();
     appendAi(QStringLiteral("已重新加载技能知识。"));
+}
+
+void MainWindow::showTracePanel() {
+    auto* dlg = new vgo::TracePanel(trace_store_.get(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }
 
 void MainWindow::loadSkills() {

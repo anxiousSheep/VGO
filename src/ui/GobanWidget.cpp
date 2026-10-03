@@ -258,6 +258,27 @@ void GobanWidget::paintEvent(QPaintEvent*) {
         p.drawEllipse(c, cell * 0.30, cell * 0.30);
     }
 
+    // Principal variation (D2.4 跳 PV): teal rings + 1-based order numbers, so the
+    // engine's suggested sequence is distinguishable from the blue highlight rings.
+    if (!pv_.empty()) {
+        QFont pf = p.font();
+        pf.setPixelSize(std::max(8, static_cast<int>(cell * 0.42)));
+        pf.setBold(true);
+        p.setFont(pf);
+        const QColor pvInk(0, 120, 160);
+        for (std::size_t i = 0; i < pv_.size(); ++i) {
+            const Point& pt = pv_[i];
+            if (!board_ || !board_->in_bounds(pt.x, pt.y)) continue;
+            const QPointF c = intersectionToPixel(pt.x, pt.y);
+            p.setPen(QPen(pvInk, std::max(1.5, cell * 0.06)));
+            p.setBrush(Qt::NoBrush);
+            p.drawEllipse(c, cell * 0.30, cell * 0.30);
+            p.setPen(pvInk);
+            p.drawText(QRectF(c.x() - cell / 2, c.y() - cell / 2, cell, cell),
+                       Qt::AlignCenter, QString::number(static_cast<int>(i) + 1));
+        }
+    }
+
     // Coordinate labels.
     QFont f = p.font();
     f.setPixelSize(std::max(8, static_cast<int>(cell * 0.42)));

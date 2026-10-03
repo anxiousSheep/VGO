@@ -155,6 +155,8 @@ add_library(vgo_model STATIC
     src/ui/model/KataGoProvisioner.cpp
     src/ui/model/LearnerStore.h
     src/ui/model/LearnerStore.cpp
+    src/ui/model/TraceStore.h
+    src/ui/model/TraceStore.cpp
 )
 target_include_directories(vgo_model PUBLIC src)
 target_link_libraries(vgo_model PUBLIC vgo_ai Qt6::Core Qt6::Network)
@@ -167,6 +169,7 @@ add_executable(vgo_model_tests
     tests/test_keystore.cpp
     tests/test_model_manager.cpp
     tests/test_learner_store.cpp
+    tests/test_trace_store.cpp
 )
 target_link_libraries(vgo_model_tests PRIVATE vgo_model)
 add_test(NAME vgo_model_tests COMMAND vgo_model_tests)
@@ -201,6 +204,8 @@ add_executable(vgo_app WIN32
     src/ui/MainWindow.cpp
     src/ui/ChatPanel.h
     src/ui/ChatPanel.cpp
+    src/ui/TracePanel.h
+    src/ui/TracePanel.cpp
     src/ui/VariationPanel.h
     src/ui/VariationPanel.cpp
     src/ui/NewGameDialog.h

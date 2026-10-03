@@ -29,7 +29,32 @@ std::string traceToJsonl(const AgentTraceRecord& r) {
         {"latency_ms", Json::makeNumber(r.latency_ms)},
         {"route", Json::makeString(r.route)},
         {"model", Json::makeString(r.model)},
+        {"verify", Json::makeString(r.verify)},
     }));
+}
+
+bool parseTraceRecord(const std::string& text, AgentTraceRecord* out) {
+    if (!out) return false;
+    Json j;
+    if (!parseJson(text, &j) || !j.isObject()) return false;
+    auto num = [&](const char* k, double def) {
+        const Json* v = j.get(k);
+        return v ? v->asNumber(def) : def;
+    };
+    auto str = [&](const char* k, const std::string& def) {
+        const Json* v = j.get(k);
+        return v ? v->asString(def) : def;
+    };
+    out->ts_ms = static_cast<std::int64_t>(num("ts", 0.0));
+    out->position_hash = str("position_hash", "");
+    out->step = static_cast<int>(num("step", 0.0));
+    out->tool = str("tool", "");
+    out->args = str("args", "");
+    out->latency_ms = static_cast<int>(num("latency_ms", 0.0));
+    out->route = str("route", "");
+    out->model = str("model", "");
+    out->verify = str("verify", "");
+    return true;
 }
 
 }  // namespace vgo
