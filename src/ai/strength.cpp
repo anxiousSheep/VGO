@@ -69,26 +69,49 @@ StrengthParams strengthForLevel(int level, double kyu_hint) {
     return p;
 }
 
-std::string humanProfileForStrength(double kyu) {
-    // 新手带阶梯：20k → 15k → 10k → 7k → 5k → 3k → 1k → 1d。
-    // 1d 及以上（kyu <= 0）由 19 级表的业余/职业段承担，本函数只覆盖新手带。
-    if (kyu <= 0.0) return "rank_1d";
-    if (kyu >= 20.0) return "rank_20k";
-    static const struct Rung { double kyu; const char* profile; } kLadder[] = {
-        {20.0, "rank_20k"}, {15.0, "rank_15k"}, {10.0, "rank_10k"},
-        {7.0, "rank_7k"},   {5.0, "rank_5k"},   {3.0, "rank_3k"},
-        {1.0, "rank_1k"},   {0.0, "rank_1d"},
-    };
-    const char* best = "rank_20k";
+int snapKyuRung(double kyu) {
+    if (kyu >= 20.0) return 20;
+    if (kyu <= 0.0) return 0;
+    static const int kRungs[] = {20, 15, 10, 7, 5, 3, 1, 0};
+    int best = 20;
     double best_d = 1e18;
-    for (const Rung& r : kLadder) {
-        const double d = std::abs(kyu - r.kyu);
+    for (int r : kRungs) {
+        const double d = std::abs(kyu - static_cast<double>(r));
         if (d < best_d) {
             best_d = d;
-            best = r.profile;
+            best = r;
         }
     }
     return best;
+}
+
+std::string humanProfileForStrength(double kyu) {
+    // 新手带阶梯：20k → 15k → 10k → 7k → 5k → 3k → 1k → 1d。
+    // 1d 及以上（kyu <= 0）由 19 级表的业余/职业段承担，本函数只覆盖新手带。
+    switch (snapKyuRung(kyu)) {
+        case 20: return "rank_20k";
+        case 15: return "rank_15k";
+        case 10: return "rank_10k";
+        case 7:  return "rank_7k";
+        case 5:  return "rank_5k";
+        case 3:  return "rank_3k";
+        case 1:  return "rank_1k";
+        default: return "rank_1d";
+    }
+}
+
+std::string noviceLevelLabel(double kyu, int level) {
+    // 新手阶段：据连续 kyu 在「新手」后标注当前棋力（随进步动态更新）。
+    if (kyu > 0.0) {
+        return "新手（" + std::to_string(snapKyuRung(kyu)) + "级）";
+    }
+    // 已过新手（1d+）：趣味提示词，控制长度避免超出下拉控件。
+    static const char* kHints[] = {
+        "新手（早该升段啦）",
+        "新手（大神别装了）",
+        "新手（这档与你无缘）",
+    };
+    return kHints[std::max(0, level) % 3];
 }
 
 std::string rankLabel(int level) {

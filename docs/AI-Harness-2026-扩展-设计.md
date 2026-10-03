@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；待接真实服务实测（L13） |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成** |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -306,9 +306,10 @@ struct Tool {
 3. **D3.4 接线（UI 层）**：新对局时若「自动难度」开启，用 `estimateKyuRank()` 反查阶梯得到 `human_profile`（业余段及以上仍走现有 1..19 表），取代「新手=固定 20k」；用户手动拖滑块始终 override。
 4. **降级回退**：无历史画像时仍回退默认新手档（`rank_20k`），不劣化开箱即用。
 
-**依赖与待办**：
+**实现与待办**：
 
-- KataGo HumanSL 具体 `rank_*` 档位（现有代码只用到 `rank_20k/1d/3d/5d/7d/9d`，阶梯中的 `15k/10k/7k/5k/3k/1k` 需 L13 实测确认可用）。
+- 已实现：`estimateKyuRank` / `humanProfileForStrength` / `snapKyuRung`（纯逻辑）+ `noviceLevelLabel`（新手档动态标注「新手（X级）」，已过新手时改趣味提示词、控制长度）+ `NewGameDialog` 自动难度开关；`LearnerStore::load` 在文件缺失/清空时重置画像，清空学习数据后新手段位回到 20 级。
+- KataGo HumanSL 的 `rank_*` 档位已随 L13 真实集成实测确认（`rank_20k/1d/3d/5d/7d/9d`），阶梯中的 `15k/10k/7k/5k/3k/1k` 可在真实 KataGo 上进一步校准。
 - 与 L1/L2（难度标定）共用同一阶梯：L2 的「更细难度标定」落地后，本阶梯即为其新手带部分。
 
 ---

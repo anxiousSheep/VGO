@@ -65,3 +65,42 @@ TEST(strength_level1_uses_kyu_hint) {
     CHECK_EQ(strengthForLevel(2, 20.0).human_profile, std::string("rank_1d"));
     CHECK_EQ(strengthForLevel(5, 20.0).human_profile, std::string("rank_3d"));
 }
+
+TEST(snap_kyu_rung) {
+    CHECK_EQ(snapKyuRung(20.0), 20);
+    CHECK_EQ(snapKyuRung(15.0), 15);
+    CHECK_EQ(snapKyuRung(10.0), 10);
+    CHECK_EQ(snapKyuRung(7.0), 7);
+    CHECK_EQ(snapKyuRung(5.0), 5);
+    CHECK_EQ(snapKyuRung(3.0), 3);
+    CHECK_EQ(snapKyuRung(1.0), 1);
+    CHECK_EQ(snapKyuRung(0.0), 0);
+    CHECK_EQ(snapKyuRung(-5.0), 0);   // 1d 及以上钳制
+    CHECK_EQ(snapKyuRung(30.0), 20);  // 20k 以下钳制
+}
+
+TEST(novice_level_label_dynamic) {
+    CHECK_EQ(noviceLevelLabel(20.0, 1), std::string("新手（20级）"));
+    CHECK_EQ(noviceLevelLabel(15.0, 1), std::string("新手（15级）"));
+    CHECK_EQ(noviceLevelLabel(10.0, 1), std::string("新手（10级）"));
+    CHECK_EQ(noviceLevelLabel(7.0, 1), std::string("新手（7级）"));
+    CHECK_EQ(noviceLevelLabel(5.0, 1), std::string("新手（5级）"));
+    CHECK_EQ(noviceLevelLabel(3.0, 1), std::string("新手（3级）"));
+    CHECK_EQ(noviceLevelLabel(1.0, 1), std::string("新手（1级）"));
+}
+
+TEST(novice_level_label_past_novice_hints) {
+    // 已过新手（kyu<=0）给趣味提示词（非等级标注），且长度可控（按字符计，防溢出）。
+    const auto utf8Len = [](const std::string& s) {
+        std::size_t n = 0;
+        for (unsigned char c : s)
+            if ((c & 0xC0) != 0x80) ++n;  // 只数非续字节 = UTF-8 字符数
+        return n;
+    };
+    const std::string hint = noviceLevelLabel(0.0, 19);
+    CHECK(hint.find("新手（") == 0);
+    CHECK(hint.find("级）") == std::string::npos);  // 不是「X级」
+    CHECK(utf8Len(hint) <= 10u);                   // 控制字符长度防溢出
+    // 不同 level 轮换不同提示词。
+    CHECK(noviceLevelLabel(0.0, 0) != noviceLevelLabel(0.0, 1));
+}

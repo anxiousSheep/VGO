@@ -19,12 +19,18 @@ LearnerStore::LearnerStore(QString path) : path_(std::move(path)) {}
 
 void LearnerStore::load() {
     QFile f(path_);
-    if (!f.open(QIODevice::ReadOnly)) return;
+    // 文件缺失 / 为空 / 损坏（含「清空学习数据」后）时重置为默认画像：新手 20k、
+    // 开关开启，避免残留旧数据（如新手段位未随清空回到 20 级）。
+    const auto reset = [this] {
+        model_.clear();
+        enabled_ = true;
+    };
+    if (!f.open(QIODevice::ReadOnly)) { reset(); return; }
     const QByteArray bytes = f.readAll().trimmed();
-    if (bytes.isEmpty()) return;
+    if (bytes.isEmpty()) { reset(); return; }
 
     Json root;
-    if (!parseJson(bytes.toStdString(), &root) || !root.isObject()) return;
+    if (!parseJson(bytes.toStdString(), &root) || !root.isObject()) { reset(); return; }
     if (const Json* en = root.get("enabled")) enabled_ = en->asBool(true);
     if (const Json* prof = root.get("profile")) {
         // serialize()/deserialize() round-trips through the same shape; re-dump

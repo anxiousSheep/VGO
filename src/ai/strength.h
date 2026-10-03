@@ -28,6 +28,14 @@ StrengthParams strengthForLevel(int level, double kyu_hint);
 // 阶梯 rank_20k → 15k → 10k → 7k → 5k → 3k → 1k → 1d。1d 及以上由 19 级表承担。
 std::string humanProfileForStrength(double kyu);
 
+// 连续 kyu 快照到最近阶梯档（20/15/10/7/5/3/1/0），0 = 1d 及以上。
+int snapKyuRung(double kyu);
+
+// 新手档位动态标注（D3.4）：据连续 kyu（20=20k 新手，0=1d）返回「新手（X级）」，
+// 随用户棋力动态更新；已过新手（kyu<=0，即 1d+）时返回趣味提示词（按 level 轮换，
+// 长度受限避免超出控件）。
+std::string noviceLevelLabel(double kyu, int level);
+
 // Short Chinese rank label for a level, e.g. "新手", "业余3段", "职业1段".
 std::string rankLabel(int level);
 

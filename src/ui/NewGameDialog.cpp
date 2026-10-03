@@ -68,7 +68,14 @@ NewGameDialog::NewGameDialog(bool human_vs_ai, int suggested_level, double sugge
 
         levelCombo_ = new QComboBox(this);
         for (int lv = 1; lv <= 19; ++lv) {
-            levelCombo_->addItem(QString::fromStdString(vgo::rankLabel(lv)));
+            if (lv == 1) {
+                // D3.4：新手档后动态标注当前棋力（如「新手（20级）」「新手（15级）」），
+                // 已过新手时改为趣味提示词。
+                levelCombo_->addItem(QString::fromStdString(
+                    vgo::noviceLevelLabel(suggested_kyu_, suggested_level_)));
+            } else {
+                levelCombo_->addItem(QString::fromStdString(vgo::rankLabel(lv)));
+            }
         }
         levelCombo_->setCurrentIndex(suggested_level_ - 1);
         levelCombo_->setEnabled(false);  // 自动难度默认启用，下拉禁用
