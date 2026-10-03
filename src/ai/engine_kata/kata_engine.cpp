@@ -178,6 +178,11 @@ KataGoEngine::KataGoEngine(const QString& binary, const QString& model, const QS
 }
 
 KataGoEngine::~KataGoEngine() {
+    // 先丢弃在途回调：waitForFinished 期间 KataGo 仍可能输出并触发 onStdout/onErrorOccurred，
+    // 若此时派发回调，而回调方（EnginePool 等）正在析构，就会 use-after-free（0xC0000005）。
+    pending_ = nullptr;
+    pending_analysis_ = nullptr;
+    pending_kind_ = PendingKind::None;
     if (proc_) {
         proc_->write("quit\n");
         proc_->closeWriteChannel();
