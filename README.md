@@ -95,6 +95,7 @@ resources/skills/       Skills 知识包（可热更的 markdown 数据文件）
 
 ## 文档
 
+- [`docs/AI-Harness-2026-扩展-设计.md`](docs/AI-Harness-2026-扩展-设计.md) — **2026 Harness 扩展设计（D1–D5，规划中）**
 - [`docs/长期任务清单.md`](docs/长期任务清单.md) — **长期任务 backlog（持续进行）**
 
 > 历史设计与技术路线文档已归档至 [`docs/archive/`](docs/archive/)：
