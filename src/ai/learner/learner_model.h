@@ -4,6 +4,8 @@
 #include <utility>
 #include <vector>
 
+#include "../explain.h"
+
 namespace vgo {
 
 // Cross-game learner profile (D3): an explainable weak-point vector, an
@@ -23,6 +25,11 @@ enum class WeakArea {
 constexpr int kWeakAreaCount = 7;
 
 const char* weakAreaLabel(WeakArea a);
+
+// D3.2: heuristically map a blunder to a WeakArea from the move's structural
+// facts and the game phase. Pure and unit-testable (no engine, no Qt).
+WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,
+                             int move_number, int size);
 
 // A detected blunder, tagged with the area it belongs to (from FactType + the
 // blunder context) and its severity (winrate drop, >= 0).

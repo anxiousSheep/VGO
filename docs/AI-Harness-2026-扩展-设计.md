@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示已上线；D3/D4 纯逻辑层已就绪；待接真实服务实测（L13） |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -278,11 +278,11 @@ struct Tool {
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | D3.1 | `LearnerModel` 纯逻辑：弱项向量 / 棋力估计 / 滚动窗口 | `learner/learner_model.*` + 单测 | ✅ |
-| D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ⬜ |
-| D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | 🔄 |
+| D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ✅ |
+| D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | ✅ |
 | D3.4 | 动态难度：观测棋力自动标定 level（保留手动 override） | `NewGameDialog` + `LearnerModel` | ⬜ |
 | D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ⬜ |
-| D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ⬜ |
+| D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ✅ |
 
 ### 5.4 验收标准
 

@@ -86,6 +86,12 @@ void TemplateConversation::answer(const ConversationRequest& req, Callback cb) {
             r.unsure = true;
             break;
     }
+    // D3.6：无 LLM 回退路径同样注入跨局教练记忆，保持教学一致性（只在有真值、非
+    // 「不会回答」的答案前加一句提醒）。
+    if (!req.coach_memory.empty() && !r.unsure &&
+        classifyQuestion(req.question) != QuestionClass::Other) {
+        r.text = "（教练提醒：" + req.coach_memory + "）\n" + r.text;
+    }
     cb(std::move(r));
 }
 

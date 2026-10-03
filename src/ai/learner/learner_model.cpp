@@ -24,6 +24,22 @@ const char* weakAreaLabel(WeakArea a) {
     return "其他";
 }
 
+WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,
+                             int move_number, int size) {
+    // 结构信号优先：自紧气（气紧/眼形）归入死活；提子/打吃上下文归入战斗。
+    for (const StructuralFact& f : facts) {
+        if (f.type == FactType::SelfAtari) return WeakArea::LifeDeath;
+        if (f.type == FactType::Captures || f.type == FactType::PutsInAtari)
+            return WeakArea::Fighting;
+    }
+    // 无明确结构信号时按棋局阶段兜底：布局→定式，中盘→战斗，收官→官子。
+    const int area = size * size;
+    if (area <= 0) return WeakArea::Fighting;
+    if (move_number <= area / 4) return WeakArea::Joseki;
+    if (move_number <= area / 2) return WeakArea::Fighting;
+    return WeakArea::Endgame;
+}
+
 void LearnerModel::recordBlunder(const BlunderEvent& e) {
     const int i = static_cast<int>(e.area);
     if (i >= 0 && i < kWeakAreaCount) weak_[i] += std::max(0.0, e.severity);

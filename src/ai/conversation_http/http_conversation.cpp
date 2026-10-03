@@ -46,6 +46,12 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
             s += QStringLiteral("用户水平较高，直接、简洁地给出要点即可。\n");
         }
     }
+    // D3.6：注入跨局教练记忆——让 LLM 知道用户最近的弱项（如「最近在打劫上吃亏」），
+    // 仅在相关时自然提及，不要突兀复述。
+    if (!req.coach_memory.empty()) {
+        s += QStringLiteral("教练记忆（跨局观察，仅在相关时自然提及，不要突兀复述）：%1\n")
+                 .arg(QString::fromStdString(req.coach_memory));
+    }
     // D2：要求模型在回答末尾附上可机读的断言块，供校验闸门对照引擎真值。
     s += QStringLiteral(
         "回答末尾请附上一段 <claims>…</claims> JSON 数组，列出你断言的所有可核验事实：\n"

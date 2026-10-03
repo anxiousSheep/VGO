@@ -1,7 +1,10 @@
 #include "SettingsDialog.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -10,6 +13,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -23,6 +27,7 @@
 #include "model/GpuDetect.h"
 #include "model/KeyStore.h"
 #include "model/KataGoProvisioner.h"
+#include "model/LearnerStore.h"
 #include "model/ModelManager.h"
 #include "model/ModelsManifest.h"
 #include "model/OllamaDetect.h"
@@ -51,6 +56,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     buildKataGoGroup();
     buildLlmGroup();
     buildAnalysisGroup();
+    buildLearnerGroup();
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     connect(buttons, &QDialogButtonBox::rejected, this, &SettingsDialog::accept);
@@ -214,6 +220,76 @@ void SettingsDialog::buildAnalysisGroup() {
     const int idx = analysisCombo_->findData(cur);
     analysisCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
     updateHint();
+
+    auto* v = qobject_cast<QVBoxLayout*>(layout());
+    v->addWidget(box);
+}
+
+void SettingsDialog::buildLearnerGroup() {
+    // D3.3 隐私三件套：开关 / 导出 / 清空（本地桌面应用必须做）。数据仅保存在本机。
+    auto* box = new QGroupBox(QStringLiteral("学习记忆（跨局画像）"), this);
+    auto* form = new QFormLayout(box);
+
+    learner_ = std::make_unique<LearnerStore>(LearnerStore::defaultPath());
+    learner_->load();
+
+    learnerEnabled_ = new QCheckBox(QStringLiteral("记录我的学习数据（让 AI 记得我）"), box);
+    learnerEnabled_->setChecked(learner_->enabled());
+    learnerStatus_ = new QLabel(box);
+    learnerStatus_->setWordWrap(true);
+
+    auto* exportBtn = new QPushButton(QStringLiteral("导出我的数据"), box);
+    auto* clearBtn = new QPushButton(QStringLiteral("清空学习数据"), box);
+    auto* row = new QWidget(box);
+    auto* hl = new QHBoxLayout(row);
+    hl->setContentsMargins(0, 0, 0, 0);
+    hl->addWidget(exportBtn);
+    hl->addWidget(clearBtn);
+    hl->addStretch(1);
+
+    form->addRow(learnerEnabled_);
+    form->addRow(learnerStatus_);
+    form->addRow(row);
+
+    auto refreshStatus = [this] {
+        learnerStatus_->setText(
+            QStringLiteral("已记录 %1 局，识别出 %2 类弱项。数据仅保存在本机。")
+                .arg(learner_->model().gameCount())
+                .arg(static_cast<int>(learner_->model().topWeakAreas(99).size())));
+    };
+    refreshStatus();
+
+    connect(learnerEnabled_, &QCheckBox::toggled, this, [this, refreshStatus](bool on) {
+        learner_->setEnabled(on);
+        learner_->save();
+        refreshStatus();
+    });
+
+    connect(exportBtn, &QPushButton::clicked, this, [this] {
+        const QString path = QFileDialog::getSaveFileName(
+            this, QStringLiteral("导出学习数据"), QStringLiteral("vgo-learner.json"),
+            QStringLiteral("JSON (*.json)"));
+        if (path.isEmpty()) return;
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            f.write(learner_->exportJson().toUtf8());
+            f.close();
+            learnerStatus_->setText(QStringLiteral("已导出到：%1").arg(path));
+        } else {
+            learnerStatus_->setText(QStringLiteral("导出失败：无法写入文件"));
+        }
+    });
+
+    connect(clearBtn, &QPushButton::clicked, this, [this, refreshStatus] {
+        const int ret = QMessageBox::warning(
+            this, QStringLiteral("清空学习数据"),
+            QStringLiteral("确定要清空所有跨局学习记忆吗？此操作不可撤销。"),
+            QStringLiteral("清空"), QStringLiteral("取消"));
+        if (ret != 0) return;
+        learner_->clear();
+        learnerEnabled_->setChecked(true);
+        refreshStatus();
+    });
 
     auto* v = qobject_cast<QVBoxLayout*>(layout());
     v->addWidget(box);

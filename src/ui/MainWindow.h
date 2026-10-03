@@ -25,6 +25,7 @@ class EngineInterface;
 class ConversationService;
 class AiAdvisor;
 class AIMatchController;
+class LearnerStore;
 struct ConversationReply;
 struct Analysis;
 struct MoveEvaluation;
@@ -115,6 +116,9 @@ private:
     void maybeWarnBlunder();
     void loadSkills();
 
+    // 学习者画像（D3）：恶手采集 + 每局摘要落盘
+    void recordGameSummary();
+
     bool inAiMode() const { return app_mode_ == vgo::GameMode::HumanVsAi; }
     vgo::Game* currentGame() const;
     vgo::Color userColor() const;
@@ -172,4 +176,10 @@ private:
     // 教学增强（M3b）
     QAction* blunderAction_ = nullptr;
     std::vector<std::pair<int, std::string>> blunders_;  // 手数 + 预警文本（M3b.3）
+
+    // 学习者画像（D3）：跨局持久化 + 恶手采集 + 每局摘要
+    std::unique_ptr<vgo::LearnerStore> learner_;
+    double game_total_loss_ = 0.0;   // 本局累计恶手点数损失（喂 avg_loss_per_move）
+    int game_blunder_count_ = 0;
+    bool game_recorded_ = false;
 };

@@ -153,6 +153,8 @@ add_library(vgo_model STATIC
     src/ui/model/ModelsManifest.cpp
     src/ui/model/KataGoProvisioner.h
     src/ui/model/KataGoProvisioner.cpp
+    src/ui/model/LearnerStore.h
+    src/ui/model/LearnerStore.cpp
 )
 target_include_directories(vgo_model PUBLIC src)
 target_link_libraries(vgo_model PUBLIC vgo_ai Qt6::Core Qt6::Network)
@@ -164,6 +166,7 @@ add_executable(vgo_model_tests
     tests/test_main_qt.cpp
     tests/test_keystore.cpp
     tests/test_model_manager.cpp
+    tests/test_learner_store.cpp
 )
 target_link_libraries(vgo_model_tests PRIVATE vgo_model)
 add_test(NAME vgo_model_tests COMMAND vgo_model_tests)

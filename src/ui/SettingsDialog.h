@@ -2,6 +2,9 @@
 
 #include <QDialog>
 
+#include <memory>
+
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -12,6 +15,7 @@ class QNetworkReply;
 
 namespace vgo {
 class KataGoProvisioner;
+class LearnerStore;
 class OllamaDetect;
 }
 
@@ -30,6 +34,7 @@ private:
     void buildKataGoGroup();
     void buildLlmGroup();
     void buildAnalysisGroup();
+    void buildLearnerGroup();
     void refreshKataGoStatus();
     void refreshLlmFields();
     void startInstall(const QString& variant, const QString& modelId);
@@ -53,6 +58,11 @@ private:
     // 形势分析强度
     QComboBox* analysisCombo_ = nullptr;
     QLabel* analysisHint_ = nullptr;
+
+    // 学习记忆（跨局画像，D3.3 隐私三件套）
+    std::unique_ptr<vgo::LearnerStore> learner_;
+    QCheckBox* learnerEnabled_ = nullptr;
+    QLabel* learnerStatus_ = nullptr;
 
     vgo::KataGoProvisioner* provisioner_ = nullptr;
     vgo::OllamaDetect* ollama_ = nullptr;

@@ -65,6 +65,16 @@ public:
     // What-if evaluate a single move (N1.2). Wrapped for the UI (blunder alerts).
     void evaluateMove(const Game& game, const Point& p, MoveEvaluator::Callback cb);
 
+    // Evaluate the move already played (game.last_move()) — the correct
+    // semantics for detecting a blunder on a move that is already on the board
+    // (D3.2). Unlike evaluateMove, it does not re-play the point.
+    void evaluateLastMove(const Game& game, MoveEvaluator::Callback cb);
+
+    // D3.6：跨局教练记忆来源（UI 注入 LearnerModel::coachMemory；可为空）。
+    void setCoachMemoryProvider(std::function<std::string()> fn) {
+        coach_memory_fn_ = std::move(fn);
+    }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
@@ -84,6 +94,7 @@ private:
     int generation_ = 0;
     bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
     std::string demo_moves_;
+    std::function<std::string()> coach_memory_fn_;  // D3.6
 };
 
 }  // namespace vgo

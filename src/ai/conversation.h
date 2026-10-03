@@ -116,6 +116,7 @@ struct ConversationRequest {
     bool in_demo = false;
     std::string demo_moves;     // 如 "白 H6、黑 G5、白 F6"
     PlayerProfile profile;
+    std::string coach_memory;   // D3.6 跨局教练记忆（如「最近在打劫上吃亏」），可为空
 };
 
 struct ConversationReply {

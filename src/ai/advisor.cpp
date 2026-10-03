@@ -146,6 +146,14 @@ void AiAdvisor::evaluateMove(const Game& game, const Point& p, MoveEvaluator::Ca
     });
 }
 
+void AiAdvisor::evaluateLastMove(const Game& game, MoveEvaluator::Callback cb) {
+    const int gen = ++generation_;
+    evaluator()->evaluateLastMove(game, [this, gen, cb](const MoveEvaluation& e) {
+        if (gen != generation_) return;
+        cb(e);
+    });
+}
+
 void AiAdvisor::handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb) {
     const Game snapshot = game;
     const int gen = ++generation_;
@@ -227,6 +235,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.in_demo = demo_active_ctx_;
     req.demo_moves = demo_moves_;
     req.profile = PlayerProfile{level_, true};
+    // D3.6：注入跨局教练记忆（如「最近在打劫上吃亏」），供 LLM 系统提示词引用。
+    req.coach_memory = coach_memory_fn_ ? coach_memory_fn_() : std::string{};
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;

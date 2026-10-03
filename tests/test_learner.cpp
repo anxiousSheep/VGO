@@ -98,3 +98,17 @@ TEST(learner_deserialize_rejects_garbage) {
     CHECK(!m.deserialize("not json"));
     CHECK(!m.deserialize("[1,2]"));
 }
+
+TEST(learner_classify_blunder_area) {
+    // 结构信号优先：自紧气归入死活，提子/打吃归入战斗。
+    CHECK(classifyBlunderArea({StructuralFact{FactType::SelfAtari, {}, 1}}, 30, 19) ==
+          WeakArea::LifeDeath);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::Captures, {}, -1}}, 30, 19) ==
+          WeakArea::Fighting);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::PutsInAtari, {}, -1}}, 200, 19) ==
+          WeakArea::Fighting);
+    // 无结构信号时按阶段兜底：布局→定式，中盘→战斗，收官→官子。
+    CHECK(classifyBlunderArea({}, 10, 19) == WeakArea::Joseki);
+    CHECK(classifyBlunderArea({}, 180, 19) == WeakArea::Fighting);
+    CHECK(classifyBlunderArea({}, 300, 19) == WeakArea::Endgame);
+}

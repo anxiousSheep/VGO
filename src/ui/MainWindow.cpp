@@ -39,8 +39,10 @@
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
 #include "ai/evaluate.h"
+#include "ai/learner/learner_model.h"
 #include "ai/skill.h"
 #include "ai/variation.h"
+#include "model/LearnerStore.h"
 #include "model/ModelManager.h"
 
 namespace {
@@ -63,6 +65,9 @@ int smartRefereeThreshold(int size) {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle(QStringLiteral("VGO — 围棋练习"));
     vgo::ModelManager::instance().load();
+    // D3.3：学习者画像持久化——重开应用后画像仍在。
+    learner_ = std::make_unique<vgo::LearnerStore>(vgo::LearnerStore::defaultPath());
+    learner_->load();
 
     board_view_ = new vgo::GobanWidget(this);
     connect(board_view_, &vgo::GobanWidget::pointClicked, this, &MainWindow::onPointClicked);
@@ -376,6 +381,11 @@ void MainWindow::createAiServices(int level) {
     advisor_ = new vgo::AiAdvisor(engine_, conversation_, level);
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
     advisor_->setAnalysisLevel(vgo::ModelManager::instance().analysisLevel());
+    // D3.6：把跨局教练记忆注入 prompt（隐私开关关闭或暂无数据时为空）。
+    advisor_->setCoachMemoryProvider([this]() -> std::string {
+        if (!learner_ || !learner_->enabled()) return {};
+        return learner_->model().coachMemory();
+    });
 
     const bool usingKata =
         (dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr);
@@ -430,6 +440,9 @@ void MainWindow::startPlacement(int size) {
 void MainWindow::startAi(const vgo::GameSetup& setup) {
     if (demo_active_) exitDemo();
     blunders_.clear();
+    game_total_loss_ = 0.0;   // D3：重置本局学习观测
+    game_blunder_count_ = 0;
+    game_recorded_ = false;
     if (analyzeAction_) analyzeAction_->setChecked(false);
     delete controller_;
     controller_ = nullptr;
@@ -523,6 +536,7 @@ void MainWindow::openModelSettings() {
     SettingsDialog dlg(this);
     connect(&dlg, &SettingsDialog::settingsChanged, this, &MainWindow::updateModelStatus);
     dlg.exec();
+    if (learner_) learner_->load();  // 设置页可能改动/清空学习数据，重载保持一致
     updateModelStatus();
 }
 
@@ -690,14 +704,14 @@ void MainWindow::onPointClicked(int x, int y) {
             return;
         }
         controller_->humanPlay({x, y});
-        if (blunderAction_ && blunderAction_->isChecked()) maybeWarnBlunder();
+        maybeWarnBlunder();  // 预警展示 + 学习者画像采集（D3.2）
         return;
     }
     // Placement mode: the human arranges both sides.
     if (!game_ || game_->is_over()) return;
     if (game_->play(x, y)) {
         refresh();
-        if (blunderAction_ && blunderAction_->isChecked()) maybeWarnBlunder();
+        maybeWarnBlunder();
     } else {
         status_->setText(QStringLiteral("该位置不能落子（已占/自杀/打劫）"));
     }
@@ -814,6 +828,9 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
         appendAi(summary);
         blunders_.clear();
     }
+
+    // D3：终局把本局学习观测写入跨局画像（仅真实对局结束且未重复记录时）。
+    recordGameSummary();
 
     QString result;
     if (black_lead > 0.0) result = QStringLiteral("黑胜");
@@ -1310,12 +1327,59 @@ void MainWindow::maybeWarnBlunder() {
     vgo::Game* g = currentGame();
     if (!g || g->move_number() == 0 || !g->has_last_move()) return;
     const vgo::Point p = g->last_move();
-    advisor_->evaluateMove(*g, p, [this](const vgo::MoveEvaluation& e) {
-        const std::string w = vgo::blunderWarning(e);
-        if (w.empty()) return;
-        blunders_.push_back({currentGame() ? currentGame()->move_number() : 0, w});
-        appendAi(QString::fromStdString(w));
+    const int move_number = g->move_number();
+    const int size = g->size();
+    // 结构化棋形（用于弱项打标签）：最近一手前后的棋盘差。
+    const vgo::Color mover = vgo::opponent(g->current());
+    vgo::Game before = *g;
+    before.undo();
+    const auto facts = vgo::extractBoardFacts(
+        before.board(), g->board(), vgo::Move{p, false},
+        g->captures(mover) - before.captures(mover), mover);
+
+    // evaluateLastMove 才是「已落子」的正确评估语义（evaluateMove 会再落一手而失败）。
+    advisor_->evaluateLastMove(*g, [this, move_number, size, facts](
+                                       const vgo::MoveEvaluation& e) {
+        if (!vgo::isBlunder(e)) return;
+        const double lost = std::max(0.0, e.lead_before - e.lead_after);
+
+        // D3.2：把恶手喂给学习者画像（跨局弱项向量 + 本局点数损失），仅人机对弈
+        // 采集，避免摆棋试下污染画像；隐私开关关闭时不采集。
+        if (inAiMode() && learner_ && learner_->enabled()) {
+            learner_->model().recordBlunder(
+                vgo::BlunderEvent{vgo::classifyBlunderArea(facts, move_number, size), lost});
+            game_total_loss_ += lost;
+            ++game_blunder_count_;
+            learner_->save();
+        }
+
+        // 局中预警（仅当开关打开时展示）。
+        if (blunderAction_ && blunderAction_->isChecked()) {
+            const std::string w = vgo::blunderWarning(e);
+            if (!w.empty()) {
+                blunders_.push_back({move_number, w});
+                appendAi(QString::fromStdString(w));
+            }
+        }
     });
+}
+
+void MainWindow::recordGameSummary() {
+    if (!inAiMode() || game_recorded_) return;
+    if (!learner_ || !learner_->enabled()) return;
+    vgo::Game* g = currentGame();
+    if (!g || !g->is_over()) return;
+    game_recorded_ = true;
+
+    vgo::GameSummary s;
+    s.moves = g->move_number();
+    s.won = (g->winner() == userColor());
+    s.level = setup_.level;
+    // 用本局累计的恶手点数损失近似「平均每手损点」（点数为纲，可喂 estimateLevel）。
+    s.avg_loss_per_move = (s.moves > 0) ? game_total_loss_ / static_cast<double>(s.moves) : 0.0;
+    s.winrate_deviation = 0.0;  // 暂无逐手胜率偏离观测，保留字段
+    learner_->model().recordGame(s);
+    learner_->save();
 }
 
 void MainWindow::onReloadSkills() {
