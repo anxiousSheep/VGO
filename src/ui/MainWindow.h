@@ -179,8 +179,9 @@ private:
 
     // 教学增强（M3b）
     QAction* blunderAction_ = nullptr;
-    std::vector<std::pair<int, std::string>> blunders_;  // 手数 + 预警文本（M3b.3）
+    std::vector<vgo::BlunderNote> blunders_;  // 本局恶手（手数 + 落点 + 说明）
     bool blunder_summary_shown_ = false;  // 终局复盘汇总只提示一次（blunders_ 保留给棋谱）
+    std::vector<vgo::BlunderNote> review_blunders_;  // 导入棋谱中的恶手（复盘命中检测）
 
     // 学习者画像（D3）：跨局持久化 + 恶手采集 + 每局摘要
     std::unique_ptr<vgo::LearnerStore> learner_;

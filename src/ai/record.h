@@ -13,6 +13,13 @@ struct MoveRecord {
     Move move;  // is_pass marks a pass; is_resign is not serialized
 };
 
+// 一局中检测到的一次恶手（供复盘交互：面板提示 + 落点命中检测）。
+struct BlunderNote {
+    int move = 0;          // 1-based 手数
+    Point point{-1, -1};   // 落点（GTP 坐标；虚着/未知为 {-1,-1}）
+    std::string text;      // 说明（胜率/领先缩水等）
+};
+
 // A whole game record (棋谱): board size, komi, the ordered move list, and
 // optional notes (悔棋记录 / 本局恶手), serialized as `#` comment lines. Pure
 // data, no Qt. Serialized to the `.vgo` text format (see record.cpp).
@@ -20,7 +27,8 @@ struct GameRecord {
     int size = 9;
     double komi = 7.5;
     std::vector<MoveRecord> moves;
-    std::vector<std::string> notes;
+    std::vector<BlunderNote> blunders;  // 本局恶手（结构化，可命中检测）
+    std::vector<std::string> notes;     // 其它备注（悔棋等）
 };
 
 // Serialize a record to the `.vgo` text format:

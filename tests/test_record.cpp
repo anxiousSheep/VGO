@@ -115,6 +115,29 @@ TEST(record_notes_roundtrip) {
     CHECK_EQ(p.moves.size(), 1u);  // 备注不影响手数解析
 }
 
+TEST(record_blunders_roundtrip) {
+    GameRecord r;
+    r.size = 9;
+    r.komi = 7.5;
+    r.moves.push_back(MoveRecord{Color::Black, Move{{4, 4}, false}});  // E5
+    BlunderNote b;
+    b.move = 3;
+    b.point = {4, 4};
+    b.text = "这步棋明显欠妥";
+    r.blunders.push_back(b);
+
+    const std::string s = serializeRecord(r);
+    CHECK(s.find("# BAD 3 E5 这步棋明显欠妥") != std::string::npos);
+
+    GameRecord p;
+    CHECK(parseRecord(s, &p));
+    CHECK_EQ(p.blunders.size(), 1u);
+    CHECK_EQ(p.blunders[0].move, 3);
+    CHECK_EQ(p.blunders[0].point.x, 4);
+    CHECK_EQ(p.blunders[0].point.y, 4);
+    CHECK(p.blunders[0].text == "这步棋明显欠妥");
+}
+
 TEST(record_parse_invalid) {
     GameRecord r;
     CHECK(!parseRecord("not a vgo file\n", &r));          // no header

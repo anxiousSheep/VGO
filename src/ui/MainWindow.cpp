@@ -595,6 +595,7 @@ void MainWindow::onModeChanged(int index) {
 
 void MainWindow::loadReview(const vgo::GameRecord& r) {
     review_record_ = r;
+    review_blunders_ = r.blunders;  // 供复盘试下命中检测
     review_cursor_ = 0;
     rebuildReviewGame();
     refresh();
@@ -636,7 +637,20 @@ void MainWindow::importReview() {
     appendAi(QStringLiteral("已导入棋谱，共 %1 手。用「上一步/下一步」回看，"
                             "或点「演示/试下」从当前局面继续。")
                  .arg(review_record_.moves.size()));
-    // 备注（悔棋记录 / 本局恶手）：随棋谱一并展示，便于复盘。
+    // 本局恶手（结构化）：面板汇总；试下时若落在恶手上会另行提示。
+    if (!r.blunders.empty()) {
+        QString summary = QStringLiteral("本局恶手（共 %1 次）：").arg(r.blunders.size());
+        for (const vgo::BlunderNote& b : r.blunders) {
+            summary += QStringLiteral("\n  第 %1 手（%2）：%3")
+                           .arg(b.move)
+                           .arg(b.point.x >= 0
+                                    ? QString::fromStdString(vgo::gtpPoint(b.point, r.size))
+                                    : QStringLiteral("—"))
+                           .arg(QString::fromStdString(b.text));
+        }
+        appendAi(summary);
+    }
+    // 其它备注（悔棋记录等）：随棋谱一并展示，便于复盘。
     if (!r.notes.empty()) {
         QString notes = QStringLiteral("复盘备注：");
         for (const std::string& n : r.notes)
@@ -653,12 +667,8 @@ void MainWindow::saveRecord() {
         vgo::Game* g = currentGame();
         if (!g) return;
         r = vgo::recordFromGame(*g);
-        // 人机对弈：把本局恶手附在棋谱末尾，供复盘参考。
-        if (inAiMode() && !blunders_.empty()) {
-            r.notes.push_back("本局恶手（共 " + std::to_string(blunders_.size()) + " 次）：");
-            for (const auto& b : blunders_)
-                r.notes.push_back("第 " + std::to_string(b.first) + " 手：" + b.second);
-        }
+        // 人机对弈：把本局恶手（含落点）随谱保存，供复盘命中检测与展示。
+        if (inAiMode()) r.blunders = blunders_;
     }
     const QString path = QFileDialog::getSaveFileName(
         this, QStringLiteral("保存棋谱"), QStringLiteral("game.vgo"),
@@ -878,7 +888,7 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
         QString summary =
             QStringLiteral("终局复盘：本局检测到 %1 次明显恶手").arg(blunders_.size());
         for (const auto& b : blunders_)
-            summary += QStringLiteral("（第 %1 手）").arg(b.first);
+            summary += QStringLiteral("（第 %1 手）").arg(b.move);
         summary += QStringLiteral("。");
         appendAi(summary);
     }
@@ -1123,6 +1133,17 @@ void MainWindow::onDemoPointClicked(int x, int y) {
     }
     variation_.commitStep(vgo::Move{{x, y}, false}, variation_.toMove(), false);
     updateVariationBoard();
+
+    // 复盘模式：落子命中棋谱中记录的恶手时，提示并引导思考（不直接给结论）。
+    if (app_mode_ == vgo::GameMode::Review) {
+        for (const vgo::BlunderNote& b : review_blunders_) {
+            if (b.point.x == x && b.point.y == y) {
+                appendAi(QStringLiteral("提示：这里正是你当时的恶手（第 %1 手）。想一想，这一步为什么不好？")
+                             .arg(b.move));
+                break;
+            }
+        }
+    }
 }
 
 vgo::Game MainWindow::demoGame() const {
@@ -1392,7 +1413,7 @@ void MainWindow::maybeWarnBlunder() {
         g->captures(mover) - before.captures(mover), mover);
 
     // evaluateLastMove 才是「已落子」的正确评估语义（evaluateMove 会再落一手而失败）。
-    advisor_->evaluateLastMove(*g, [this, move_number, size, facts](
+    advisor_->evaluateLastMove(*g, [this, move_number, size, facts, p](
                                        const vgo::MoveEvaluation& e) {
         if (!vgo::isBlunder(e)) return;
         const double lost = std::max(0.0, e.lead_before - e.lead_after);
@@ -1407,11 +1428,11 @@ void MainWindow::maybeWarnBlunder() {
             learner_->save();
         }
 
-        // 局中预警（仅当开关打开时展示）。
+        // 局中预警（仅当开关打开时展示），并记录落点供棋谱持久化 / 复盘命中检测。
         if (blunderAction_ && blunderAction_->isChecked()) {
             const std::string w = vgo::blunderWarning(e);
             if (!w.empty()) {
-                blunders_.push_back({move_number, w});
+                blunders_.push_back(vgo::BlunderNote{move_number, p, w});
                 appendAi(QString::fromStdString(w));
             }
         }

@@ -30,6 +30,11 @@ std::string serializeRecord(const GameRecord& r) {
         }
         os << '\n';
     }
+    for (const BlunderNote& b : r.blunders) {
+        os << "# BAD " << b.move << ' '
+           << (b.point.x >= 0 ? gtpPoint(b.point, r.size) : "-")
+           << ' ' << b.text << '\n';
+    }
     for (const std::string& n : r.notes) {
         os << "# " << n << "\n";
     }
@@ -46,10 +51,26 @@ bool parseRecord(const std::string& text, GameRecord* out) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty()) continue;
         if (line[0] == '#') {
-            // 备注（悔棋记录 / 本局恶手）：保留供复盘展示。
-            std::string note = line.substr(1);
-            if (!note.empty() && note[0] == ' ') note.erase(note.begin());
-            r.notes.push_back(std::move(note));
+            std::string rest = line.substr(1);
+            if (!rest.empty() && rest[0] == ' ') rest.erase(rest.begin());
+            // 结构化恶手标记：# BAD <手数> <GTP坐标> <说明>
+            std::istringstream ls(rest);
+            std::string tag;
+            if (nextToken(ls, &tag) && tag == "BAD") {
+                BlunderNote b;
+                ls >> b.move;
+                std::string coord;
+                if (nextToken(ls, &coord) && coord != "-")
+                    gtpParsePoint(coord, r.size, &b.point);
+                std::string text;
+                std::getline(ls, text);
+                if (!text.empty() && text[0] == ' ') text.erase(text.begin());
+                b.text = std::move(text);
+                r.blunders.push_back(std::move(b));
+            } else {
+                // 其它备注（悔棋记录等）：保留供复盘展示。
+                r.notes.push_back(rest);
+            }
             continue;
         }
 
