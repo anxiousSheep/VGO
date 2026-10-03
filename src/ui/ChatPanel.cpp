@@ -1,8 +1,11 @@
 #include "ChatPanel.h"
 
+#include <QColor>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QTextBlockFormat>
+#include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
@@ -12,6 +15,12 @@
 namespace vgo {
 
 namespace {
+
+// 用户消息颜色：与 AI 回复（默认深色）区分，避免连续问答混淆。
+const QColor kUserColor(0x09, 0x69, 0xda);  // 蓝 #0969da
+
+// 每条消息之间的空隙（px）：加大段落间距，让请求/回复更易分辨。
+constexpr int kMessageSpacing = 14;
 
 // Render a markdown string (as produced by the LLM) into a document fragment
 // using Qt's built-in GitHub-flavoured markdown parser, so the AI reply shows
@@ -23,18 +32,33 @@ QTextDocumentFragment markdownFragment(const QString& markdown) {
 }
 
 // Append one chat message: a bold "<label>：" header followed by the content,
-// rendered as markdown when `markdown` is true and plain text otherwise. Each
-// message ends on its own paragraph so consecutive messages stay separated.
+// rendered as markdown when `markdown` is true and plain text otherwise. When
+// `color` is valid the whole message (label + body) is tinted — used for the
+// user's own messages. Each message ends on its own paragraph with extra top
+// spacing so consecutive messages stay clearly separated.
 void appendMessage(QTextEdit* log, const QString& label, const QString& text,
-                   bool markdown) {
+                   bool markdown, const QColor& color) {
     QTextCursor cursor(log->document());
     cursor.movePosition(QTextCursor::End);
+
+    QTextBlockFormat block;
+    block.setTopMargin(kMessageSpacing);
+    cursor.setBlockFormat(block);
+
     cursor.beginEditBlock();
-    cursor.insertHtml(QStringLiteral("<b>%1：</b>").arg(label.toHtmlEscaped()));
-    if (markdown)
-        cursor.insertFragment(markdownFragment(text));
-    else
-        cursor.insertText(text);
+    if (color.isValid()) {
+        QTextCharFormat fmt;
+        fmt.setForeground(color);
+        cursor.insertHtml(QStringLiteral("<span style=\"color:%1;\"><b>%2：</b></span>")
+                              .arg(color.name(), label.toHtmlEscaped()));
+        cursor.insertText(text, fmt);
+    } else {
+        cursor.insertHtml(QStringLiteral("<b>%1：</b>").arg(label.toHtmlEscaped()));
+        if (markdown)
+            cursor.insertFragment(markdownFragment(text));
+        else
+            cursor.insertText(text);
+    }
     cursor.insertBlock();
     cursor.endEditBlock();
     log->ensureCursorVisible();
@@ -90,11 +114,11 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
 }
 
 void ChatPanel::appendHuman(const QString& text) {
-    appendMessage(log_, QStringLiteral("你"), text, /*markdown=*/false);
+    appendMessage(log_, QStringLiteral("你"), text, /*markdown=*/false, kUserColor);
 }
 
 void ChatPanel::appendAi(const QString& text) {
-    appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/true);
+    appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/true, QColor());
 }
 
 void ChatPanel::clear() {
@@ -107,6 +131,9 @@ void ChatPanel::beginAiStream() {
     stream_buffer_.clear();
     QTextCursor cursor(log_->document());
     cursor.movePosition(QTextCursor::End);
+    QTextBlockFormat block;
+    block.setTopMargin(kMessageSpacing);
+    cursor.setBlockFormat(block);
     cursor.insertHtml(QStringLiteral("<b>AI：</b>"));
     stream_content_pos_ = cursor.position();
     streaming_ = true;
