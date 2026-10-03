@@ -25,6 +25,9 @@ public:
     void appendAi(const QString& text);
     // D2.4：带校验证据的 AI 回复——正文后追加可 hover 看来源、可点击跳 PV 的证据行。
     void appendAi(const QString& text, const std::vector<ClaimVerdict>& verdicts, int size);
+    // 固定格式的 AI 提示（非 LLM 生成：落子播报 / 导入棋谱 / 终局复盘等系统消息），
+    // 以淡色呈现，与 LLM 的正文答复区分开。
+    void appendNote(const QString& text);
     void clear();
 
     // Streaming output: begin a new AI line, append deltas, then end it.

@@ -100,6 +100,7 @@ private:
     void updateTierStatus();
     void updateActionsForMode();
     void appendAi(const QString& text);
+    void appendNote(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
     void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);

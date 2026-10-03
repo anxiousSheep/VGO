@@ -484,7 +484,7 @@ void MainWindow::startPlacement(int size) {
     game_ = new vgo::Game(size);
     resigned_ = false;
     chat_->clear();
-    appendAi(QStringLiteral("摆棋模式：你可以自由摆放黑白棋子（用「虚着」切换行棋方），"
+    appendNote(QStringLiteral("摆棋模式：你可以自由摆放黑白棋子（用「虚着」切换行棋方），"
                             "并随时在右侧问我问题，比如「谁领先」「我该下哪」。"));
     refresh();
 }
@@ -507,9 +507,9 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     controller_->onChanged = [this] { refresh(); };
     controller_->onAiMove = [this](const vgo::Move& m, const vgo::Analysis&) {
         if (m.is_pass) {
-            appendAi(QStringLiteral("（虚着，停一手）"));
+            appendNote(QStringLiteral("（虚着，停一手）"));
         } else {
-            appendAi(QStringLiteral("我下在 %1。")
+            appendNote(QStringLiteral("我下在 %1。")
                          .arg(QString::fromStdString(vgo::gtpPoint(m.p, setup_.size))));
         }
     };
@@ -520,7 +520,7 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     controller_->onCountProposed = [this] { promptConfirmSettle(); };
     controller_->onSettled = [this] { onScore(); };
     controller_->onAiResign = [this] {
-        appendAi(QStringLiteral("我认输了，你（%1方）获胜。").arg(colorName(setup_.human_color)));
+        appendNote(QStringLiteral("我认输了，你（%1方）获胜。").arg(colorName(setup_.human_color)));
         status_->setText(QStringLiteral("AI 认输，你获胜"));
         // AI 认输弹窗：附带「保存棋谱」。
         QMessageBox box(this);
@@ -534,13 +534,13 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
 
     chat_->clear();
     if (setup.nigiri) {
-        appendAi(setup.human_color == vgo::Color::Black
+        appendNote(setup.human_color == vgo::Color::Black
                      ? QStringLiteral("猜先结果：你执黑，请先行。")
                      : QStringLiteral("猜先结果：你执白，AI 执黑先行。"));
     } else if (setup.human_color == vgo::Color::Black) {
-        appendAi(QStringLiteral("你好！你执黑先行。下棋时随时可以在右侧问我问题。"));
+        appendNote(QStringLiteral("你好！你执黑先行。下棋时随时可以在右侧问我问题。"));
     } else {
-        appendAi(QStringLiteral("你好！我执黑先行。下棋时随时可以在右侧问我问题。"));
+        appendNote(QStringLiteral("你好！我执黑先行。下棋时随时可以在右侧问我问题。"));
     }
     controller_->start();
     refresh();
@@ -655,7 +655,7 @@ void MainWindow::importReview() {
         return;
     }
     loadReview(r);
-    appendAi(QStringLiteral("已导入棋谱，共 %1 手。用「上一步/下一步」回看，"
+    appendNote(QStringLiteral("已导入棋谱，共 %1 手。用「上一步/下一步」回看，"
                             "或点「演示/试下」从当前局面继续。")
                  .arg(review_record_.moves.size()));
     // 本局恶手（结构化）：面板汇总；试下时若落在恶手上会另行提示。
@@ -669,14 +669,14 @@ void MainWindow::importReview() {
                                     : QStringLiteral("—"))
                            .arg(QString::fromStdString(b.text));
         }
-        appendAi(summary);
+        appendNote(summary);
     }
     // 其它备注（悔棋记录等）：随棋谱一并展示，便于复盘。
     if (!r.notes.empty()) {
         QString notes = QStringLiteral("复盘备注：");
         for (const std::string& n : r.notes)
             notes += QStringLiteral("\n") + QString::fromStdString(n);
-        appendAi(notes);
+        appendNote(notes);
     }
 }
 
@@ -913,7 +913,7 @@ void MainWindow::showScoreResult(int black, int white, double komi, double black
         for (const auto& b : blunders_)
             summary += QStringLiteral("（第 %1 手）").arg(b.move);
         summary += QStringLiteral("。");
-        appendAi(summary);
+        appendNote(summary);
     }
 
     // D3：终局把本局学习观测写入跨局画像（仅真实对局结束且未重复记录时）。
@@ -968,7 +968,7 @@ void MainWindow::onChatMessage(const QString& text) {
             advisor_->setDemoState(true, demoMovesDescription());
             advisor_->ask(dg, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
         } else {
-            appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
+            appendNote(QStringLiteral("当前没有可用的 AI 助手。"));
         }
         return;
     }
@@ -980,7 +980,7 @@ void MainWindow::onChatMessage(const QString& text) {
         advisor_->setUserColor(vgo::Color::Empty);  // 摆棋/复盘无立场
         advisor_->ask(*g, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
     } else {
-        appendAi(QStringLiteral("当前没有可用的 AI 助手。"));
+        appendNote(QStringLiteral("当前没有可用的 AI 助手。"));
     }
 }
 
@@ -1043,7 +1043,7 @@ void MainWindow::applyAnalysis(const vgo::Analysis& a, vgo::Color to_move,
                                bool sayInChat) {
     if (!a.valid || a.ownership.empty()) {
         // 引擎忙（如 AI 落子时）或失败：保留上次形势图，仅提示，稍后随落子自动重试。
-        if (sayInChat) appendAi(QStringLiteral("当前形势暂时无法计算（引擎忙或未接入 KataGo）。"));
+        if (sayInChat) appendNote(QStringLiteral("当前形势暂时无法计算（引擎忙或未接入 KataGo）。"));
         scoreStatus_->setText(QStringLiteral("形势：引擎忙，稍后自动重试"));
         return;
     }
@@ -1080,12 +1080,16 @@ void MainWindow::applyAnalysis(const vgo::Analysis& a, vgo::Color to_move,
     scoreStatus_->setText(QStringLiteral("%1 · 黑方胜率 %2%").arg(lead).arg(wpct));
 
     if (sayInChat) {
-        appendAi(QStringLiteral("当前形势：%1 · 黑方胜率 %2%。").arg(lead).arg(wpct));
+        appendNote(QStringLiteral("当前形势：%1 · 黑方胜率 %2%。").arg(lead).arg(wpct));
     }
 }
 
 void MainWindow::appendAi(const QString& text) {
     chat_->appendAi(text);
+}
+
+void MainWindow::appendNote(const QString& text) {
+    chat_->appendNote(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,7 +1131,7 @@ void MainWindow::startDemo() {
     if (advisor_) advisor_->noteAnalysis(vgo::Analysis{});
     updateVariationBoard();
     demo_dock_->setVisible(true);
-    appendAi(QStringLiteral("已进入试下模式：棋盘为独立变化图，点棋盘试下，"
+    appendNote(QStringLiteral("已进入试下模式：棋盘为独立变化图，点棋盘试下，"
                             "或让「AI 演示一手」续下；用「回退」撤销，不影响真实对局。"));
     status_->setText(QStringLiteral("试下模式中"));
 }
@@ -1143,7 +1147,7 @@ void MainWindow::exitDemo() {
     board_view_->clearOwnership();
     scoreStatus_->clear();
     refresh();
-    appendAi(QStringLiteral("已退出试下模式，回到真实对局。"));
+    appendNote(QStringLiteral("已退出试下模式，回到真实对局。"));
 }
 
 void MainWindow::onDemoPointClicked(int x, int y) {
@@ -1164,7 +1168,7 @@ void MainWindow::onDemoPointClicked(int x, int y) {
     if (app_mode_ == vgo::GameMode::Review) {
         for (const vgo::BlunderNote& b : review_blunders_) {
             if (b.point.x == x && b.point.y == y) {
-                appendAi(QStringLiteral("提示：这里正是你当时的恶手（第 %1 手）。想一想，这一步为什么不好？")
+                appendNote(QStringLiteral("提示：这里正是你当时的恶手（第 %1 手）。想一想，这一步为什么不好？")
                              .arg(b.move));
                 break;
             }
@@ -1270,7 +1274,7 @@ void MainWindow::startDemoFromQuestion(const vgo::DemoRequest& dr) {
     }
     const QString side = (dr.color == vgo::Color::Black) ? QStringLiteral("黑") : QStringLiteral("白");
     const QString resp = (dr.color == vgo::Color::Black) ? QStringLiteral("白") : QStringLiteral("黑");
-    appendAi(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
+    appendNote(QStringLiteral("试下：假设%1方在 %2 落子，用权威 AI 演示%3方的应对。")
                  .arg(side)
                  .arg(QString::fromStdString(vgo::gtpPoint(dr.point, g->size())))
                  .arg(resp));
@@ -1459,7 +1463,7 @@ void MainWindow::maybeWarnBlunder() {
             const std::string w = vgo::blunderWarning(e);
             if (!w.empty()) {
                 blunders_.push_back(vgo::BlunderNote{move_number, p, w});
-                appendAi(QString::fromStdString(w));
+                appendNote(QString::fromStdString(w));
             }
         }
     });
@@ -1485,7 +1489,7 @@ void MainWindow::recordGameSummary() {
 
 void MainWindow::onReloadSkills() {
     loadSkills();
-    appendAi(QStringLiteral("已重新加载技能知识。"));
+    appendNote(QStringLiteral("已重新加载技能知识。"));
 }
 
 void MainWindow::showTracePanel() {

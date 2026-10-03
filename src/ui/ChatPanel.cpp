@@ -1,6 +1,7 @@
 #include "ChatPanel.h"
 
 #include <QColor>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
@@ -20,8 +21,14 @@ namespace vgo {
 
 namespace {
 
-// 用户消息颜色：与 AI 回复（默认深色）区分，避免连续问答混淆。
-const QColor kUserColor(0x09, 0x69, 0xda);  // 蓝 #0969da
+// 用户消息颜色：与 AI 回复（默认深色）区分，避免连续问答混淆。调亮一些以更醒目。
+const QColor kUserColor(0x1f, 0x6f, 0xeb);  // 蓝 #1f6feb
+
+// 固定格式 AI 提示（非 LLM 生成）的淡色：让「系统播报」后退，突出正文答复。
+const QColor kNoteColor(0x57, 0x60, 0x6a);  // 灰 #57606a
+
+// 证据/trace 行的标签色：区分于正文与系统提示，提示「这是溯源信息」。
+const QColor kTraceLabelColor(0x82, 0x50, 0xdf);  // 紫 #8250df
 
 // 每条消息之间的空隙（px）：加大段落间距，让请求/回复更易分辨。
 constexpr int kMessageSpacing = 14;
@@ -162,6 +169,11 @@ void ChatPanel::appendAi(const QString& text) {
     appendAi(text, std::vector<ClaimVerdict>{}, 0);
 }
 
+void ChatPanel::appendNote(const QString& text) {
+    // 固定格式提示用淡灰，正文不渲染 markdown（这些是程序拼接的纯文本）。
+    appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/false, kNoteColor);
+}
+
 void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& verdicts,
                          int size) {
     appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/true, QColor());
@@ -175,7 +187,10 @@ void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& v
     cursor.setBlockFormat(block);
 
     const QTextCharFormat plain;
-    cursor.insertText(QStringLiteral("证据："), plain);
+    QTextCharFormat traceLabel = plain;
+    traceLabel.setForeground(kTraceLabelColor);
+    traceLabel.setFontWeight(QFont::Bold);
+    cursor.insertText(QStringLiteral("证据："), traceLabel);
     for (std::size_t i = 0; i < verdicts.size(); ++i) {
         if (i > 0) cursor.insertText(QStringLiteral("  "), plain);
         const ClaimVerdict& v = verdicts[i];
