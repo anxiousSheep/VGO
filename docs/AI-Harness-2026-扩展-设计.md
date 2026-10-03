@@ -254,6 +254,7 @@ struct Tool {
 - `PlayerProfile { int level = 5; bool teaching = true; }`——只有两个标量。
 - `level` 实际来自难度滑块静态设置（`GameSetup.level`），**并非对用户棋力的观测**。
 - 关闭应用再打开，AI 完全不认识你。
+- **难度档位粒度不均**：`strengthForLevel(1)` 的新手 = `rank_20k`（20 级），而 `strengthForLevel(2)` = 业余1段 `rank_1d`——新手与业余1段之间隔着约 20 个棋力等级，一步跨度过大，新手「毕业」即面对强得多的 1d，缺少中间过渡，不利于练习。
 
 ### 5.2 设计
 
@@ -269,6 +270,7 @@ struct Tool {
 - 每步异步 what-if（复用 `MoveEvaluator` + `isBlunder`，**仅在 UI 空闲 / 低优先级线程**跑，不阻塞行棋），产出 blunder 序列。
 - 弱项打标签：按 `FactType`（`explain.h`，现有 Captures/PutsInAtari/Connects/Extends/Placement/SelfAtari）+ blunder 上下文（战斗 / 死活 / 官子 / 定式 / 形势判断 / 打劫 / 收官目数）。
 - **动态难度**：由观测棋力自动标定 `level`（保留手动 override）。
+- **新手难度动态爬坡**：针对 5.1 的 `rank_20k`→`rank_1d` 断崖，把「新手」档拆成细粒度 HumanSL 阶梯 `rank_20k → rank_15k → rank_10k → rank_7k → rank_5k → rank_3k → rank_1k → rank_1d`，据 `LearnerModel::estimateLevel()` 的**连续强度估计**（而非粗粒度 1..19 level）逐档逼近业余1段，让 AI 难度随新手进步平滑爬升、无断崖。
 - **复习队列**：自有恶手 + 题源构成 SM-2（简化）间隔重复，接「今日一题」入口。
 - **教练记忆注入**：跨局事实（「你最近三次在打劫判断上吃亏」）进 prompt。
 - **隐私三件套**：开关 / 导出 / 清空（本地桌面应用必须做）；密钥沿用 DPAPI 机制（`src/ui/model/KeyStore`）。
@@ -280,7 +282,7 @@ struct Tool {
 | D3.1 | `LearnerModel` 纯逻辑：弱项向量 / 棋力估计 / 滚动窗口 | `learner/learner_model.*` + 单测 | ✅ |
 | D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ✅ |
 | D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | ✅ |
-| D3.4 | 动态难度：观测棋力自动标定 level（保留手动 override） | `NewGameDialog` + `LearnerModel` | ⬜ |
+| D3.4 | 动态难度：观测棋力自动标定 level + **新手难度动态爬坡**（`rank_20k→…→rank_1d` 细粒度阶梯，消除新手→业余1段断崖；保留手动 override） | `NewGameDialog` + `LearnerModel` + `strength.*` | ⬜ |
 | D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ⬜ |
 | D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ✅ |
 
@@ -288,8 +290,26 @@ struct Tool {
 
 - 连打 5 局后系统给出的 Top-3 弱项与人工复盘标注一致率 ≥ 70%。
 - 重开应用后画像仍在，且不阻塞行棋（异步采集）。
+- 自动难度开启时，新手连续进步 AI 难度沿 `rank_20k→…→rank_1d` 阶梯平滑爬升、无断崖。
 
 **UX 提升**：**「它记得我」**——重开应用时最强烈的差异感，也是最容易被现有版本暴露的短板。
+
+### 5.5 新手难度动态爬坡（D3.4 细化）
+
+**问题**：`strength.cpp` 的 19 级表把「新手」固定映射到 `rank_20k`（20 级），相邻的「业余1段」直接跳到 `rank_1d`，中间隔着约 20 个棋力等级。新手要么一直面对偏弱的 20k，要么一步升到偏强的 1d，缺乏平滑过渡。
+
+**设计**：
+
+1. **细粒度 HumanSL 阶梯（`strength` 层）**：新增 `humanProfileForStrength(double kyu)`，把连续强度估计映射到新手带阶梯
+   `rank_20k → rank_15k → rank_10k → rank_7k → rank_5k → rank_3k → rank_1k → rank_1d`（`kyu=20` → `kyu=-1`，`kyu<=0` 即 1d 及以上）。这样「新手」档内部可连续逼近业余1段。
+2. **连续强度估计（`learner` 层）**：`LearnerModel` 在现有 `estimateLevel()`（粗粒度 1..19）之外，新增 `estimateKyuRank()`（或返回 `{level, kyu}` 的结构），据滚动窗口的 `avg_loss_per_move` 线性映射到连续 kyu 值。
+3. **D3.4 接线（UI 层）**：新对局时若「自动难度」开启，用 `estimateKyuRank()` 反查阶梯得到 `human_profile`（业余段及以上仍走现有 1..19 表），取代「新手=固定 20k」；用户手动拖滑块始终 override。
+4. **降级回退**：无历史画像时仍回退默认新手档（`rank_20k`），不劣化开箱即用。
+
+**依赖与待办**：
+
+- KataGo HumanSL 具体 `rank_*` 档位（现有代码只用到 `rank_20k/1d/3d/5d/7d/9d`，阶梯中的 `15k/10k/7k/5k/3k/1k` 需 L13 实测确认可用）。
+- 与 L1/L2（难度标定）共用同一阶梯：L2 的「更细难度标定」落地后，本阶梯即为其新手带部分。
 
 ---
 
