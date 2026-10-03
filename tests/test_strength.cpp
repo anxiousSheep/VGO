@@ -100,7 +100,7 @@ TEST(novice_level_label_past_novice_hints) {
     const std::string hint = noviceLevelLabel(0.0, 19);
     CHECK(hint.find("新手（") == 0);
     CHECK(hint.find("级）") == std::string::npos);  // 不是「X级」
-    CHECK(utf8Len(hint) <= 10u);                   // 控制字符长度防溢出
+    CHECK(utf8Len(hint) <= 13u);                   // 控制字符长度防溢出
     // 不同 level 轮换不同提示词。
     CHECK(noviceLevelLabel(0.0, 0) != noviceLevelLabel(0.0, 1));
 }

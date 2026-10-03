@@ -18,28 +18,35 @@ TEST(learner_blunder_weak_areas) {
 
 TEST(learner_estimate_level) {
     LearnerModel m;
-    CHECK_EQ(m.estimateLevel(), 5);  // no history -> default
-    GameSummary strong;
-    strong.avg_loss_per_move = 1.0;
-    m.recordGame(strong);
-    CHECK_EQ(m.estimateLevel(), 19);
+    CHECK_EQ(m.estimateLevel(), 1);  // no history -> 新手（而非中段）
 
-    LearnerModel m2;
-    GameSummary weak;
-    weak.avg_loss_per_move = 20.0;
-    m2.recordGame(weak);
-    CHECK_EQ(m2.estimateLevel(), 1);
+    GameSummary one_dan;
+    one_dan.avg_loss_per_move = 1.0;
+    m.recordGame(one_dan);
+    CHECK_EQ(m.estimateLevel(), 2);  // 1d -> 业余1段（而非职业9段）
+
+    LearnerModel weak;
+    GameSummary wk;
+    wk.avg_loss_per_move = 20.0;
+    weak.recordGame(wk);
+    CHECK_EQ(weak.estimateLevel(), 1);  // 20k -> 新手
+
+    LearnerModel pro;
+    GameSummary pg;
+    pg.avg_loss_per_move = 0.1;
+    pro.recordGame(pg);
+    CHECK(pro.estimateLevel() >= 11);  // 0.1 目/手 -> 职业段
 }
 
 TEST(learner_estimate_kyu_rank) {
     LearnerModel m;
     CHECK_EQ(m.estimateKyuRank(), 20.0);  // 无历史默认 20k 新手
 
-    LearnerModel strong;
+    LearnerModel one_dan;
     GameSummary sg;
     sg.avg_loss_per_move = 1.0;
-    strong.recordGame(sg);
-    CHECK_EQ(strong.estimateKyuRank(), 0.0);  // 1d
+    one_dan.recordGame(sg);
+    CHECK_EQ(one_dan.estimateKyuRank(), 0.0);  // 1d（毕业）
 
     LearnerModel weak;
     GameSummary wk;
@@ -49,9 +56,20 @@ TEST(learner_estimate_kyu_rank) {
 
     LearnerModel mid;
     GameSummary md;
-    md.avg_loss_per_move = 10.5;
+    md.avg_loss_per_move = 5.0;
     mid.recordGame(md);
-    CHECK_EQ(mid.estimateKyuRank(), 10.0);  // 10k（线性映射中点）
+    CHECK(mid.estimateKyuRank() > 0.0);   // 仍在新手带
+    CHECK(mid.estimateKyuRank() < 20.0);
+}
+
+TEST(learner_kyu_level_consistency) {
+    // 毕业（kyu=0）必须对应业余1段（level 2），而非职业9段（level 19）。
+    LearnerModel m;
+    GameSummary g;
+    g.avg_loss_per_move = 1.0;  // 1d
+    m.recordGame(g);
+    CHECK_EQ(m.estimateKyuRank(), 0.0);
+    CHECK_EQ(m.estimateLevel(), 2);
 }
 
 TEST(learner_rolling_window_caps_20) {

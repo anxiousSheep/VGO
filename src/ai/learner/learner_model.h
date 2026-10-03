@@ -68,11 +68,12 @@ public:
     // Top-N weak areas, sorted by accumulated severity (descending).
     std::vector<std::pair<WeakArea, double>> topWeakAreas(int n = 3) const;
 
-    // Observed strength -> level 1..19 (default 5 with no history).
+    // Observed strength -> level 1..19（无历史时默认新手 = 1）。
+    // 与 estimateKyuRank 同源（对数映射），保证「毕业（1d）↔ 业余1段（level 2）」一致。
     int estimateLevel() const;
 
-    // D3.4：连续强度估计（kyu），供新手难度动态爬坡：20 = 20k 新手，0 = 1d。
-    // 与 estimateLevel 同源（都由平均每手损点线性映射），无历史时默认 20k。
+    // D3.4：连续强度估计（kyu），供新手难度动态爬坡：20 = 20k 新手，0 = 1d（毕业）。
+    // 与 estimateLevel 同源（都由平均每手损点对数映射），无历史时默认 20k。
     double estimateKyuRank() const;
 
     // A short cross-game "coach memory" line, empty if there is no signal yet.

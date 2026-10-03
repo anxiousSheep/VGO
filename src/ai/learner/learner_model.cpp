@@ -9,6 +9,23 @@ namespace vgo {
 
 namespace {
 constexpr std::size_t kMaxGames = 20;
+
+// 连续棋力 R（kyu/dan：20 = 20k 新手，0 = 1d 业余1段，负 = 段位）。据平均每手
+// 损点对数映射：avg_loss 1.0 → 0（1d，毕业），avg_loss 20 → 20（20k），可负。
+// 这是 L1 精确标定前的合理启发式（avg_loss 每减半约升 ~4.6 档），保证「毕业（1d）」
+// 与「业余1段（level 2）」一致，而非旧线性映射下误判成职业9段。
+double strengthRank(double avg_loss) {
+    const double avg = std::max(avg_loss, 0.01);
+    return 20.0 * std::log(avg) / std::log(20.0);
+}
+
+// 近 20 局滚动窗口的平均每手损点；无历史返回 -1。
+double avgLoss(const std::vector<GameSummary>& games) {
+    if (games.empty()) return -1.0;
+    double sum = 0.0;
+    for (const GameSummary& g : games) sum += g.avg_loss_per_move;
+    return sum / static_cast<double>(games.size());
+}
 }  // namespace
 
 const char* weakAreaLabel(WeakArea a) {
@@ -68,24 +85,19 @@ std::vector<std::pair<WeakArea, double>> LearnerModel::topWeakAreas(int n) const
 }
 
 int LearnerModel::estimateLevel() const {
-    if (games_.empty()) return 5;
-    double sum = 0.0;
-    for (const GameSummary& g : games_) sum += g.avg_loss_per_move;
-    const double avg = sum / static_cast<double>(games_.size());
-    // Linear map: avg loss ~1.0 pt/move -> level 19; ~20 pts/move -> level 1.
-    const double t = (avg - 1.0) / (20.0 - 1.0);
-    const int level = static_cast<int>(std::lround(19.0 - 18.0 * std::clamp(t, 0.0, 1.0)));
-    return std::clamp(level, 1, 19);
+    const double avg = avgLoss(games_);
+    if (avg < 0.0) return 1;  // 无历史：默认新手
+    const double R = strengthRank(avg);
+    // 连续 kyu/dan R → 1..19 档：R=0（1d）→ 2（业余1段），R=-8（9d）→ 10，
+    // R=-17（职业9段）→ 19。与 estimateKyuRank 同源，保证毕业↔业余1段一致。
+    return std::clamp(static_cast<int>(std::lround(2.0 - R)), 1, 19);
 }
 
 double LearnerModel::estimateKyuRank() const {
-    if (games_.empty()) return 20.0;  // 无历史：默认新手 20k
-    double sum = 0.0;
-    for (const GameSummary& g : games_) sum += g.avg_loss_per_move;
-    const double avg = sum / static_cast<double>(games_.size());
-    // 连续 kyu：avg loss 1.0 目/手 → 0 kyu（1d）；20 目/手 → 20 kyu（20k）。
-    const double t = (avg - 1.0) / (20.0 - 1.0);
-    return std::clamp(20.0 * t, 0.0, 20.0);
+    const double avg = avgLoss(games_);
+    if (avg < 0.0) return 20.0;  // 无历史：默认新手 20k
+    // 新手带连续 kyu：avg_loss 1.0 → 0（1d 毕业），20 → 20（20k）；1d+ 钳制为 0。
+    return std::clamp(strengthRank(avg), 0.0, 20.0);
 }
 
 std::string LearnerModel::coachMemory() const {

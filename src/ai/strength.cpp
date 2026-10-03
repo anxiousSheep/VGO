@@ -107,11 +107,13 @@ std::string noviceLevelLabel(double kyu, int level) {
     }
     // 已过新手（1d+）：趣味提示词，控制长度避免超出下拉控件。
     static const char* kHints[] = {
-        "新手（早该升段啦）",
-        "新手（大神别装了）",
-        "新手（这档与你无缘）",
+        "新手（鱼需慢慢炸）",
+        "新手（你干啥来了？）",
+        "新手（压力一只AI？）",
+        "新手（你今天练棋了吗？）",
+        "新手（该档位可能是九段）",
     };
-    return kHints[std::max(0, level) % 3];
+    return kHints[std::max(0, level) % 5];
 }
 
 std::string rankLabel(int level) {
