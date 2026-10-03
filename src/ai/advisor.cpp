@@ -134,6 +134,9 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
                              });
         return;
     }
+    // 其余问题（改写说法 / 多跳 / 未命中专用路径）：直接同步应答。工具快照来自
+    // prewarmAnalysis 在局面变化时（Background 优先级、与形势开关解耦）维护的
+    // last_analysis_，不按题阻塞预取——否则就是 MCP 模式（C++ 替模型预计算）回潮。
     deliverAnswer(game, question, currentFacts(game), cb);
 }
 
@@ -183,6 +186,21 @@ void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
                            if (gen != generation_) return;  // stale / cancelled
                            last_analysis_ = a;              // cache as grounding
                            cb(a);
+                       });
+}
+
+void AiAdvisor::prewarmAnalysis(const Game& game) {
+    // D1.8：局面级快照预热——用 Background 优先级（与形势开关解耦、可被更新的预热合并）
+    // 刷新 last_analysis_，供模型工具（analyze_position / ownership_map / dead_groups /
+    // life_death_solve）按需取真值。不走 generation_：预热不得取消在途提问。
+    EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+    if (!eng || game.is_over()) return;
+    const int gen = ++prewarm_generation_;
+    analyzePrioritized(eng, game.board(), game.current(), strengthForLevel(analysis_level_),
+                       EnginePriority::Background,
+                       [this, gen](const Analysis& a) {
+                           if (gen != prewarm_generation_) return;  // 有更新的预热，丢弃旧结果
+                           last_analysis_ = a;  // cache as grounding（工具快照真相来源）
                        });
 }
 
@@ -260,12 +278,18 @@ void AiAdvisor::handleLifeDeath(const Game& game, const std::string& question, R
                            if (gen != generation_) return;
                            GroundedFacts f = currentFacts(snapshot);
                            f.analysis = a;
-                           if (!a.ownership.empty()) {
-                               f.dead_groups = deadGroups(snapshot.board(), a.ownership);
-                               f.life_death = analyzeLifeDeath(snapshot.board(), a.ownership);
-                           }
+                           groundFromAnalysis(snapshot, a, &f);  // D1.8：死棋/死活与 analysis 同源
                            deliverAnswer(snapshot, question, std::move(f), cb);
                        });
+}
+
+// D1.8：由同一份归属分析统一派生死棋清单与死活结论，保证工具、硬事实、校验闸门口径一致
+// （避免「analysis 新鲜、dead_groups 陈旧」的混源）。
+void AiAdvisor::groundFromAnalysis(const Game& game, const Analysis& a, GroundedFacts* f) {
+    if (!a.ownership.empty()) {
+        f->dead_groups = deadGroups(game.board(), a.ownership);
+        f->life_death = analyzeLifeDeath(game.board(), a.ownership);
+    }
 }
 
 GroundedFacts AiAdvisor::currentFacts(const Game& game) const {

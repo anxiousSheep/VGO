@@ -47,6 +47,10 @@ public:
     // Record the engine analysis of the last played move (used as grounding).
     void noteAnalysis(const Analysis& a) { last_analysis_ = a; }
 
+    // D1.8：局面级快照预热——Background 优先级刷新 last_analysis_（与形势开关解耦），
+    // 供模型工具（analyze_position / ownership_map / dead_groups / life_death_solve）按需取。
+    void prewarmAnalysis(const Game& game);
+
     // Invalidate any in-flight request and bump the generation counter.
     void cancel();
 
@@ -104,6 +108,8 @@ private:
                        GroundedFacts facts, ReplyCb cb);
     void handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb);
     void handleLifeDeath(const Game& game, const std::string& question, ReplyCb cb);
+    // D1.8：由同一份归属分析统一派生死棋清单与死活结论（工具/硬事实/校验同源）。
+    void groundFromAnalysis(const Game& game, const Analysis& a, GroundedFacts* f);
     MoveEvaluator* evaluator();
 
     EngineInterface* engine_;
@@ -116,6 +122,7 @@ private:
     Analysis last_analysis_;
     std::unique_ptr<MoveEvaluator> move_evaluator_;
     int generation_ = 0;
+    int prewarm_generation_ = 0;  // D1.8：预热请求代际（旧结果丢弃，不影响 generation_）
     bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6

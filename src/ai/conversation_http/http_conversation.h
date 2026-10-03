@@ -69,4 +69,15 @@ private:
     QByteArray stream_buffer_;  // SSE partial-line accumulation
 };
 
+// Builds the follow-up messages after the model issued tool calls: an
+// assistant message carrying `toolCalls`, followed by exactly one `tool`
+// message per call (matching tool_call_id, in order). `exec` resolves each
+// call's QJsonObject to a result string. Pure (Qt-Core-only) so it can be
+// unit-tested. Every tool_call must be answered, or the endpoint rejects the
+// follow-up with "assistant message with 'tool_calls' must be followed by tool
+// messages responding to each 'tool_call_id'".
+QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
+                             const QJsonArray& toolCalls,
+                             const std::function<std::string(const QJsonObject&)>& exec);
+
 }  // namespace vgo

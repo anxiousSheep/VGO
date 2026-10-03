@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成** |
+| 状态 | **进行中**：D1 **部分落地**——工具注册表 + 多工具 HTTP 回填已上线并通过单测，但**「有界环路」仅单测未接线、harness 转换未完成**（关键词分发仍为主路径、facts 仍全量灌 prompt），并有 MCP 回潮回归（`ask` 对 Other 问题的阻塞式 `Interactive` 预取）待按 harness 口径修复（见 3.4 D1.8–D1.10）；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成** |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -138,8 +138,8 @@ struct Tool {
 | 工具名 | 绑定 | 现状 |
 |---|---|---|
 | `analyze_position` | `AiAdvisor::analyzePosition` | ✅ 已有 |
-| `evaluate_move(point)` | `MoveEvaluator::evaluate` | ✅ 已有 |
-| `evaluate_last_move` | `MoveEvaluator::evaluateLastMove` | ✅ 已有 |
+| `evaluate_move(point)` | `MoveEvaluator::evaluate`（异步） | ✅ 已有，但**不注册为同步工具**——`Tool::invoke` 是同步契约、引擎是异步，落点质量改由 `handleMoveQuality` 异步求值后注入 prompt |
+| `evaluate_last_move` | `MoveEvaluator::evaluateLastMove`（异步） | ✅ 同上（`handleMoveQuality` 处理） |
 | `life_death_solve(group)` | `LifeDeathAnalyzer`（`lifedeath.h`） | ✅ 已有 |
 | `ownership_map` | `ownership.h` | ✅ 已有 |
 | `variation_pv(n)` | `variation.h` | ✅ 已有 |
@@ -155,25 +155,35 @@ struct Tool {
 
 **HTTP 侧改造**：`HttpConversationService` 已支持 function-calling（`setToolHandler`），D1 需要把它从「单回调」升级为「按 `ToolRegistry` 提供的 schema 声明多工具 + 循环回填」，仍走 OpenAI 兼容 `tools` / `tool_calls` 协议。
 
+**harness 形态的关键约定（MCP → harness 落地口径）**
+
+- **真相来源 = 局面级快照，而非按题预计算**：工具（`analyze_position` / `ownership_map` / `dead_groups` / `life_death_solve`）读的是 `AgentToolContext` 捕获的快照。快照由 `AiAdvisor` 在**每手落子后**用 `EnginePriority::Background` 的 `prewarmAnalysis`（与形势开关解耦，可被更新的预热合并）维护到 `last_analysis_`；`ask` 只读快照、**不按题阻塞预取**。快照缺失时工具回 `需要 KataGo 归属分析`、模型退到规则计分 + 棋盘事实——这是允许的回退，不是错误。
+- **async 能力是同步契约的必然例外，不算 MCP 残留**：`evaluate_move` / `evaluate_last_move` 因 `Tool::invoke` 同步、引擎异步，不注册为工具，仍由 `handleMoveQuality` 前置异步求值注入 prompt（D1.3 已记）。
+- **关键词分发降级为兜底**：sync 能力的主路径交给工具环路，`classifyQuestion` 仅在「端点不支持工具 / LLM 不可用」时作为回退 dispatch，保住模板解说与 fallback 引擎。
+
 ### 3.4 任务计划
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | D1.1 | 定义 `Tool` / `ToolResult` / `ToolRegistry`（纯逻辑、可单测） | `agent/tool.h` `agent/tool_registry.h` + 单测 | ✅ |
-| D1.2 | 注册 `evaluate_move` 与 `life_death_solve` 两个既有能力（最小第一步） | 注册表 + 单测 | ✅ |
-| D1.3 | 注册其余既有能力（analyze / evaluate_last_move / ownership / variation_pv / count_territory） | 注册表 + 单测 | ✅ |
+| D1.2 | 注册 `evaluate_move` 与 `life_death_solve` 两个既有能力（最小第一步；`evaluate_move` 随后被 D1.3 移除） | 注册表 + 单测 | ✅ |
+| D1.3 | 注册其余既有能力（analyze / ownership / count_territory；`evaluate_*` 因引擎异步、`Tool::invoke` 同步而不注册为工具，改由 `handleMoveQuality` 异步求值注入 prompt） | 注册表 + 单测 | ✅ |
 | D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ✅ |
-| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch） | `agent/loop.h` + 单测 | ✅ |
+| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch）——**仅单测，生产未接线**：实际环路由 `doChat` 的 depth 上限兜底 | `agent/loop.h` + 单测 | 🔄 |
 | D1.6 | 环路 trace 落 `agent_trace.jsonl` | `agent/loop.h` | 🔄 |
 | D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ⬜ |
+| D1.8 | 移除 `ask` 的阻塞式 `Interactive` 预取（MCP 回潮回归）；新增 `prewarmAnalysis`（`EnginePriority::Background`、与形势开关解耦）维护工具快照 + 抽 `groundFromAnalysis` 统一 `dead_groups`/`life_death` 口径 | `advisor.*` + 单测 | ⬜ |
+| D1.9 | 关键词分发降级为兜底（sync 能力主路径交工具环路）；`buildUserPrompt` 收敛（只注入无引擎基础事实，胜率/死活/归属改由工具按需取） | `advisor` + `conversation_http` | ⬜ |
+| D1.10 | `AgentLoop` 接线进 `doChat`（补墙钟超时 + D1.6 trace）或删除死代码 | `agent/loop.*` + `conversation_http` | ⬜ |
 
-**单测要点**：工具 JSON 参数解析（含非法坐标拒答）、环路终止 / 超时 / 取消、工具结果回填。
+**单测要点**：工具 JSON 参数解析（含非法坐标拒答）、环路终止 / 超时 / 取消、工具结果回填、多工具回填（每个 `tool_call` 都有对应 `tool` 消息）、「Other 问题不再触发阻塞引擎预取」回归。
 
 ### 3.5 验收标准
 
 - 100 题 golden 集（含改写说法与多跳题）命中率显著高于现状关键词基线。
 - 环路 p95 退出耗时 < 3s。
 - 端点不支持工具时，行为与现有版本一致（不劣化）。
+- harness 完成判据：sync 能力走工具、`classifyQuestion` 仅作「端点不支持工具」时的兜底；`Other` 问题不再触发阻塞引擎预取（快照由 `prewarmAnalysis` 局面级维护）。
 
 **UX 提升**：用户第一次可以**用自己的话提问而不会被答非所问**。
 

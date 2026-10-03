@@ -207,3 +207,74 @@ TEST(advisor_prewarm_disabled_when_off) {
     a.prewarmExplanation(g);
     CHECK_EQ(conv.answers, 0);  // 未开启，不预生成
 }
+
+// D1.8 回归：其余问题（Other）不得触发引擎预取——否则就是 MCP 模式（C++ 替模型
+// 预计算）回潮。Other 应直接同步应答，工具快照来自 prewarmAnalysis 维护的 last_analysis_。
+TEST(advisor_other_question_does_not_block_on_engine) {
+    struct CountingEngine : EngineInterface {
+        int analyze_calls = 0;
+        int move_calls = 0;
+        void requestMove(const Board&, Color, const StrengthParams&, Callback cb) override {
+            ++move_calls;
+            EngineResult r;
+            r.move.is_pass = true;
+            cb(r);
+        }
+        void analyze(const Board&, Color, const StrengthParams&, AnalysisCallback cb) override {
+            ++analyze_calls;
+            cb(Analysis{});
+        }
+    };
+    struct CaptureConversation : ConversationService {
+        bool got = false;
+        void answer(const ConversationRequest&, Callback cb) override {
+            got = true;
+            cb(ConversationReply{});
+        }
+    };
+    CountingEngine eng;
+    CaptureConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    Game g(9);
+    a.ask(g, "你好", [](const ConversationReply&) {});
+    CHECK(conv.got);                  // 仍能应答
+    CHECK_EQ(eng.analyze_calls, 0);   // 不再阻塞式取分析
+    CHECK_EQ(eng.move_calls, 0);
+}
+
+// D1.8：prewarmAnalysis 用 Background 优先级预热 last_analysis_；随后 Other 问题的
+// 请求里工具快照（facts.analysis.ownership）已带归属真值，且 ask 不再二次取分析。
+TEST(advisor_prewarm_analysis_populates_tool_snapshot) {
+    struct OwnershipEngine : EngineInterface {
+        int analyze_calls = 0;
+        void requestMove(const Board&, Color, const StrengthParams&, Callback cb) override {
+            cb(EngineResult{});
+        }
+        void analyze(const Board&, Color, const StrengthParams&, AnalysisCallback cb) override {
+            ++analyze_calls;
+            Analysis a;
+            a.valid = true;
+            a.ownership.size = 9;
+            a.ownership.value.assign(81, 0.5);
+            cb(a);
+        }
+    };
+    struct CaptureConversation : ConversationService {
+        ConversationRequest captured;
+        void answer(const ConversationRequest& req, Callback cb) override {
+            captured = req;
+            cb(ConversationReply{});
+        }
+    };
+    OwnershipEngine eng;
+    CaptureConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    Game g(9);
+
+    a.prewarmAnalysis(g);
+    CHECK_EQ(eng.analyze_calls, 1);  // 预热取一次分析
+
+    a.ask(g, "你好", [](const ConversationReply&) {});
+    CHECK_EQ(eng.analyze_calls, 1);  // 提问不再取分析
+    CHECK(!conv.captured.facts.analysis.ownership.empty());  // 工具快照有归属真值
+}

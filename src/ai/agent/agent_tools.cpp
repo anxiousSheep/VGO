@@ -13,32 +13,11 @@ namespace vgo {
 
 namespace {
 
-const char* colorName(Color c) {
-    switch (c) {
-        case Color::Black: return "black";
-        case Color::White: return "white";
-        default: return "empty";
-    }
-}
-
 Json pointsToJson(const std::vector<Point>& pts, int size) {
     std::vector<Json> arr;
     arr.reserve(pts.size());
     for (const Point& p : pts) arr.push_back(Json::makeString(gtpPoint(p, size)));
     return Json::makeArray(std::move(arr));
-}
-
-Json moveEvalToJson(const MoveEvaluation& e) {
-    return Json::makeObject({
-        {"legal", Json::makeBool(e.legal)},
-        {"valid", Json::makeBool(e.valid)},
-        {"winrate_before", Json::makeNumber(e.winrate_before)},
-        {"winrate_after", Json::makeNumber(e.winrate_after)},
-        {"lead_before", Json::makeNumber(e.lead_before)},
-        {"lead_after", Json::makeNumber(e.lead_after)},
-        {"mover", Json::makeString(colorName(e.mover))},
-        {"note", Json::makeString(e.note)},
-    });
 }
 
 // Parse an optional `point`/`group` argument. Returns false when the argument
@@ -222,62 +201,6 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
             }
             ToolResult r;
             r.json = dumpJson(Json::makeObject(std::move(fields)));
-            return r;
-        };
-        r.registerTool(t);
-    }
-
-    {
-        Tool t;
-        t.name = "evaluate_move";
-        t.description = "评估在某点落子（假想手）的好坏：落子前后胜率与领先目数变化。";
-        t.json_schema =
-            "{\"type\":\"object\",\"properties\":{\"point\":{\"type\":\"string\","
-            "\"description\":\"要评估的 GTP 坐标（如 C3）\"}},\"required\":[\"point\"]}";
-        t.invoke = [c](const std::string& args) -> ToolResult {
-            ToolResult r;
-            if (!c->evaluate_move) {
-                r.ok = false;
-                r.error = "需要 KataGo 引擎才能量化评估一手棋";
-                return r;
-            }
-            Point p{-1, -1};
-            if (!parsePointArg(args, "point", c->game.size(), &p) || p.x < 0) {
-                r.ok = false;
-                r.error = "缺少合法的 point 参数";
-                return r;
-            }
-            const auto e = c->evaluate_move(p);
-            if (!e) {
-                r.ok = false;
-                r.error = "无法评估该点";
-                return r;
-            }
-            r.json = dumpJson(moveEvalToJson(*e));
-            return r;
-        };
-        r.registerTool(t);
-    }
-
-    {
-        Tool t;
-        t.name = "evaluate_last_move";
-        t.description = "评估最近一手棋的好坏（落子前后胜率与领先目数变化）。";
-        t.json_schema = "{\"type\":\"object\",\"properties\":{},\"required\":[]}";
-        t.invoke = [c](const std::string&) -> ToolResult {
-            ToolResult r;
-            if (!c->evaluate_last_move) {
-                r.ok = false;
-                r.error = "需要 KataGo 引擎才能量化评估最近一手";
-                return r;
-            }
-            const auto e = c->evaluate_last_move();
-            if (!e) {
-                r.ok = false;
-                r.error = "当前没有最近一手";
-                return r;
-            }
-            r.json = dumpJson(moveEvalToJson(*e));
             return r;
         };
         r.registerTool(t);

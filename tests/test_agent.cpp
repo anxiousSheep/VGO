@@ -1,6 +1,5 @@
 #include "test_framework.h"
 
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -115,42 +114,6 @@ TEST(life_death_solve_dead_group) {
     const Json* grp = j.get("group");
     CHECK(grp != nullptr && grp->isArray());
     CHECK_EQ(grp->array.size(), 2u);
-}
-
-TEST(evaluate_move_injected_engine) {
-    Game g(9);
-    AgentToolContext ctx;
-    ctx.game = g;
-    ctx.evaluate_move = [](const Point&) -> std::optional<MoveEvaluation> {
-        MoveEvaluation e;
-        e.legal = true;
-        e.valid = true;
-        e.winrate_before = 0.55;
-        e.winrate_after = 0.40;
-        e.lead_before = 2.0;
-        e.lead_after = -1.0;
-        e.mover = Color::Black;
-        return e;
-    };
-    ToolRegistry r = buildAgentTools(ctx);
-    const Tool* t = r.find("evaluate_move");
-    CHECK(t != nullptr);
-    const ToolResult res = t->invoke("{\"point\":\"C3\"}");
-    CHECK(res.ok);
-    Json j;
-    CHECK(parseJson(res.json, &j));
-    CHECK_EQ(j.get("winrate_before")->asNumber(), 0.55);
-}
-
-TEST(evaluate_move_no_engine_errors) {
-    Game g(9);
-    AgentToolContext ctx;
-    ctx.game = g;
-    ToolRegistry r = buildAgentTools(ctx);
-    const Tool* t = r.find("evaluate_move");
-    const ToolResult res = t->invoke("{\"point\":\"C3\"}");
-    CHECK(!res.ok);
-    CHECK(!res.error.empty());
 }
 
 TEST(illegal_coord_refused) {

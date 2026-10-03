@@ -804,6 +804,11 @@ void MainWindow::refresh() {
     // analyze 会让 genmove 被判忙而停一手）。AI 落子后 refresh 会再触发一次并成功。
     if (analyzeAction_ && analyzeAction_->isChecked()) {
         QTimer::singleShot(0, this, [this] { requestAnalysis(false); });
+    } else if (advisor_ && usingKata() && currentGame()) {
+        // D1.8：形势开关关闭时，仍用 Background 优先级预热工具快照（与形势开关解耦），
+        // 供模型调用 analyze_position / ownership_map / dead_groups / life_death_solve
+        // 时拿到真值，而非误报「KataGo 不可用」。分析池独立于落子引擎，不争抢 genmove。
+        advisor_->prewarmAnalysis(*currentGame());
     }
 }
 

@@ -176,7 +176,7 @@ QJsonObject buildBody(const QString& model, bool stream, const QString& systemPr
 // to call each and with which arguments (parsing natural language). The demo
 // tool is always declared (UI-owned); the injected ToolRegistry (D1) adds the
 // deterministic capabilities: count_territory / life_death_solve / ownership_map /
-// dead_groups / analyze_position / evaluate_move / evaluate_last_move.
+// dead_groups / analyze_position.
 QJsonArray buildTools(const ToolRegistry* reg) {
     QJsonObject fn;
     fn["name"] = "demonstrate_go_moves";
@@ -264,6 +264,26 @@ QString httpErrorDetail(QNetworkReply* reply) {
 
 }  // namespace
 
+QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
+                             const QJsonArray& toolCalls,
+                             const std::function<std::string(const QJsonObject&)>& exec) {
+    QJsonArray next = messages;
+    QJsonObject assistantMsg;
+    assistantMsg["role"] = "assistant";
+    if (!content.isEmpty()) assistantMsg["content"] = content;
+    assistantMsg["tool_calls"] = toolCalls;
+    next.append(assistantMsg);
+    for (const QJsonValue& tv : toolCalls) {
+        const QJsonObject call = tv.toObject();
+        QJsonObject toolMsg;
+        toolMsg["role"] = "tool";
+        toolMsg["tool_call_id"] = call["id"].toString();
+        toolMsg["content"] = QString::fromStdString(exec(call));
+        next.append(toolMsg);
+    }
+    return next;
+}
+
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
                                                  const QString& model, QObject* parent)
     : QObject(parent), baseUrl_(baseUrl), apiKey_(apiKey), model_(model) {
@@ -344,17 +364,20 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
                     return;
                 }
 
-                // Execute the first tool call, then feed the result back and
-                // ask the model for the final natural-language answer.
-                const QJsonObject call = toolCalls.first().toObject();
-                const QString fnName = call["function"].toObject()["name"].toString();
-                const QJsonValue av = call["function"].toObject()["arguments"];
-                QJsonObject args;
-                if (av.isString()) args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
-                else if (av.isObject()) args = av.toObject();
+                // Execute every requested tool call, then feed each result back
+                // and ask the model for the final natural-language answer. Every
+                // tool_call must be answered by a matching `tool` message (same
+                // tool_call_id), or the endpoint rejects the follow-up request.
+                auto exec = [&](const QJsonObject& call) -> std::string {
+                    const QString fnName = call["function"].toObject()["name"].toString();
+                    const QJsonValue av = call["function"].toObject()["arguments"];
+                    QJsonObject args;
+                    if (av.isString())
+                        args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
+                    else if (av.isObject())
+                        args = av.toObject();
 
-                // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
-                const std::string result = [&]() -> std::string {
+                    // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
                     if (const Tool* t = tool_registry_.find(fnName.toStdString())) {
                         const std::string argsJson =
                             QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
@@ -363,19 +386,9 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
                     }
                     if (tool_handler_) return tool_handler_(fnName, args);
                     return "未知工具";
-                }();
+                };
 
-                QJsonArray next = messages;
-                QJsonObject assistantMsg;
-                assistantMsg["role"] = "assistant";
-                if (!content.isEmpty()) assistantMsg["content"] = content;
-                assistantMsg["tool_calls"] = toolCalls;
-                next.append(assistantMsg);
-                QJsonObject toolMsg;
-                toolMsg["role"] = "tool";
-                toolMsg["tool_call_id"] = call["id"].toString();
-                toolMsg["content"] = QString::fromStdString(result);
-                next.append(toolMsg);
+                const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
                 doChat(next, depth + 1, std::move(cb));
             });
 }
