@@ -60,17 +60,9 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
         "某块棋死活用 {\"type\":\"group_life\",\"point\":\"<GTP坐标>\",\"alive\":true或false}。\n"
         "没有可核验的断言时可省略该块。\n");
 
-    // N4 + D4：按问题类型注入匹配的领域知识包，并用语义检索补足 top-k 命中（按 id
-    // 去重）。检索让「换种问法」或复合问题也能拿到相关知识，而不是只靠类别白名单。
-    std::vector<const Skill*> chosen;
-    for (const Skill* sk : skills.forQuestion(cls)) chosen.push_back(sk);
-    for (const SkillMatch& m : skills.retrieve(req.question, 3)) {
-        bool dup = false;
-        for (const Skill* sk : chosen)
-            if (sk == m.skill) { dup = true; break; }
-        if (!dup) chosen.push_back(m.skill);
-    }
-    for (const Skill* sk : chosen) {
+    // N4 + D4：按问题类型 + 语义检索选择匹配的领域知识包（类别白名单优先、按 id
+    // 去重、受预算裁剪），检索让「换种问法」或复合问题也能拿到相关知识。
+    for (const Skill* sk : skills.select(cls, req.question, 3)) {
         s += QStringLiteral("\n【%1】%2")
                  .arg(QString::fromStdString(sk->name), QString::fromStdString(sk->prompt));
     }

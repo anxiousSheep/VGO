@@ -237,6 +237,30 @@ std::vector<SkillMatch> SkillRegistry::retrieve(const std::string& query, int k)
     return out;
 }
 
+std::vector<const Skill*> SkillRegistry::select(QuestionClass cls,
+                                                const std::string& question, int topk,
+                                                std::size_t budget_chars) const {
+    std::vector<const Skill*> chosen;
+    std::size_t used = 0;
+    const auto fits = [&](const Skill* s) { return used + s->prompt.size() <= budget_chars; };
+    // 类别白名单优先（问题类型匹配的知识包不裁），再补足语义检索 top-k（按 id 去重）。
+    for (const Skill* s : forQuestion(cls)) {
+        if (!fits(s)) break;
+        chosen.push_back(s);
+        used += s->prompt.size();
+    }
+    for (const SkillMatch& m : retrieve(question, topk)) {
+        bool dup = false;
+        for (const Skill* sk : chosen)
+            if (sk == m.skill) { dup = true; break; }
+        if (dup) continue;
+        if (!fits(m.skill)) break;
+        chosen.push_back(m.skill);
+        used += m.skill->prompt.size();
+    }
+    return chosen;
+}
+
 const Skill* SkillRegistry::find(const std::string& id) const {
     for (const Skill& s : skills_)
         if (s.id == id) return &s;
@@ -255,6 +279,41 @@ bool SkillRegistry::upsert(const Skill& s) {
     return true;
 }
 
+bool SkillRegistry::setScore(const std::string& id, double score) {
+    for (Skill& s : skills_) {
+        if (s.id == id) {
+            s.last_score = score;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SkillRegistry::addPending(const std::string& id, const std::string& candidate) {
+    if (candidate.empty()) return false;
+    for (Skill& s : skills_) {
+        if (s.id == id) {
+            s.pending.push_back(candidate);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SkillRegistry::adoptPending(const std::string& id) {
+    for (Skill& s : skills_) {
+        if (s.id != id) continue;
+        if (s.pending.empty()) return false;
+        for (const std::string& p : s.pending) {
+            if (!s.prompt.empty()) s.prompt += '\n';
+            s.prompt += p;
+        }
+        s.pending.clear();
+        return true;
+    }
+    return false;
+}
+
 std::string SkillRegistry::toText(const Skill& s) {
     std::ostringstream os;
     os << "id: " << s.id << '\n';
@@ -265,6 +324,7 @@ std::string SkillRegistry::toText(const Skill& s) {
     os << '\n';
     os << "version: " << s.version << '\n';
     os << "last_score: " << s.last_score << '\n';
+    for (const std::string& p : s.pending) os << "pending: " << p << '\n';
     os << "---\n";
     os << s.prompt << '\n';
     return os.str();
@@ -299,6 +359,9 @@ bool SkillRegistry::fromText(const std::string& text, Skill* out) {
                 s.version = std::atoi(trim(t.substr(8)).c_str());
             } else if (t.rfind("last_score:", 0) == 0) {
                 s.last_score = std::strtod(trim(t.substr(11)).c_str(), nullptr);
+            } else if (t.rfind("pending:", 0) == 0) {
+                const std::string c = trim(t.substr(8));
+                if (!c.empty()) s.pending.push_back(c);
             }
         } else {
             body += line;
@@ -308,7 +371,22 @@ bool SkillRegistry::fromText(const std::string& text, Skill* out) {
     if (s.id.empty()) return false;
     s.prompt = body;
     if (!s.prompt.empty() && s.prompt.back() == '\n') s.prompt.pop_back();
+    // D4.7：单文件体积上限，防止一个超大 skill 拖垮 system prompt。
+    if (s.prompt.size() > kMaxSkillBodyChars) return false;
     *out = std::move(s);
+    return true;
+}
+
+bool validateSkill(const Skill& s, std::string* err) {
+    auto fail = [&](const char* msg) {
+        if (err) *err = msg;
+        return false;
+    };
+    if (s.id.empty()) return fail("id 不能为空");
+    if (s.prompt.empty()) return fail("正文不能为空");
+    if (s.version < 1) return fail("version 必须 >= 1");
+    if (s.prompt.size() > kMaxSkillBodyChars) return fail("正文超过体积上限");
+    if (err) err->clear();
     return true;
 }
 

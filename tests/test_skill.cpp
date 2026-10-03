@@ -116,3 +116,96 @@ TEST(skill_retrieve_life_death) {
     CHECK_EQ(hits.size(), 1u);
     CHECK_EQ(hits[0].skill->id, std::string("life-death"));
 }
+
+TEST(skill_select_dedup_and_category_first) {
+    SkillRegistry r = SkillRegistry::builtin();
+    // LifeDeath 类：forQuestion 先注入 life-death + terms，检索再补足，但不得重复。
+    const auto chosen = r.select(QuestionClass::LifeDeath, "这块棋死没死", 3);
+    bool has_life = false, has_terms = false;
+    std::size_t life_count = 0;
+    for (const Skill* s : chosen) {
+        if (s->id == "life-death") { has_life = true; ++life_count; }
+        if (s->id == "terms") has_terms = true;
+    }
+    CHECK(has_life);
+    CHECK(has_terms);
+    CHECK_EQ(life_count, 1u);  // 去重：life-death 只出现一次
+    // 类别白名单优先：life-death 应排在最前。
+    CHECK_EQ(chosen.front()->id, std::string("life-death"));
+}
+
+TEST(skill_select_budget_truncates) {
+    SkillRegistry r = SkillRegistry::builtin();
+    // 预算极小，只放得下第一个技能。
+    const Skill* first = r.forQuestion(QuestionClass::LifeDeath).front();
+    const auto chosen = r.select(QuestionClass::LifeDeath, "这块棋死没死", 3,
+                                 first->prompt.size());
+    CHECK_EQ(chosen.size(), 1u);
+    CHECK_EQ(chosen[0]->id, std::string("life-death"));
+}
+
+TEST(skill_pending_adopt) {
+    SkillRegistry r = SkillRegistry::builtin();
+    CHECK(r.addPending("ko", "补充：三劫循环属无胜负。"));
+    CHECK(r.addPending("ko", "再补充：找劫材要算清劫的价值。"));
+    CHECK(r.adoptPending("ko"));
+    const Skill* s = r.find("ko");
+    CHECK(s->pending.empty());
+    CHECK(s->prompt.find("三劫循环") != std::string::npos);
+    CHECK(s->prompt.find("劫的价值") != std::string::npos);
+    // 已无 pending，再次采纳应失败。
+    CHECK(!r.adoptPending("ko"));
+}
+
+TEST(skill_set_score) {
+    SkillRegistry r = SkillRegistry::builtin();
+    CHECK(r.setScore("counting", 0.81));
+    CHECK(r.find("counting")->last_score == 0.81);
+    CHECK(!r.setScore("nonexistent", 0.5));
+}
+
+TEST(skill_validate) {
+    Skill good;
+    good.id = "x";
+    good.prompt = "正文";
+    good.version = 1;
+    std::string err;
+    CHECK(validateSkill(good, &err));
+    CHECK(err.empty());
+
+    Skill no_id = good;
+    no_id.id = "";
+    CHECK(!validateSkill(no_id, &err));
+    CHECK(!err.empty());
+
+    Skill no_body = good;
+    no_body.prompt = "";
+    CHECK(!validateSkill(no_body, &err));
+
+    Skill bad_ver = good;
+    bad_ver.version = 0;
+    CHECK(!validateSkill(bad_ver, &err));
+}
+
+TEST(skill_from_text_rejects_oversize) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const Skill* base = r.find("terms");
+    std::string text = "id: huge\n---\n" + std::string(kMaxSkillBodyChars + 1, 'x');
+    Skill out;
+    CHECK(!SkillRegistry::fromText(text, &out));
+    (void)base;
+}
+
+TEST(skill_pending_roundtrip) {
+    Skill s;
+    s.id = "ko";
+    s.name = "打劫规则";
+    s.prompt = "打劫：一方提子后不能立即提回。";
+    s.pending = {"补充A", "补充B"};
+    const std::string text = SkillRegistry::toText(s);
+    Skill out;
+    CHECK(SkillRegistry::fromText(text, &out));
+    CHECK_EQ(out.pending.size(), 2u);
+    CHECK_EQ(out.pending[0], std::string("补充A"));
+    CHECK_EQ(out.pending[1], std::string("补充B"));
+}

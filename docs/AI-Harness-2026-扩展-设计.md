@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**（分析引擎独立于落子引擎、提问/形势/恶手量化按优先级排队不再互相 cancel，AI 落子后后台预跑讲解、追问近乎零延迟）；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；待接真实服务实测（L13） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -340,10 +340,10 @@ last_score: 0.71
 | D4.1 | skill 文件格式升级（YAML frontmatter + version + last_score） | `skill.*` + 解析单测 | ✅ |
 | D4.2 | 渐进式披露：frontmatter 常驻、body 按需加载 | `skill.*` + 注入路径 | 🔄 |
 | D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ✅ |
-| D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | 🔄 |
-| D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `tests/` + 工具脚本 | ⬜ |
-| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ⬜ |
-| D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ⬜ |
+| D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | ✅ |
+| D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `skill_eval.*` + `tests/` | ✅ |
+| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ✅（pending/采纳/评分；模型提议改写待 L13） |
+| D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ✅（校验/体积上限；版本回滚 UI 待 L15） |
 
 ### 6.4 验收标准
 

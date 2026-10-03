@@ -51,6 +51,8 @@ add_library(vgo_ai STATIC
     src/ai/llm_presets.cpp
     src/ai/skill.h
     src/ai/skill.cpp
+    src/ai/skill_eval.h
+    src/ai/skill_eval.cpp
     src/ai/variation.h
     src/ai/variation.cpp
     src/ai/record.h
@@ -108,6 +110,7 @@ add_executable(vgo_ai_tests
     tests/test_ownership.cpp
     tests/test_llm_presets.cpp
     tests/test_skill.cpp
+    tests/test_skill_eval.cpp
     tests/test_variation.cpp
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
