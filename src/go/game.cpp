@@ -94,6 +94,7 @@ bool Game::play(int x, int y) {
     next.last_move = {x, y};
     next.snapshot = snap;
     history_.push_back(std::move(next));
+    move_log_.push_back(LoggedMove{me, Move{{x, y}, false}, true, history_.back().move_number});
     return true;
 }
 
@@ -110,6 +111,8 @@ void Game::pass() {
     // Board is unchanged by a pass, so the snapshot stays the same.
     next.snapshot = st.snapshot;
     history_.push_back(std::move(next));
+    move_log_.push_back(LoggedMove{st.current, Move{{-1, -1}, true}, true,
+                                   history_.back().move_number});
 }
 
 void Game::settle() {
@@ -119,6 +122,8 @@ void Game::settle() {
 bool Game::undo() {
     if (history_.size() <= 1) return false;
     history_.pop_back();
+    // 悔棋不丢弃记录：把对应着法标记为 inactive，供 record 层持久化悔棋历史。
+    if (!move_log_.empty()) move_log_.back().active = false;
     return true;
 }
 

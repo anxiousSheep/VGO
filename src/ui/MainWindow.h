@@ -176,6 +176,7 @@ private:
     // 教学增强（M3b）
     QAction* blunderAction_ = nullptr;
     std::vector<std::pair<int, std::string>> blunders_;  // 手数 + 预警文本（M3b.3）
+    bool blunder_summary_shown_ = false;  // 终局复盘汇总只提示一次（blunders_ 保留给棋谱）
 
     // 学习者画像（D3）：跨局持久化 + 恶手采集 + 每局摘要
     std::unique_ptr<vgo::LearnerStore> learner_;

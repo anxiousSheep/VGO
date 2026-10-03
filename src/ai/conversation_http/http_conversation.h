@@ -63,7 +63,7 @@ private:
     ToolHandler tool_handler_;
     ToolRegistry tool_registry_;  // D1：多工具（position-bound，advisor 注入）
     int max_tokens_ = 1024;       // D5.5：单次回答 token 上限
-    int timeout_ms_ = 30000;      // D5.5：HTTP 传输超时（熔断）
+    int timeout_ms_ = 120000;     // D5.5：HTTP 传输超时（熔断）；远端 LLM 慢，30s 过紧
     QNetworkAccessManager nam_;
     QNetworkReply* reply_ = nullptr;
     QByteArray stream_buffer_;  // SSE partial-line accumulation

@@ -134,6 +134,8 @@ MoveEvaluator* AiAdvisor::evaluator() {
     if (!move_evaluator_) {
         move_evaluator_ =
             std::make_unique<MoveEvaluator>(analysis_engine_ ? analysis_engine_ : engine_);
+        // 与形势判断同源强度：避免恶手量化用弱引擎、与形势领先口径不一致。
+        move_evaluator_->setStrength(strengthForLevel(analysis_level_));
     }
     return move_evaluator_.get();
 }

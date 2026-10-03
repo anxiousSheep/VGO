@@ -30,6 +30,9 @@ std::string serializeRecord(const GameRecord& r) {
         }
         os << '\n';
     }
+    for (const std::string& n : r.notes) {
+        os << "# " << n << "\n";
+    }
     return os.str();
 }
 
@@ -41,7 +44,14 @@ bool parseRecord(const std::string& text, GameRecord* out) {
     GameRecord r;
     while (std::getline(is, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty()) continue;
+        if (line[0] == '#') {
+            // 备注（悔棋记录 / 本局恶手）：保留供复盘展示。
+            std::string note = line.substr(1);
+            if (!note.empty() && note[0] == ' ') note.erase(note.begin());
+            r.notes.push_back(std::move(note));
+            continue;
+        }
 
         std::istringstream ls(line);
         std::string tok;
@@ -84,8 +94,18 @@ GameRecord recordFromGame(const Game& game) {
     GameRecord r;
     r.size = game.size();
     r.komi = game.komi();
-    for (const auto& [color, mv] : game.moves()) {
-        r.moves.push_back(MoveRecord{color, mv});
+    // 用完整着法日志（含悔棋）：仍在棋盘上的进 moves，被悔掉的进 notes，保证
+    // 悔棋历史不丢失，同时最终局面由 moves 干净重放。
+    for (const Game::LoggedMove& lm : game.moveLog()) {
+        if (lm.active) {
+            r.moves.push_back(MoveRecord{lm.color, lm.move});
+        } else {
+            const std::string coord =
+                lm.move.is_pass ? std::string("虚着") : gtpPoint(lm.move.p, r.size);
+            r.notes.push_back("悔棋：第 " + std::to_string(lm.number) + " 手 " +
+                              (lm.color == Color::Black ? "黑" : "白") + " " + coord +
+                              "（已撤销）");
+        }
     }
     return r;
 }

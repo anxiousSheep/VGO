@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QTextBlockFormat>
 #include <QTextCharFormat>
 #include <QTextCursor>
@@ -21,6 +22,13 @@ const QColor kUserColor(0x09, 0x69, 0xda);  // 蓝 #0969da
 
 // 每条消息之间的空隙（px）：加大段落间距，让请求/回复更易分辨。
 constexpr int kMessageSpacing = 14;
+
+// 追加内容后把视图滚到底部。QTextEdit::ensureCursorVisible 依赖「组件自身光标」
+// 的位置，而我们在局部 QTextCursor 上插入时组件光标仍停留在文首，导致新消息
+// 反而向上跳到历史记录；直接以滚动条最大值兜底最可靠。
+void scrollToBottom(QTextEdit* log) {
+    if (QScrollBar* sb = log->verticalScrollBar()) sb->setValue(sb->maximum());
+}
 
 // Render a markdown string (as produced by the LLM) into a document fragment
 // using Qt's built-in GitHub-flavoured markdown parser, so the AI reply shows
@@ -61,7 +69,7 @@ void appendMessage(QTextEdit* log, const QString& label, const QString& text,
     }
     cursor.insertBlock();
     cursor.endEditBlock();
-    log->ensureCursorVisible();
+    scrollToBottom(log);
 }
 
 }  // namespace
@@ -146,7 +154,7 @@ void ChatPanel::appendAiStream(const QString& text) {
     QTextCursor cursor(log_->document());
     cursor.movePosition(QTextCursor::End);
     cursor.insertText(text);
-    log_->ensureCursorVisible();
+    scrollToBottom(log_);
 }
 
 void ChatPanel::endAiStream() {
@@ -159,6 +167,7 @@ void ChatPanel::endAiStream() {
     cursor.insertBlock();
     streaming_ = false;
     stream_buffer_.clear();
+    scrollToBottom(log_);
 }
 
 }  // namespace vgo

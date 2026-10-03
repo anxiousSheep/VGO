@@ -247,6 +247,29 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     return tools;
 }
 
+// 把 QNetworkReply 的错误翻译成对用户有用的中文：区分超时/取消、HTTP 状态码，并从
+// OpenAI 兼容端点常见的 JSON 错误体（{"error":{"message":…}}）里抽出 message。
+QString httpErrorDetail(QNetworkReply* reply) {
+    if (!reply || reply->error() == QNetworkReply::NoError) return {};
+    const auto err = reply->error();
+    if (err == QNetworkReply::TimeoutError) return QStringLiteral("请求超时（可稍后重试）");
+    if (err == QNetworkReply::OperationCanceledError) return QStringLiteral("请求被取消");
+    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QByteArray body = reply->readAll();
+    const QJsonDocument doc = QJsonDocument::fromJson(body);
+    QString msg;
+    if (doc.isObject()) {
+        msg = doc.object().value("error").toObject().value("message").toString();
+    }
+    if (!msg.isEmpty()) {
+        return QStringLiteral("服务返回 %1：%2").arg(status).arg(msg);
+    }
+    if (status > 0) {
+        return QStringLiteral("服务返回 HTTP %1").arg(status);
+    }
+    return reply->errorString();
+}
+
 }  // namespace
 
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
@@ -303,7 +326,8 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
             [this, messages, depth, cb = std::move(cb)]() mutable {
                 ConversationReply r;
                 if (reply_->error() != QNetworkReply::NoError) {
-                    r.text = "（语言服务暂时不可用：" + reply_->errorString().toStdString() + "）";
+                    r.text = "（语言服务暂时不可用：" + httpErrorDetail(reply_).toStdString() +
+                             "）";
                     r.unsure = true;
                     reply_->deleteLater();
                     reply_ = nullptr;
@@ -420,7 +444,7 @@ void HttpConversationService::answerStream(const ConversationRequest& req, Delta
         stream_buffer_ += '\n';  // flush a final unterminated `data:` line
         processBuffer(stream_buffer_);
         if (reply_->error() != QNetworkReply::NoError) {
-            (*sharedCb)("（语言服务暂时不可用：" + reply_->errorString().toStdString() + "）", true);
+            (*sharedCb)("（语言服务暂时不可用：" + httpErrorDetail(reply_).toStdString() + "）", true);
         } else {
             (*sharedCb)("", true);
         }

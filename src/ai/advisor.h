@@ -54,7 +54,11 @@ public:
     void setAnalysisEngine(EngineInterface* e) { analysis_engine_ = e; }
 
     // 形势判断强度档位（职业7/8/9段，见 strength.h 的 kAnalysisLevel*）。
-    void setAnalysisLevel(int l) { analysis_level_ = l; }
+    // 同步更新 MoveEvaluator，使恶手量化的口径与形势判断一致。
+    void setAnalysisLevel(int l) {
+        analysis_level_ = l;
+        if (move_evaluator_) move_evaluator_->setStrength(strengthForLevel(l));
+    }
 
     // 试下模式上下文：注入 LLM prompt，让模型知道已有进行中的演示及其走法。
     void setDemoState(bool active, const std::string& moves) {

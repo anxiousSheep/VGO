@@ -79,6 +79,42 @@ TEST(record_to_game_reveal) {
     CHECK_EQ(g3.move_number(), 2);
 }
 
+TEST(record_undo_history_as_note) {
+    Game g(9);
+    g.play(4, 4);  // 黑 E5（第 1 手）
+    g.play(2, 4);  // 白 C5（第 2 手，稍后悔棋）
+    g.undo();
+    g.play(3, 4);  // 白 D5（第 3 手，替换被悔的一手）
+
+    GameRecord r = recordFromGame(g);
+    // 最终局面只有 2 手；被悔的白 C5 进备注。
+    CHECK_EQ(r.moves.size(), 2u);
+    CHECK_EQ(r.moves[0].move.p.x, 4);
+    CHECK_EQ(r.moves[1].move.p.x, 3);
+    CHECK_EQ(r.notes.size(), 1u);
+    CHECK(r.notes[0].find("悔棋") != std::string::npos);
+    CHECK(r.notes[0].find("C5") != std::string::npos);
+}
+
+TEST(record_notes_roundtrip) {
+    GameRecord r;
+    r.size = 9;
+    r.komi = 7.5;
+    r.moves.push_back(MoveRecord{Color::Black, Move{{4, 4}, false}});
+    r.notes.push_back("本局恶手（共 1 次）：");
+    r.notes.push_back("第 3 手：这步棋明显欠妥");
+
+    const std::string s = serializeRecord(r);
+    CHECK(s.find("# 本局恶手（共 1 次）：") != std::string::npos);
+
+    GameRecord p;
+    CHECK(parseRecord(s, &p));
+    CHECK_EQ(p.notes.size(), 2u);
+    CHECK(p.notes[0] == "本局恶手（共 1 次）：");
+    CHECK(p.notes[1] == "第 3 手：这步棋明显欠妥");
+    CHECK_EQ(p.moves.size(), 1u);  // 备注不影响手数解析
+}
+
 TEST(record_parse_invalid) {
     GameRecord r;
     CHECK(!parseRecord("not a vgo file\n", &r));          // no header

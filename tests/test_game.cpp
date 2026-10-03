@@ -125,6 +125,23 @@ TEST(game_score_enclosed_territory) {
     CHECK(g.winner() == Color::Black);  // 9 - 0 - 7.5 = 1.5
 }
 
+TEST(game_move_log_tracks_undo) {
+    Game g(9);
+    g.play(4, 4);  // 黑 E5（第 1 手）
+    g.play(2, 4);  // 白 C5（第 2 手）
+    g.undo();      // 悔掉白 C5
+
+    const auto& log = g.moveLog();
+    CHECK_EQ(log.size(), 2u);
+    CHECK(log[0].active);
+    CHECK_EQ(log[0].number, 1);
+    CHECK(log[0].color == Color::Black);
+    CHECK(!log[1].active);
+    CHECK_EQ(log[1].number, 2);
+    CHECK(log[1].color == Color::White);
+    CHECK_EQ(g.move_number(), 1);  // 悔棋后局面回到 1 手，但日志仍保留 2 条
+}
+
 TEST(game_random_play_terminates) {
     unsigned seed = 12345u;
     Game g(5);

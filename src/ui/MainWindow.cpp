@@ -440,6 +440,7 @@ void MainWindow::startPlacement(int size) {
 void MainWindow::startAi(const vgo::GameSetup& setup) {
     if (demo_active_) exitDemo();
     blunders_.clear();
+    blunder_summary_shown_ = false;
     game_total_loss_ = 0.0;   // D3：重置本局学习观测
     game_blunder_count_ = 0;
     game_recorded_ = false;
@@ -604,6 +605,13 @@ void MainWindow::importReview() {
     appendAi(QStringLiteral("已导入棋谱，共 %1 手。用「上一步/下一步」回看，"
                             "或点「演示/试下」从当前局面继续。")
                  .arg(review_record_.moves.size()));
+    // 备注（悔棋记录 / 本局恶手）：随棋谱一并展示，便于复盘。
+    if (!r.notes.empty()) {
+        QString notes = QStringLiteral("复盘备注：");
+        for (const std::string& n : r.notes)
+            notes += QStringLiteral("\n") + QString::fromStdString(n);
+        appendAi(notes);
+    }
 }
 
 void MainWindow::saveRecord() {
@@ -614,6 +622,12 @@ void MainWindow::saveRecord() {
         vgo::Game* g = currentGame();
         if (!g) return;
         r = vgo::recordFromGame(*g);
+        // 人机对弈：把本局恶手附在棋谱末尾，供复盘参考。
+        if (inAiMode() && !blunders_.empty()) {
+            r.notes.push_back("本局恶手（共 " + std::to_string(blunders_.size()) + " 次）：");
+            for (const auto& b : blunders_)
+                r.notes.push_back("第 " + std::to_string(b.first) + " 手：" + b.second);
+        }
     }
     const QString path = QFileDialog::getSaveFileName(
         this, QStringLiteral("保存棋谱"), QStringLiteral("game.vgo"),
@@ -818,15 +832,16 @@ void MainWindow::onScore() {
 }
 
 void MainWindow::showScoreResult(int black, int white, double komi, double black_lead) {
-    // M3b.3：终局复盘——汇总本局检测到的明显恶手（如开启局中预警）。
-    if (!blunders_.empty()) {
+    // M3b.3：终局复盘——汇总本局检测到的明显恶手（如开启局中预警）。只汇总一次，
+    // blunders_ 保留到 saveRecord() 以便写入棋谱末尾。
+    if (!blunders_.empty() && !blunder_summary_shown_) {
+        blunder_summary_shown_ = true;
         QString summary =
             QStringLiteral("终局复盘：本局检测到 %1 次明显恶手").arg(blunders_.size());
         for (const auto& b : blunders_)
             summary += QStringLiteral("（第 %1 手）").arg(b.first);
         summary += QStringLiteral("。");
         appendAi(summary);
-        blunders_.clear();
     }
 
     // D3：终局把本局学习观测写入跨局画像（仅真实对局结束且未重复记录时）。

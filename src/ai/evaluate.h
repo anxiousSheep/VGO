@@ -53,6 +53,10 @@ public:
     // correct semantics for "这步怎么样" (a move that is already on the board).
     void evaluateLastMove(const Game& game, Callback cb);
 
+    // 与形势判断同源的强度档位：保证「恶手量化」和「形势领先」由同一权威 AI
+    // 口径算出（否则两者数字口径不一致）。
+    void setStrength(const StrengthParams& sp) { strength_ = sp; }
+
     void cancel();
 
 private:

@@ -47,6 +47,21 @@ public:
     // represented by a Move with is_pass set. Used by the record / review layer.
     std::vector<std::pair<Color, Move>> moves() const;
 
+    // A single logged move for the record layer: who played, what, whether it is
+    // still on the board (undo marks it inactive instead of dropping it), and its
+    // 1-based move number at the time it was played.
+    struct LoggedMove {
+        Color color = Color::Black;
+        Move move;
+        bool active = true;
+        int number = 0;
+    };
+
+    // Full append-only move log (including undone moves). Unlike moves(), undo
+    // does not drop entries — it flips `active` to false — so the record layer
+    // can persist the undo history.
+    const std::vector<LoggedMove>& moveLog() const { return move_log_; }
+
     // Enumerates all legal moves for the current player.
     std::vector<Point> legal_moves() const;
 
@@ -74,6 +89,7 @@ private:
     bool legal_result(int x, int y, std::string* snap_out) const;
 
     std::vector<State> history_;
+    std::vector<LoggedMove> move_log_;  // 完整着法日志（含悔棋，仅记录用）
     double komi_;
 };
 
