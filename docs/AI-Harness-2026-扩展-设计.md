@@ -310,6 +310,7 @@ struct Tool {
 
 - 已实现：`estimateKyuRank` / `humanProfileForStrength` / `snapKyuRung`（纯逻辑）+ `noviceLevelLabel`（新手档动态标注「新手（X级）」，已过新手时改趣味提示词、控制长度）+ `NewGameDialog` 自动难度开关；`LearnerStore::load` 在文件缺失/清空时重置画像，清空学习数据后新手段位回到 20 级。
 - **一致性修复**：`estimateLevel` 与 `estimateKyuRank` 改用同源对数映射（`avg_loss 1.0 → 0 kyu = 1d = 业余1段`，`20 → 20k`），修复旧线性映射下「毕业（kyu=0）被误判为职业9段（level 19）」的断崖；无历史默认新手（level 1 / 20k）。
+- **炸鱼惩罚（反炸鱼）**：`smurfGuardedLevel`——强手（估计 `业余1段` 及以上）**手动**选择新手档时，有 5% 概率匹配职业 AI（采用形势判断 AI 的段位 `analysisLevel`）；系统**自动**选档不触发，以此惩罚「开小号虐新手」的炸鱼棋手。
 - KataGo HumanSL 的 `rank_*` 档位已随 L13 真实集成实测确认（`rank_20k/1d/3d/5d/7d/9d`），阶梯中的 `15k/10k/7k/5k/3k/1k` 可在真实 KataGo 上进一步校准。
 - 与 L1/L2（难度标定）共用同一阶梯：L2 的「更细难度标定」落地后，本阶梯即为其新手带部分；对数映射为 L1 精确标定前的合理启发式。
 

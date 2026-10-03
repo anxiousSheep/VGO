@@ -602,7 +602,8 @@ void MainWindow::newGame() {
         suggested_level = learner_->model().estimateLevel();
         suggested_kyu = learner_->model().estimateKyuRank();
     }
-    NewGameDialog dlg(human, suggested_level, suggested_kyu, this);
+    NewGameDialog dlg(human, suggested_level, suggested_kyu,
+                      vgo::ModelManager::instance().analysisLevel(), this);
     if (dlg.exec() == QDialog::Accepted) applySetup(dlg.setup());
 }
 

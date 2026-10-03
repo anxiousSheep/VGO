@@ -19,7 +19,7 @@ class NewGameDialog : public QDialog {
 
 public:
     explicit NewGameDialog(bool human_vs_ai, int suggested_level, double suggested_kyu,
-                           QWidget* parent = nullptr);
+                           int analysis_level, QWidget* parent = nullptr);
 
     vgo::GameSetup setup() const { return setup_; }
 
@@ -29,6 +29,7 @@ private:
     bool human_vs_ai_;
     int suggested_level_ = 1;
     double suggested_kyu_ = 20.0;
+    int analysis_level_ = 15;  // 炸鱼惩罚时匹配的职业 AI 段位（形势判断强度档位）
     vgo::GameSetup setup_;
     QButtonGroup* sizeGroup_ = nullptr;
     QButtonGroup* colorGroup_ = nullptr;

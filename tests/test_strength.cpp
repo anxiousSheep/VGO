@@ -104,3 +104,29 @@ TEST(novice_level_label_past_novice_hints) {
     // 不同 level 轮换不同提示词。
     CHECK(noviceLevelLabel(0.0, 0) != noviceLevelLabel(0.0, 1));
 }
+
+TEST(smurf_guard_triggers_for_strong_manual_novice) {
+    // 强手（业余1段+）手动选新手 + 5% 命中 → 匹配职业 AI（analysis_level）。
+    CHECK_EQ(smurfGuardedLevel(1, 2, 15, /*manual=*/true, 0.01), 15);
+    CHECK_EQ(smurfGuardedLevel(1, 19, 17, true, 0.049), 17);
+}
+
+TEST(smurf_guard_no_trigger_when_roll_high) {
+    // 5% 未命中 → 保持新手。
+    CHECK_EQ(smurfGuardedLevel(1, 2, 15, true, 0.05), 1);
+    CHECK_EQ(smurfGuardedLevel(1, 19, 15, true, 0.9), 1);
+}
+
+TEST(smurf_guard_ignores_weak_or_auto_or_non_novice) {
+    // 弱者（估计 < 2，业余1段以下）不惩罚。
+    CHECK_EQ(smurfGuardedLevel(1, 1, 15, true, 0.01), 1);
+    // 自动选档不触发。
+    CHECK_EQ(smurfGuardedLevel(1, 2, 15, /*manual=*/false, 0.01), 1);
+    // 手动选非新手档不触发。
+    CHECK_EQ(smurfGuardedLevel(5, 2, 15, true, 0.01), 5);
+}
+
+TEST(smurf_guard_clamps_analysis_level) {
+    CHECK_EQ(smurfGuardedLevel(1, 2, 0, true, 0.01), 2);   // 下限 2
+    CHECK_EQ(smurfGuardedLevel(1, 2, 99, true, 0.01), 19); // 上限 19
+}

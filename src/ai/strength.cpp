@@ -116,6 +116,17 @@ std::string noviceLevelLabel(double kyu, int level) {
     return kHints[std::max(0, level) % 5];
 }
 
+int smurfGuardedLevel(int selected_level, int estimated_level, int analysis_level,
+                      bool manual, double roll) {
+    const bool novice_selected = (selected_level == 1);
+    const bool strong_player = (estimated_level >= 2);  // 业余1段及以上
+    if (manual && novice_selected && strong_player && roll < kSmurfGuardProbability) {
+        // 惩罚炸鱼：匹配职业 AI（采用形势判断 AI 的段位）。
+        return std::max(2, std::min(19, analysis_level));
+    }
+    return selected_level;
+}
+
 std::string rankLabel(int level) {
     level = std::max(1, std::min(19, level));
     if (level == 1) return "新手";

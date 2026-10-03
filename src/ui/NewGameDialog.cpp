@@ -16,11 +16,12 @@
 #include "ai/strength.h"
 
 NewGameDialog::NewGameDialog(bool human_vs_ai, int suggested_level, double suggested_kyu,
-                             QWidget* parent)
+                             int analysis_level, QWidget* parent)
     : QDialog(parent),
       human_vs_ai_(human_vs_ai),
       suggested_level_(std::clamp(suggested_level, 1, 19)),
-      suggested_kyu_(suggested_kyu) {
+      suggested_kyu_(suggested_kyu),
+      analysis_level_(std::clamp(analysis_level, 2, 19)) {
     setWindowTitle(QStringLiteral("新对局"));
 
     // 棋盘大小
@@ -110,7 +111,11 @@ void NewGameDialog::accept() {
         setup_.level = suggested_level_;
         setup_.kyu_hint = suggested_kyu_;
     } else {
-        setup_.level = levelCombo_ ? levelCombo_->currentIndex() + 1 : 1;
+        const int manual_level = levelCombo_ ? levelCombo_->currentIndex() + 1 : 1;
+        // 炸鱼惩罚：强手（业余1段+）手动选新手时，5% 概率匹配职业 AI；自动不触发。
+        const double roll = QRandomGenerator::global()->generateDouble();
+        setup_.level = vgo::smurfGuardedLevel(manual_level, suggested_level_,
+                                              analysis_level_, /*manual=*/true, roll);
         setup_.kyu_hint = 20.0;  // 手动 override：新手 = 固定 20k
     }
 

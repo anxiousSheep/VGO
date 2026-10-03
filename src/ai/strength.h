@@ -36,6 +36,14 @@ int snapKyuRung(double kyu);
 // 长度受限避免超出控件）。
 std::string noviceLevelLabel(double kyu, int level);
 
+// 炸鱼惩罚（D3.4 延伸）：强手（estimated_level >= 2，即业余1段及以上）手动选择
+// 新手档时，有 kSmurfGuardProbability（0.05）概率匹配职业 AI（analysis_level
+// 段位），其余情况原样返回 selected_level。系统自动选档（manual=false）不触发，
+// 以此惩罚「开小号虐新手」的炸鱼棋手。
+constexpr double kSmurfGuardProbability = 0.05;
+int smurfGuardedLevel(int selected_level, int estimated_level, int analysis_level,
+                      bool manual, double roll);
+
 // Short Chinese rank label for a level, e.g. "新手", "业余3段", "职业1段".
 std::string rankLabel(int level);
 
