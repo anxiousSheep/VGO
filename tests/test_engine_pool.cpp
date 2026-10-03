@@ -170,6 +170,29 @@ TEST(pool_reentrant_completion_keeps_queued_background) {
     CHECK_EQ(idle2_calls, 1);
 }
 
+TEST(pool_request_move_resets_busy_slot) {
+    auto e = std::make_unique<ManualEngine>();
+    ManualEngine* ep = e.get();
+    EnginePool pool(slots(std::move(e)));
+
+    // 占住唯一槽位（在途分析）。
+    pool.analyze(Board(9), Color::Black, kParams, [](const Analysis&) {});
+    CHECK_EQ(ep->pending.size(), 1u);
+
+    // 转发落子请求：槽位 busy 应被复位，后续 analyze 能立即派发而非永久排队。
+    bool move_called = false;
+    pool.requestMove(Board(9), Color::Black, kParams,
+                     [&](const EngineResult&) { move_called = true; });
+    CHECK(move_called);
+
+    int calls = 0;
+    pool.analyze(Board(9), Color::Black, kParams, [&](const Analysis&) { ++calls; });
+    CHECK_EQ(ep->pending.size(), 2u);  // busy 已复位 → 立即派发
+    CHECK_EQ(pool.pendingCount(), 0u);
+    ep->pending[1].cb(makeAnalysis(0.0));
+    CHECK_EQ(calls, 1);
+}
+
 TEST(pool_cancel_clears_queue_and_engines) {
     auto e = std::make_unique<ManualEngine>();
     ManualEngine* ep = e.get();

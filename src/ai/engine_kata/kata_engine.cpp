@@ -234,12 +234,11 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
         return;
     }
     // 落子优先：取消在途的形势分析（满血分析可能耗时很长），避免阻塞 AI 落子。
-    // 取出在途分析回调，稍后用空结果完成它，让 EnginePool 的 busy_ 复位并触发
-    // runNext（否则槽位被永久卡死，后续形势刷新永不下发——表现为「重启才恢复」）。
-    AnalysisCallback cancelled;
+    // 注意：这里直接丢弃在途分析回调而不调用它。调用方 EnginePool::requestMove 会
+    // 自行复位该槽位的 busy 标记；此处若同步完成回调，会因 pending_ 已置位而让随后
+    // 的 analyze 同步返回空，经 runNext 递归排空队列（栈溢出 / 事件循环卡死）。
     if (pending_analysis_) {
         proc_->write("stop\n");
-        cancelled = std::move(pending_analysis_);
         pending_analysis_ = nullptr;
         pending_kind_ = PendingKind::None;
         analysis_buffer_.clear();
@@ -247,9 +246,6 @@ void KataGoEngine::requestMove(const Board& board, Color to_move,
     pending_ = std::move(cb);
     pending_kind_ = PendingKind::Move;
     size_ = board.size();
-    // 先置 pending_ 再完成被取消的分析：重入的 analyze 会因 pending_ 直接返回空，
-    // 避免在 move 尚未就绪时又往同一进程下发新分析。
-    if (cancelled) cancelled(Analysis{});
 
     QByteArray cmd;
     // 必须先告知棋盘大小，否则 KataGo 默认 19×19，返回的坐标无法在 9/13 路解析。

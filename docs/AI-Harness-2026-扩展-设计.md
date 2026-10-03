@@ -408,7 +408,7 @@ last_score: 0.71
 - **模型路由**：轻模型承担意图识别 / 工具选择，强模型做最终讲解；按本地 / 远端可用性与预算自动选路。
 - **优雅降级阶梯明示化**：KataGo + 强 LLM → 本地 7B → 模板；UI 常驻「当前讲解档位」指示徽标。
 - **KataGo 分析并发池 + 优先级队列**：消除提问 vs 形势分析的互相 cancel（现状已用 `generation_` 打补丁，D5 用队列正本清源）。
-  - 修复（D5.4 收尾）：完成回调**先 `runNext()` 再 `cb()`**，避免恶手 what-if 链式重入抢槽导致 `runNext` 静默丢弃排队的 `Background` 形势刷新（形势冻结不随局面变）；`KataGoEngine::requestMove` 取消在途分析时以空结果完成回调，避免 `EnginePool` 槽位永久 busy（需重启才恢复）。
+  - 修复（D5.4 收尾）：完成回调**先 `runNext()` 再 `cb()`**，避免恶手 what-if 链式重入抢槽导致 `runNext` 静默丢弃排队的 `Background` 形势刷新（形势冻结不随局面变）；`EnginePool::requestMove` 转发前复位槽位 busy，避免 `KataGoEngine` 丢弃在途分析回调后槽位永久 busy（需重启才恢复）。
 - **预算守护**：每局 / 每日 token 上限 + 单次 `max_tokens` + 超时熔断，超限转模板并明确告知。
 - **可观测**：trace 记录 `{position hash, route, steps, latency, verification result, cost, model}`，本地面板可查。
 - **离线评测**：golden 集纳入现有 4 套 CTest，release gate = 回归通过。

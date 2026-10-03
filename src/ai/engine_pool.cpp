@@ -17,6 +17,10 @@ void EnginePool::requestMove(const Board& board, Color to_move,
         cb(std::move(r));
         return;
     }
+    // 落子请求绕过分析调度、直接转发给第一个引擎；引擎内部会取消在途分析并丢弃其
+    // 回调（写 stop）。这里同步复位该槽位的 busy 标记，避免被丢弃的回调无法复位
+    // busy 导致槽位永久卡死（形势刷新永不下发——即「重启才恢复」）。
+    if (!busy_.empty()) busy_[0] = false;
     engines_.front()->requestMove(board, to_move, params, std::move(cb));
 }
 
