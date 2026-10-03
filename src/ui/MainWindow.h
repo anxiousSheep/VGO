@@ -15,6 +15,7 @@ class QLabel;
 class QAction;
 class QDockWidget;
 class QJsonObject;
+class QStackedWidget;
 class QTabBar;
 
 namespace vgo {
@@ -99,6 +100,7 @@ private:
     void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
     void showScoreResult(int black, int white, double komi, double black_lead);
+    void updateModeView();  // 复盘空态（未导入棋谱）时切换为导入引导
 
     // 复盘
     void loadReview(const vgo::GameRecord& r);
@@ -141,6 +143,8 @@ private:
     vgo::AiAdvisor* advisor_ = nullptr;
 
     vgo::GobanWidget* board_view_ = nullptr;
+    QStackedWidget* central_stack_ = nullptr;      // 棋盘 / 复盘空态 两页
+    QWidget* review_placeholder_ = nullptr;         // 复盘空态：大按钮引导导入
     QLabel* status_ = nullptr;
     QLabel* modelStatus_ = nullptr;
     QLabel* scoreStatus_ = nullptr;

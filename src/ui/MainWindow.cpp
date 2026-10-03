@@ -15,6 +15,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabBar>
 #include <QTextStream>
@@ -71,7 +72,37 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     board_view_ = new vgo::GobanWidget(this);
     connect(board_view_, &vgo::GobanWidget::pointClicked, this, &MainWindow::onPointClicked);
-    setCentralWidget(board_view_);
+
+    // 中央区域为两页：棋盘（摆棋 / 对弈 / 已导入棋谱的复盘）与复盘空态（大按钮引导导入）。
+    central_stack_ = new QStackedWidget(this);
+    central_stack_->addWidget(board_view_);
+    review_placeholder_ = new QWidget(this);
+    {
+        auto* v = new QVBoxLayout(review_placeholder_);
+        v->addStretch(2);
+        auto* hint = new QLabel(QStringLiteral("尚未导入棋谱"), review_placeholder_);
+        QFont hintFont = hint->font();
+        hintFont.setPointSize(hintFont.pointSize() + 3);
+        hint->setFont(hintFont);
+        hint->setAlignment(Qt::AlignCenter);
+        auto* btn = new QPushButton(QStringLiteral("导入棋谱…"), review_placeholder_);
+        btn->setMinimumSize(240, 64);
+        QFont btnFont = btn->font();
+        btnFont.setPointSize(btnFont.pointSize() + 4);
+        btn->setFont(btnFont);
+        connect(btn, &QPushButton::clicked, this, &MainWindow::importReview);
+        auto* sub = new QLabel(QStringLiteral("支持 .vgo 棋谱，导入后可逐手回看 / 试下"), review_placeholder_);
+        sub->setAlignment(Qt::AlignCenter);
+        sub->setStyleSheet(QStringLiteral("color: #6e7781;"));
+        v->addWidget(hint);
+        v->addSpacing(12);
+        v->addWidget(btn, 0, Qt::AlignCenter);
+        v->addSpacing(8);
+        v->addWidget(sub);
+        v->addStretch(3);
+    }
+    central_stack_->addWidget(review_placeholder_);
+    setCentralWidget(central_stack_);
 
     // 三个同级标签页：摆棋 / 人机对弈 / 复盘（各自独立，不再经「新对局」选模式）。
     mode_bar_ = new QTabBar(this);
@@ -668,7 +699,15 @@ void MainWindow::updateActionsForMode() {
     nextAction_->setEnabled(review && review_cursor_ < n);
 }
 
+void MainWindow::updateModeView() {
+    if (!central_stack_) return;
+    // 复盘且未导入棋谱：不显示棋盘（实际棋谱尺寸未知），改为导入引导大按钮。
+    const bool emptyReview = (app_mode_ == vgo::GameMode::Review) && !review_game_;
+    central_stack_->setCurrentWidget(emptyReview ? review_placeholder_ : board_view_);
+}
+
 void MainWindow::refresh() {
+    updateModeView();  // 复盘空态 / 棋盘两页切换
     if (demo_active_) return;  // 演示态下不触碰真实对局棋盘
     vgo::Game* g = currentGame();
     if (!g) {
