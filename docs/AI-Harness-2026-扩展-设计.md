@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 最小闭环已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**（分析引擎独立于落子引擎、提问/形势/恶手量化按优先级排队不再互相 cancel，AI 落子后后台预跑讲解、追问近乎零延迟）；D4 纯逻辑层已就绪；待接真实服务实测（L13） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -384,9 +384,9 @@ last_score: 0.71
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | D5.1 | 降级档位徽标（最便宜、立竿见影，消除静默降级） | `MainWindow` / `ChatPanel` | ✅ |
-| D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `session` / `AiAdvisor` | ⬜ |
+| D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `advisor` / `MainWindow` | ✅ |
 | D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
-| D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_kata` / `AiAdvisor` | ⬜ |
+| D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_pool` / `AiAdvisor` / `MainWindow` | ✅ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |
 | D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | ✅ |
 | D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ⬜ |

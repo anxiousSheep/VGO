@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "conversation.h"
+#include "engine_pool.h"
 #include "gtp.h"
 
 namespace vgo {
@@ -102,17 +103,19 @@ void MoveEvaluator::evaluate(const Game& game, const Point& p, Callback cb) {
         cb(base);
         return;
     }
-    engine_->analyze(game.board(), mover, strength_,
-                     [this, gen, after, mover, base, cb](const Analysis& before) mutable {
-                         if (gen != generation_) return;
-                         engine_->analyze(
-                             after.board(), opponent(mover), strength_,
-                             [this, gen, before, mover, base, cb](const Analysis& aft) {
-                                 if (gen != generation_) return;
-                                 cb(computeMoveEvaluation(base, before, mover, aft,
-                                                          opponent(mover), mover));
-                             });
-                     });
+    // D5.4：恶手 what-if 属 Idle 优先级（空闲时跑，不阻塞提问 / 形势）。
+    analyzePrioritized(engine_, game.board(), mover, strength_, EnginePriority::Idle,
+                       [this, gen, after, mover, base, cb](const Analysis& before) mutable {
+                           if (gen != generation_) return;
+                           analyzePrioritized(
+                               engine_, after.board(), opponent(mover), strength_,
+                               EnginePriority::Idle,
+                               [this, gen, before, mover, base, cb](const Analysis& aft) {
+                                   if (gen != generation_) return;
+                                   cb(computeMoveEvaluation(base, before, mover, aft,
+                                                            opponent(mover), mover));
+                               });
+                       });
 }
 
 void MoveEvaluator::evaluateLastMove(const Game& game, Callback cb) {
@@ -134,17 +137,19 @@ void MoveEvaluator::evaluateLastMove(const Game& game, Callback cb) {
         cb(base);
         return;
     }
-    engine_->analyze(before.board(), mover, strength_,
-                     [this, gen, game, mover, base, cb](const Analysis& beforeA) mutable {
-                         if (gen != generation_) return;
-                         engine_->analyze(
-                             game.board(), opponent(mover), strength_,
-                             [this, gen, beforeA, mover, base, cb](const Analysis& afterA) {
-                                 if (gen != generation_) return;
-                                 cb(computeMoveEvaluation(base, beforeA, mover, afterA,
-                                                          opponent(mover), mover));
-                             });
-                     });
+    // D5.4：恶手 what-if 属 Idle 优先级（空闲时跑，不阻塞提问 / 形势）。
+    analyzePrioritized(engine_, before.board(), mover, strength_, EnginePriority::Idle,
+                       [this, gen, game, mover, base, cb](const Analysis& beforeA) mutable {
+                           if (gen != generation_) return;
+                           analyzePrioritized(
+                               engine_, game.board(), opponent(mover), strength_,
+                               EnginePriority::Idle,
+                               [this, gen, beforeA, mover, base, cb](const Analysis& afterA) {
+                                   if (gen != generation_) return;
+                                   cb(computeMoveEvaluation(base, beforeA, mover, afterA,
+                                                            opponent(mover), mover));
+                               });
+                       });
 }
 
 void MoveEvaluator::cancel() {

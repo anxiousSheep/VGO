@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "agent/agent_tools.h"
+#include "engine_pool.h"
 #include "lifedeath.h"
 #include "strength.h"
 #include "verify/claim_extractor.h"
@@ -12,6 +13,9 @@
 namespace vgo {
 
 namespace {
+
+// D5.2 投机预生成缓存上限：只保留最近几个局面的讲解，避免长对局缓存无限膨胀。
+constexpr std::size_t kMaxExplainCache = 8;
 
 // Wall-clock ms since epoch, for trace timestamps (纯逻辑层，无 Qt)。
 std::int64_t nowEpochMs() {
@@ -70,6 +74,14 @@ AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation,
 void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
     const QuestionClass cls = classifyQuestion(question);
+    // D5.2：命中投机预生成的「为什么下这里」缓存时直接返回，近乎零延迟。
+    if (cls == QuestionClass::WhyThisMove) {
+        const auto it = explain_cache_.find(positionHash(game.board()));
+        if (it != explain_cache_.end()) {
+            cb(it->second);
+            return;
+        }
+    }
     // 讲解增强（N1）：落点质量走 what-if，死活走 ownership 判死，二者异步查引擎。
     if (cls == QuestionClass::MoveQuality) {
         handleMoveQuality(game, question, cb);
@@ -93,13 +105,15 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
         // 数字准确；「我该下哪」才用落子引擎（requestMove）给一手建议。
         if (cls == QuestionClass::WhoIsWinning) {
             EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
-            eng->analyze(snapshot.board(), to_move, strengthForLevel(analysis_level_),
-                         [this, gen, question, snapshot, cb](const Analysis& a) {
-                             if (gen != generation_) return;  // stale / cancelled
-                             GroundedFacts f = currentFacts(snapshot);
-                             f.analysis = a;
-                             deliverAnswer(snapshot, question, std::move(f), cb);
-                         });
+            // D5.4：提问属 Interactive 优先级，优先于形势刷新与恶手量化。
+            analyzePrioritized(eng, snapshot.board(), to_move,
+                               strengthForLevel(analysis_level_), EnginePriority::Interactive,
+                               [this, gen, question, snapshot, cb](const Analysis& a) {
+                                   if (gen != generation_) return;  // stale / cancelled
+                                   GroundedFacts f = currentFacts(snapshot);
+                                   f.analysis = a;
+                                   deliverAnswer(snapshot, question, std::move(f), cb);
+                               });
             return;
         }
 
@@ -124,7 +138,30 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
 }
 
 void AiAdvisor::explainLastMove(const Game& game, ReplyCb cb) {
+    // D5.2：命中投机预生成缓存时直接返回（已过校验闸门，无需再校验）。
+    const auto it = explain_cache_.find(positionHash(game.board()));
+    if (it != explain_cache_.end()) {
+        cb(it->second);
+        return;
+    }
     deliverAnswer(game, "为什么下这里", currentFacts(game), cb);
+}
+
+void AiAdvisor::prewarmExplanation(const Game& game) {
+    if (!speculative_explain_ || !conversation_) return;
+    const std::string key = positionHash(game.board());
+    if (explain_cache_.count(key)) return;  // 已有缓存，跳过
+    const Game snapshot = game;
+    GroundedFacts facts = currentFacts(snapshot);
+    // 后台生成讲解并缓存；deliverAnswer 内部的 generation 校验会丢弃过期的结果，
+    // 因此新一手的投机结果不会覆盖旧局面的缓存。
+    deliverAnswer(snapshot, "为什么下这里", std::move(facts),
+                  [this, key](ConversationReply r) {
+                      if (explain_cache_.size() >= kMaxExplainCache) {
+                          explain_cache_.erase(explain_cache_.begin());
+                      }
+                      explain_cache_[key] = std::move(r);
+                  });
 }
 
 void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
@@ -138,19 +175,24 @@ void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
     const Color to_move = game.current();
     const Game snapshot = game;  // stable copy for the async callback
     // 形势判断用独立强度档位（analysis_level_，默认职业7段），与对局难度解耦，
-    // 保证判断正确；落子仍按 level_ 的难度。
-    eng->analyze(game.board(), to_move, strengthForLevel(analysis_level_),
-                 [this, gen, cb](const Analysis& a) {
-                     if (gen != generation_) return;  // stale / cancelled
-                     last_analysis_ = a;              // cache as grounding
-                     cb(a);
-                 });
+    // 保证判断正确；落子仍按 level_ 的难度。D5.4：形势刷新为 Background 优先级，
+    // 可被更新的刷新合并，不与提问争抢。
+    analyzePrioritized(eng, game.board(), to_move, strengthForLevel(analysis_level_),
+                       EnginePriority::Background,
+                       [this, gen, cb](const Analysis& a) {
+                           if (gen != generation_) return;  // stale / cancelled
+                           last_analysis_ = a;              // cache as grounding
+                           cb(a);
+                       });
 }
 
 void AiAdvisor::cancel() {
     ++generation_;
     if (conversation_) conversation_->cancel();
     if (move_evaluator_) move_evaluator_->cancel();
+    // D5.4：取消分析池（丢弃排队的形势刷新 / 恶手量化 + 取消在途分析）。守卫：
+    // 当分析引擎回退到落子引擎（无 KataGo）时不要取消落子引擎——那是 controller 的职责。
+    if (analysis_engine_ && analysis_engine_ != engine_) analysis_engine_->cancel();
 }
 
 MoveEvaluator* AiAdvisor::evaluator() {
@@ -211,17 +253,19 @@ void AiAdvisor::handleLifeDeath(const Game& game, const std::string& question, R
     const Game snapshot = game;
     const Color to_move = game.current();
     const int gen = ++generation_;
-    eng->analyze(game.board(), to_move, strengthForLevel(analysis_level_),
-                 [this, gen, snapshot, question, cb](const Analysis& a) {
-                     if (gen != generation_) return;
-                     GroundedFacts f = currentFacts(snapshot);
-                     f.analysis = a;
-                     if (!a.ownership.empty()) {
-                         f.dead_groups = deadGroups(snapshot.board(), a.ownership);
-                         f.life_death = analyzeLifeDeath(snapshot.board(), a.ownership);
-                     }
-                     deliverAnswer(snapshot, question, std::move(f), cb);
-                 });
+    // D5.4：死活提问属 Interactive 优先级，优先于形势刷新与恶手量化。
+    analyzePrioritized(eng, game.board(), to_move, strengthForLevel(analysis_level_),
+                       EnginePriority::Interactive,
+                       [this, gen, snapshot, question, cb](const Analysis& a) {
+                           if (gen != generation_) return;
+                           GroundedFacts f = currentFacts(snapshot);
+                           f.analysis = a;
+                           if (!a.ownership.empty()) {
+                               f.dead_groups = deadGroups(snapshot.board(), a.ownership);
+                               f.life_death = analyzeLifeDeath(snapshot.board(), a.ownership);
+                           }
+                           deliverAnswer(snapshot, question, std::move(f), cb);
+                       });
 }
 
 GroundedFacts AiAdvisor::currentFacts(const Game& game) const {

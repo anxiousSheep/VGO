@@ -157,3 +157,53 @@ TEST(advisor_emits_trace) {
     CHECK(!recs[0].position_hash.empty());
     CHECK(recs[0].latency_ms >= 0);
 }
+
+TEST(advisor_prewarm_explanation_cache_hit) {
+    struct CountingConversation : ConversationService {
+        int answers = 0;
+        void answer(const ConversationRequest&, Callback cb) override {
+            ++answers;
+            ConversationReply r;
+            r.text = "投机预生成的讲解";
+            cb(std::move(r));
+        }
+    };
+    ScriptedEngine eng;
+    CountingConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    a.setSpeculativeExplain(true);
+    Game g(9);
+    g.play(2, 2);
+
+    a.prewarmExplanation(g);
+    CHECK_EQ(conv.answers, 1);  // 预生成调用一次
+
+    // 命中缓存：追问与 explainLastMove 都不再调用 conversation。
+    std::string got;
+    a.ask(g, "为什么下这里", [&](const ConversationReply& r) { got = r.text; });
+    CHECK_EQ(conv.answers, 1);
+    CHECK_EQ(got, std::string("投机预生成的讲解"));
+
+    std::string got2;
+    a.explainLastMove(g, [&](const ConversationReply& r) { got2 = r.text; });
+    CHECK_EQ(conv.answers, 1);
+    CHECK_EQ(got2, std::string("投机预生成的讲解"));
+}
+
+TEST(advisor_prewarm_disabled_when_off) {
+    struct CountingConversation : ConversationService {
+        int answers = 0;
+        void answer(const ConversationRequest&, Callback cb) override {
+            ++answers;
+            cb(ConversationReply{});
+        }
+    };
+    ScriptedEngine eng;
+    CountingConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    a.setSpeculativeExplain(false);  // 默认关闭
+    Game g(9);
+    g.play(2, 2);
+    a.prewarmExplanation(g);
+    CHECK_EQ(conv.answers, 0);  // 未开启，不预生成
+}

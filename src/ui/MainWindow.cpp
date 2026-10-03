@@ -34,6 +34,7 @@
 
 #include "ai/advisor.h"
 #include "ai/degradation.h"
+#include "ai/engine_pool.h"
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
 #include "ai/session.h"
@@ -391,19 +392,24 @@ void MainWindow::createAiServices(int level) {
     }
     if (!engine_) engine_ = new vgo::FallbackEngine();
 
-    // 形势判断引擎：始终用标准模型满血（职业9段/超人类），与落子引擎解耦，保证
-    // 形势判断的正确性。职业段（落子即标准模型）时复用；业余段则另起一个。
+    // 形势判断引擎：始终用标准模型满血（职业9段/超人类），且自 D5.4 起独立于落子
+    // 引擎——包进 EnginePool（分析并发池 + 优先级队列），保证形势判断正确的同时
+    // 不与 AI 落子互相取消（正本清源，取代旧的「cancel-and-restart」补丁）。
     analysis_engine_ = nullptr;
-    if (dynamic_cast<vgo::KataGoEngine*>(engine_) && !useHuman) {
-        analysis_engine_ = engine_;  // 复用（每次请求各自 kata-set-param maxVisits）
-    } else if (stdOk) {
+    analysis_kata_ = false;
+    if (stdOk) {
+        std::vector<std::unique_ptr<vgo::EngineInterface>> pool_slots;
         auto* ak = new vgo::KataGoEngine(ks.binary, ks.model, ks.config);
         if (ak->available()) {
-            analysis_engine_ = ak;
             connect(ak, &vgo::KataGoEngine::statusMessage, this,
                     [this](const QString& msg) { status_->setText(msg); });
+            pool_slots.push_back(std::unique_ptr<vgo::EngineInterface>(ak));
         } else {
             delete ak;
+        }
+        if (!pool_slots.empty()) {
+            analysis_engine_ = new vgo::EnginePool(std::move(pool_slots));
+            analysis_kata_ = true;
         }
     }
 
@@ -434,10 +440,11 @@ void MainWindow::createAiServices(int level) {
         return learner_->model().coachMemory();
     });
 
-    const bool usingKata =
-        (dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr);
+    const bool usingKata = analysis_kata_;
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
+    // D5.2：LLM 在线时开启投机预生成——AI 落子后后台预跑「为什么下这里」，追问零延迟。
+    advisor_->setSpeculativeExplain(usingHttp);
     // D5.6：把每次问答的 trace 交给 TraceStore 落盘（route/model 由当前接线决定）。
     advisor_->setTraceMeta(usingHttp ? "http" : "template", ls.model.toStdString());
     advisor_->setTraceSink([this](const vgo::AgentTraceRecord& rec) {
@@ -511,6 +518,9 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
         } else {
             appendNote(QStringLiteral("我下在 %1。")
                          .arg(QString::fromStdString(vgo::gtpPoint(m.p, setup_.size))));
+            // D5.2：投机预生成「为什么下这里」讲解（后台、低优先级、可取消），
+            // 用户随后追问时近乎零延迟命中。
+            if (advisor_) advisor_->prewarmExplanation(controller_->game());
         }
     };
     controller_->onReply = [this](const vgo::ConversationReply& r) { handleReply(r); };
@@ -567,8 +577,10 @@ void MainWindow::teardown() {
 void MainWindow::teardownServices() {
     delete advisor_;
     advisor_ = nullptr;
+    // D5.4：分析引擎是 EnginePool，析构时释放其内部的 KataGo 进程。
     if (analysis_engine_ && analysis_engine_ != engine_) delete analysis_engine_;
     analysis_engine_ = nullptr;
+    analysis_kata_ = false;
     delete engine_;
     engine_ = nullptr;
     delete conversation_;
@@ -994,7 +1006,8 @@ void MainWindow::handleReply(const vgo::ConversationReply& r) {
 
 bool MainWindow::usingKata() const {
     // 形势显示依赖形势判断引擎（标准模型满血），而非落子引擎。
-    return dynamic_cast<vgo::KataGoEngine*>(analysis_engine_) != nullptr;
+    // D5.4：分析引擎现为 EnginePool，用创建时记录的标志判断（避免 dynamic_cast 池）。
+    return analysis_kata_;
 }
 
 bool MainWindow::usingHttp() const {

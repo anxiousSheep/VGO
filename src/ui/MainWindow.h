@@ -143,7 +143,8 @@ private:
     std::unique_ptr<vgo::Game> review_game_;
 
     vgo::EngineInterface* engine_ = nullptr;        // 落子引擎（难度随等级）
-    vgo::EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用满血引擎
+    vgo::EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用满血引擎（D5.4：并发池）
+    bool analysis_kata_ = false;                    // 形势判断是否由 KataGo 提供（D5.4）
     vgo::ConversationService* conversation_ = nullptr;
     vgo::AiAdvisor* advisor_ = nullptr;
 

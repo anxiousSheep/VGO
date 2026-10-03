@@ -63,6 +63,8 @@ add_library(vgo_ai STATIC
     src/ai/json.cpp
     src/ai/degradation.h
     src/ai/degradation.cpp
+    src/ai/engine_pool.h
+    src/ai/engine_pool.cpp
     src/ai/agent/tool.h
     src/ai/agent/tool_registry.h
     src/ai/agent/tool_registry.cpp
@@ -113,6 +115,7 @@ add_executable(vgo_ai_tests
     tests/test_agent.cpp
     tests/test_verify.cpp
     tests/test_learner.cpp
+    tests/test_engine_pool.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)

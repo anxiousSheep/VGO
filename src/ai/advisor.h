@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -30,6 +31,11 @@ public:
     // Explain the last move of `game`, grounding on the most recently noted
     // analysis (see noteAnalysis; invalid when no engine analysis exists).
     void explainLastMove(const Game& game, ReplyCb cb);
+
+    // D5.2 投机预生成：AI 落子后后台预跑「为什么下这里」的讲解并缓存（key = 局面
+    // hash），用户随后追问时近乎零延迟命中。仅在 setSpeculativeExplain(true) 时生效。
+    void setSpeculativeExplain(bool on) { speculative_explain_ = on; }
+    void prewarmExplanation(const Game& game);
 
     // Request a full positional analysis (winrate / score lead / ownership) of
     // `game`'s current position. Powers the 形势 display. Invalid when the
@@ -113,6 +119,8 @@ private:
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::string trace_route_ = "template";
     std::string trace_model_;
+    bool speculative_explain_ = false;                 // D5.2 投机预生成开关
+    std::map<std::string, ConversationReply> explain_cache_;  // D5.2 key=局面 hash
 };
 
 }  // namespace vgo
