@@ -85,7 +85,11 @@ void EnginePool::start(Request r, int slot) {
 
 void EnginePool::runNext() {
     // 服务优先级最高（数值最小）的排队请求；同优先级内按入队顺序（seq 递增）。
-    // 用 while 循环：每次派发一个后立刻尝试下一个（仍按优先级），避免遗漏。
+    // 防重入护栏：同步 analyze（KataGo 落子在途 pending_ 置位、或进程崩溃
+    // available_ 为假）会让 analyze 立即回调，从而经 start→runNext 递归排空队列，
+    // 队列稍长即栈溢出。置位期间忽略嵌套的 runNext，把递归降为迭代。
+    if (scheduling_) return;
+    scheduling_ = true;
     while (true) {
         auto best = queue_.end();
         for (auto it = queue_.begin(); it != queue_.end(); ++it) {
@@ -94,15 +98,16 @@ void EnginePool::runNext() {
                 best = it;
             }
         }
-        if (best == queue_.end()) return;
+        if (best == queue_.end()) break;
         // 无空槽时保留在队列里，不要弹出后丢弃——否则该请求的回调永不触发，
         // 调用方（如形势刷新）会永久得不到结果。
         const int slot = findFreeSlot();
-        if (slot < 0) return;
+        if (slot < 0) break;
         Request r = std::move(*best);
         queue_.erase(best);
         start(std::move(r), slot);
     }
+    scheduling_ = false;
 }
 
 void analyzePrioritized(EngineInterface* eng, const Board& board, Color to_move,

@@ -69,6 +69,10 @@ private:
     std::vector<bool> busy_;
     std::deque<Request> queue_;
     int next_seq_ = 0;
+    // 防重入护栏：同步 analyze（KataGo 落子在途 pending_ 置位、或进程崩溃
+    // available_ 为假）会让 analyze 立即回调，从而经 start→runNext 递归排空队列，
+    // 队列稍长即栈溢出。置位期间忽略嵌套的 runNext，把递归降为迭代。
+    bool scheduling_ = false;
 };
 
 // 以指定优先级发起 analyze：引擎是 EnginePool 时走优先级队列，否则退化为普通

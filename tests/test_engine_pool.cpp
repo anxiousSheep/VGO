@@ -193,6 +193,51 @@ TEST(pool_request_move_resets_busy_slot) {
     CHECK_EQ(calls, 1);
 }
 
+// 首次 analyze 异步（占住槽位、让后续请求排队），之后同步（立即回调）。
+// 用于复现「同步排空队列时递归」：若无防重入护栏，runNext 会递归与队列等长的层数。
+struct SyncAfterFirstEngine : EngineInterface {
+    int analyze_calls = 0;
+    AnalysisCallback first_cb;
+
+    void requestMove(const Board&, Color, const StrengthParams&, Callback cb) override {
+        EngineResult r;
+        r.move.is_pass = true;
+        cb(std::move(r));
+    }
+    void analyze(const Board&, Color, const StrengthParams&, AnalysisCallback cb) override {
+        if (++analyze_calls == 1) {
+            first_cb = std::move(cb);  // 第一次：异步，测试稍后手动完成
+        } else {
+            cb(makeAnalysis(0.0));      // 之后：同步完成，模拟 pending_/崩溃场景
+        }
+    }
+    void cancel() override {}
+};
+
+TEST(pool_sync_drain_no_recursion) {
+    auto e = std::make_unique<SyncAfterFirstEngine>();
+    SyncAfterFirstEngine* ep = e.get();
+    EnginePool pool(slots(std::move(e)));
+
+    int completed = 0;
+    pool.analyze(Board(9), Color::Black, kParams, [&](const Analysis&) { ++completed; });
+    const int kN = 20000;
+    // 用 Idle 优先级避免 Background 合并（默认 analyze 会把排队中的 Background 合并成一个）。
+    for (int i = 0; i < kN; ++i) {
+        pool.analyze(Board(9), Color::Black, kParams, EnginePriority::Idle,
+                     [&](const Analysis&) { ++completed; });
+    }
+    CHECK_EQ(pool.pendingCount(), static_cast<size_t>(kN));
+
+    // 完成第一个（异步）：其后 kN 个请求在 runNext 里被同步排空。无护栏时此处会
+    // 递归 kN 层导致栈溢出；有护栏则降为迭代，全部回调且不崩溃。
+    ep->first_cb(makeAnalysis(0.0));
+
+    CHECK_EQ(completed, kN + 1);
+    CHECK_EQ(pool.pendingCount(), 0u);
+    CHECK_EQ(ep->analyze_calls, kN + 1);
+}
+
 TEST(pool_cancel_clears_queue_and_engines) {
     auto e = std::make_unique<ManualEngine>();
     ManualEngine* ep = e.get();
