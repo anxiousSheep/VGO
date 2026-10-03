@@ -129,6 +129,47 @@ TEST(pool_background_coalescing) {
     CHECK_EQ(calls, 2);  // idle + 一个 bg（两个 bg 被合并）
 }
 
+TEST(pool_reentrant_completion_keeps_queued_background) {
+    auto e = std::make_unique<ManualEngine>();
+    ManualEngine* ep = e.get();
+    EnginePool pool(slots(std::move(e)));
+
+    int bg_calls = 0;
+    int idle2_calls = 0;
+
+    // 占住唯一槽位：Idle（模拟恶手 what-if 第一步），完成回调里重入 analyze（链式第二步）。
+    pool.analyze(Board(9), Color::Black, kParams, EnginePriority::Idle,
+                 [&](const Analysis&) {
+                     pool.analyze(Board(9), Color::Black, kParams, EnginePriority::Idle,
+                                  [&](const Analysis&) { ++idle2_calls; });
+                 });
+    // 排队：形势刷新（Background，高优先级，绝不能因重入而被静默丢弃）。
+    pool.analyze(Board(9), Color::Black, kParams, EnginePriority::Background,
+                 [&](const Analysis&) { ++bg_calls; });
+
+    CHECK_EQ(ep->pending.size(), 1u);  // Idle 派发，Background 排队
+    CHECK_EQ(pool.pendingCount(), 1u);
+
+    // 拷贝出来再调用：重入的 analyze 会 push_back 使 vector 扩容，若直接
+    // ep->pending[0].cb(...) 会让正在执行的 std::function 的 this 悬空。
+    auto finish_idle1 = ep->pending[0].cb;
+    finish_idle1(makeAnalysis(0.0));
+
+    // 修复后：Background 优先于链式第二步 Idle 被派发，第二步 Idle 正确入队。
+    CHECK_EQ(ep->pending.size(), 2u);
+    CHECK_EQ(pool.pendingCount(), 1u);
+    CHECK_EQ(bg_calls, 0);
+
+    auto finish_bg = ep->pending[1].cb;
+    finish_bg(makeAnalysis(0.0));
+    CHECK_EQ(bg_calls, 1);
+
+    CHECK_EQ(ep->pending.size(), 3u);  // 第二步 Idle 随后被派发
+    auto finish_idle2 = ep->pending[2].cb;
+    finish_idle2(makeAnalysis(0.0));
+    CHECK_EQ(idle2_calls, 1);
+}
+
 TEST(pool_cancel_clears_queue_and_engines) {
     auto e = std::make_unique<ManualEngine>();
     ManualEngine* ep = e.get();

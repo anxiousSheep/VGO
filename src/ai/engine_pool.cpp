@@ -69,25 +69,36 @@ void EnginePool::start(Request r, int slot) {
     eng->analyze(r.board, r.to_move, r.params,
                  [this, slot, cb = std::move(r.cb)](const Analysis& a) mutable {
                      busy_[slot] = false;
-                     if (cb) cb(a);
+                     // 先调度队列中的高优先级请求，再回调。回调可能重入 analyze
+                     // （恶手 what-if 的链式第二步）：若先回调，重入请求会抢走刚释放的
+                     // 槽位，随后 runNext 弹出的排队请求就找不到空槽而被静默丢弃，
+                     // 形势刷新（Background）因此停摆。先 runNext 保证排队请求优先
+                     // 派发，重入请求则会正确入队。
                      runNext();
+                     if (cb) cb(a);
                  });
 }
 
 void EnginePool::runNext() {
     // 服务优先级最高（数值最小）的排队请求；同优先级内按入队顺序（seq 递增）。
-    auto best = queue_.end();
-    for (auto it = queue_.begin(); it != queue_.end(); ++it) {
-        if (best == queue_.end() || it->prio < best->prio ||
-            (it->prio == best->prio && it->seq < best->seq)) {
-            best = it;
+    // 用 while 循环：每次派发一个后立刻尝试下一个（仍按优先级），避免遗漏。
+    while (true) {
+        auto best = queue_.end();
+        for (auto it = queue_.begin(); it != queue_.end(); ++it) {
+            if (best == queue_.end() || it->prio < best->prio ||
+                (it->prio == best->prio && it->seq < best->seq)) {
+                best = it;
+            }
         }
+        if (best == queue_.end()) return;
+        // 无空槽时保留在队列里，不要弹出后丢弃——否则该请求的回调永不触发，
+        // 调用方（如形势刷新）会永久得不到结果。
+        const int slot = findFreeSlot();
+        if (slot < 0) return;
+        Request r = std::move(*best);
+        queue_.erase(best);
+        start(std::move(r), slot);
     }
-    if (best == queue_.end()) return;
-    Request r = std::move(*best);
-    queue_.erase(best);
-    const int slot = findFreeSlot();
-    if (slot >= 0) start(std::move(r), slot);
 }
 
 void analyzePrioritized(EngineInterface* eng, const Board& board, Color to_move,
