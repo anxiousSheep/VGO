@@ -57,6 +57,8 @@ add_library(vgo_ai STATIC
     src/ai/variation.cpp
     src/ai/record.h
     src/ai/record.cpp
+    src/ai/sgf.h
+    src/ai/sgf.cpp
     src/ai/evaluate.h
     src/ai/evaluate.cpp
     src/ai/lifedeath.h
@@ -115,6 +117,7 @@ add_executable(vgo_ai_tests
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
     tests/test_record.cpp
+    tests/test_sgf.cpp
     tests/test_agent.cpp
     tests/test_verify.cpp
     tests/test_learner.cpp

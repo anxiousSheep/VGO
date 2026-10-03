@@ -38,6 +38,7 @@
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
 #include "ai/session.h"
+#include "ai/sgf.h"
 #include "ai/template_conversation.h"
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
@@ -96,7 +97,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         btnFont.setPointSize(btnFont.pointSize() + 4);
         btn->setFont(btnFont);
         connect(btn, &QPushButton::clicked, this, &MainWindow::importReview);
-        auto* sub = new QLabel(QStringLiteral("支持 .vgo 棋谱，导入后可逐手回看 / 试下"), review_placeholder_);
+        auto* sub = new QLabel(QStringLiteral("支持 .vgo / .sgf 棋谱，导入后可逐手回看 / 试下"), review_placeholder_);
         sub->setAlignment(Qt::AlignCenter);
         sub->setStyleSheet(QStringLiteral("color: #6e7781;"));
         v->addWidget(hint);
@@ -662,7 +663,7 @@ void MainWindow::stepReview(int delta) {
 void MainWindow::importReview() {
     const QString path = QFileDialog::getOpenFileName(
         this, QStringLiteral("导入棋谱"), QString(),
-        QStringLiteral("VGO 棋谱 (*.vgo);;所有文件 (*)"));
+        QStringLiteral("棋谱 (*.vgo *.sgf);;VGO 棋谱 (*.vgo);;SGF 棋谱 (*.sgf);;所有文件 (*)"));
     if (path.isEmpty()) return;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -670,8 +671,13 @@ void MainWindow::importReview() {
                              QStringLiteral("无法打开文件：%1").arg(path));
         return;
     }
+    const QString content = QString::fromUtf8(f.readAll());
     vgo::GameRecord r;
-    if (!vgo::parseRecord(QString::fromUtf8(f.readAll()).toStdString(), &r)) {
+    // 嗅探格式：SGF 以 '(' 开头，否则按 .vgo 解析（不依赖扩展名，容错错误命名）。
+    const bool ok = content.trimmed().startsWith(QLatin1Char('('))
+                        ? vgo::parseSgf(content.toStdString(), &r)
+                        : vgo::parseRecord(content.toStdString(), &r);
+    if (!ok) {
         QMessageBox::warning(this, QStringLiteral("导入棋谱"),
                              QStringLiteral("棋谱格式不正确，无法导入。"));
         return;
@@ -713,17 +719,25 @@ void MainWindow::saveRecord() {
         // 人机对弈：把本局恶手（含落点）随谱保存，供复盘命中检测与展示。
         if (inAiMode()) r.blunders = blunders_;
     }
-    const QString path = QFileDialog::getSaveFileName(
-        this, QStringLiteral("保存棋谱"), QStringLiteral("game.vgo"),
-        QStringLiteral("VGO 棋谱 (*.vgo)"));
+    QString selectedFilter;
+    QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("保存棋谱"), QStringLiteral("game"),
+        QStringLiteral("VGO 棋谱 (*.vgo);;SGF 棋谱 (*.sgf)"), &selectedFilter);
     if (path.isEmpty()) return;
+    const bool asSgf = selectedFilter.contains(QStringLiteral("sgf"));
+    // 缺后缀时按所选格式补齐。
+    const QString lower = path.toLower();
+    const bool hasExt = lower.endsWith(QStringLiteral(".vgo")) ||
+                        lower.endsWith(QStringLiteral(".sgf"));
+    if (!hasExt) path += asSgf ? QStringLiteral(".sgf") : QStringLiteral(".vgo");
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         QMessageBox::warning(this, QStringLiteral("保存棋谱"),
                              QStringLiteral("无法写入文件：%1").arg(path));
         return;
     }
-    f.write(QByteArray::fromStdString(vgo::serializeRecord(r)));
+    const std::string data = asSgf ? vgo::serializeSgf(r) : vgo::serializeRecord(r);
+    f.write(QByteArray::fromStdString(data));
     f.close();
     status_->setText(QStringLiteral("已保存棋谱：%1").arg(QFileInfo(path).fileName()));
 }
