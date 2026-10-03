@@ -445,10 +445,10 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
     const bool usingKata = analysis_kata_;
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
-    // D5.2 投机预生成（每手 AI 落子后后台预跑「为什么下这里」）会对局中持续发 HTTP 请求，
-    // 在部分 Windows 网络环境下触发 Qt6Network 的 QNetworkInterface::interfaceNameFromIndex
-    // 空指针崩溃（0xC0000005）。关闭投机预生成：仅用户主动提问时才发请求，不影响对局/形势。
-    advisor_->setSpeculativeExplain(false);
+    // D5.2 投机预生成（每手 AI 落子后后台预跑「为什么下这里」）：仅在真正走 HTTP 时开启。
+    // L16 修复：坏网络环境（VPN / 虚拟网卡触发 Qt 网卡枚举崩溃）已在 HttpConversationService
+    // 构造时的主线程 SEH 自检中降级为模板解说（此时 usingHttp=false），故不会在崩溃环境发请求。
+    advisor_->setSpeculativeExplain(usingHttp);
     // D5.6：把每次问答的 trace 交给 TraceStore 落盘（route/model 由当前接线决定）。
     advisor_->setTraceMeta(usingHttp ? "http" : "template", ls.model.toStdString());
     advisor_->setTraceSink([this](const vgo::AgentTraceRecord& rec) {

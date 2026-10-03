@@ -5,11 +5,14 @@
 
 #include <chrono>
 
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkRequest>
 #include <QUrl>
+
+#include "network_probe.h"
 
 #include "ai/explain.h"
 #include "ai/gtp.h"
@@ -306,7 +309,15 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
                                                  const QString& model, QObject* parent)
     : QObject(parent), baseUrl_(baseUrl), apiKey_(apiKey), model_(model) {
-    available_ = !baseUrl_.isEmpty() && !model_.isEmpty();
+    // L16：先做主线程网卡自检——坏网络环境（VPN / 虚拟网卡触发 Qt 网卡枚举崩溃）会令
+    // networkInterfaceSafe() 返回 false，这里直接置 available_=false，调用方随即降级到
+    // TemplateConversation，避免对局中闪退（0xC0000005）。
+    const bool netSafe = networkInterfaceSafe();
+    available_ = !baseUrl_.isEmpty() && !model_.isEmpty() && netSafe;
+    if (!available_ && !baseUrl_.isEmpty() && !model_.isEmpty()) {
+        qWarning("vgo: LLM 已配置，但本机网络环境可能触发 Qt 网卡枚举崩溃（L16），"
+                 "已降级到本地模板解说。");
+    }
 }
 
 HttpConversationService::~HttpConversationService() = default;

@@ -418,7 +418,7 @@ last_score: 0.71
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | D5.1 | 降级档位徽标（最便宜、立竿见影，消除静默降级） | `MainWindow` / `ChatPanel` | ✅ |
-| D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `advisor` / `MainWindow` | ⚠️ 已临时关闭（Qt6Network 崩溃，见长期任务清单 L16） |
+| D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `advisor` / `MainWindow` | ✅（经 L16 网卡自检 gating 恢复，坏环境自动降级模板） |
 | D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_pool` / `AiAdvisor` / `MainWindow` | ✅ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |

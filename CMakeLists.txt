@@ -139,6 +139,8 @@ add_library(vgo_ai_qt STATIC
     src/ai/engine_kata/kata_engine.cpp
     src/ai/conversation_http/http_conversation.h
     src/ai/conversation_http/http_conversation.cpp
+    src/ai/conversation_http/network_probe.h
+    src/ai/conversation_http/network_probe.cpp
 )
 target_include_directories(vgo_ai_qt PUBLIC src)
 target_link_libraries(vgo_ai_qt PUBLIC vgo_ai Qt6::Network)
@@ -188,6 +190,7 @@ add_executable(vgo_ai_qt_tests
     tests/test_main_qt.cpp
     tests/test_kata_analyze.cpp
     tests/test_http_tools.cpp
+    tests/test_network_probe.cpp
 )
 target_link_libraries(vgo_ai_qt_tests PRIVATE vgo_ai_qt)
 add_test(NAME vgo_ai_qt_tests COMMAND vgo_ai_qt_tests)
