@@ -104,11 +104,14 @@ void MoveEvaluator::evaluate(const Game& game, const Point& p, Callback cb) {
         return;
     }
     // D5.4：恶手 what-if 属 Idle 优先级（空闲时跑，不阻塞提问 / 形势）。
+    // 只捕获「假想手后的棋盘」而非整局 Game：收官时 Game 含近 300KB 手数历史，
+    // 按值捕获会随每手落子进入分析队列并堆积，导致内存膨胀（闪退）。
+    const Board after_board = after.board();
     analyzePrioritized(engine_, game.board(), mover, strength_, EnginePriority::Idle,
-                       [this, gen, after, mover, base, cb](const Analysis& before) mutable {
+                       [this, gen, after_board, mover, base, cb](const Analysis& before) mutable {
                            if (gen != generation_) return;
                            analyzePrioritized(
-                               engine_, after.board(), opponent(mover), strength_,
+                               engine_, after_board, opponent(mover), strength_,
                                EnginePriority::Idle,
                                [this, gen, before, mover, base, cb](const Analysis& aft) {
                                    if (gen != generation_) return;
@@ -138,11 +141,13 @@ void MoveEvaluator::evaluateLastMove(const Game& game, Callback cb) {
         return;
     }
     // D5.4：恶手 what-if 属 Idle 优先级（空闲时跑，不阻塞提问 / 形势）。
+    // 只捕获「落子后的棋盘」而非整局 Game，避免整局历史随每手进入队列堆积。
+    const Board after_board = game.board();
     analyzePrioritized(engine_, before.board(), mover, strength_, EnginePriority::Idle,
-                       [this, gen, game, mover, base, cb](const Analysis& beforeA) mutable {
+                       [this, gen, after_board, mover, base, cb](const Analysis& beforeA) mutable {
                            if (gen != generation_) return;
                            analyzePrioritized(
-                               engine_, game.board(), opponent(mover), strength_,
+                               engine_, after_board, opponent(mover), strength_,
                                EnginePriority::Idle,
                                [this, gen, beforeA, mover, base, cb](const Analysis& afterA) {
                                    if (gen != generation_) return;

@@ -176,10 +176,10 @@ void AiAdvisor::analyzePosition(const Game& game, AnalysisCb cb) {
     }
     const int gen = ++generation_;
     const Color to_move = game.current();
-    const Game snapshot = game;  // stable copy for the async callback
     // 形势判断用独立强度档位（analysis_level_，默认职业7段），与对局难度解耦，
     // 保证判断正确；落子仍按 level_ 的难度。D5.4：形势刷新为 Background 优先级，
-    // 可被更新的刷新合并，不与提问争抢。
+    // 可被更新的刷新合并，不与提问争抢。只传棋盘、不复制整局 Game——收官时 Game
+    // 含近 300KB 手数历史，逐手复制会放大内存压力。
     analyzePrioritized(eng, game.board(), to_move, strengthForLevel(analysis_level_),
                        EnginePriority::Background,
                        [this, gen, cb](const Analysis& a) {
