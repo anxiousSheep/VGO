@@ -387,7 +387,7 @@ last_score: 0.71
 | D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `session` / `AiAdvisor` | ⬜ |
 | D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_kata` / `AiAdvisor` | ⬜ |
-| D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ⬜ |
+| D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |
 | D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | 🔄 |
 | D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ⬜ |
 
