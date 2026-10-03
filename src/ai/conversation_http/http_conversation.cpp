@@ -46,8 +46,25 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
             s += QStringLiteral("用户水平较高，直接、简洁地给出要点即可。\n");
         }
     }
-    // N4：按问题类型注入匹配的领域知识包。
-    for (const Skill* sk : skills.forQuestion(cls)) {
+    // D2：要求模型在回答末尾附上可机读的断言块，供校验闸门对照引擎真值。
+    s += QStringLiteral(
+        "回答末尾请附上一段 <claims>…</claims> JSON 数组，列出你断言的所有可核验事实：\n"
+        "领先目数用 {\"type\":\"score_lead\",\"value\":<目数>,\"color\":\"black\"或\"white\"}；\n"
+        "胜率用 {\"type\":\"winrate\",\"value\":<0到1的小数>,\"color\":\"black\"或\"white\"}；\n"
+        "某块棋死活用 {\"type\":\"group_life\",\"point\":\"<GTP坐标>\",\"alive\":true或false}。\n"
+        "没有可核验的断言时可省略该块。\n");
+
+    // N4 + D4：按问题类型注入匹配的领域知识包，并用语义检索补足 top-k 命中（按 id
+    // 去重）。检索让「换种问法」或复合问题也能拿到相关知识，而不是只靠类别白名单。
+    std::vector<const Skill*> chosen;
+    for (const Skill* sk : skills.forQuestion(cls)) chosen.push_back(sk);
+    for (const SkillMatch& m : skills.retrieve(req.question, 3)) {
+        bool dup = false;
+        for (const Skill* sk : chosen)
+            if (sk == m.skill) { dup = true; break; }
+        if (!dup) chosen.push_back(m.skill);
+    }
+    for (const Skill* sk : chosen) {
         s += QStringLiteral("\n【%1】%2")
                  .arg(QString::fromStdString(sk->name), QString::fromStdString(sk->prompt));
     }

@@ -67,3 +67,34 @@ TEST(learner_sm2_reset_on_fail) {
     CHECK(m.dueItems(1).empty());
     CHECK_EQ(m.dueItems(2).size(), 1u);
 }
+
+TEST(learner_serialize_roundtrip) {
+    LearnerModel m;
+    m.recordBlunder({WeakArea::Ko, 2.0});
+    m.recordBlunder({WeakArea::LifeDeath, 0.5});
+    GameSummary g;
+    g.avg_loss_per_move = 3.0;
+    g.won = true;
+    g.level = 8;
+    m.recordGame(g);
+    ReviewItem it;
+    it.id = "ko-1";
+    it.area = WeakArea::Ko;
+    m.addReviewItem(it);
+    m.review("ko-1", 4, 0);
+
+    const std::string json = m.serialize();
+    LearnerModel out;
+    CHECK(out.deserialize(json));
+    CHECK_EQ(out.gameCount(), m.gameCount());
+    CHECK_EQ(out.reviewCount(), m.reviewCount());
+    CHECK_EQ(out.weakScore(WeakArea::Ko), m.weakScore(WeakArea::Ko));
+    CHECK_EQ(out.estimateLevel(), m.estimateLevel());
+    CHECK_EQ(out.dueItems(1).size(), m.dueItems(1).size());
+}
+
+TEST(learner_deserialize_rejects_garbage) {
+    LearnerModel m;
+    CHECK(!m.deserialize("not json"));
+    CHECK(!m.deserialize("[1,2]"));
+}

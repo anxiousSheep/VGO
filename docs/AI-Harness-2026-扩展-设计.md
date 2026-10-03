@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **规划中**：D1–D5 均未开始；建议首批 = D1 工具环路 + D2 校验闸门 + D5 降级明示 / telemetry |
+| 状态 | **进行中**：D1（工具注册表 + 有界环路 + 多工具 HTTP）与 D2（校验闸门）已落地并通过单测；D5.1 降级明示已上线；D3/D4 纯逻辑层已就绪；待接真实服务实测（L13） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -159,12 +159,12 @@ struct Tool {
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
-| D1.1 | 定义 `Tool` / `ToolResult` / `ToolRegistry`（纯逻辑、可单测） | `agent/tool.h` `agent/tool_registry.h` + 单测 | ⬜ |
-| D1.2 | 注册 `evaluate_move` 与 `life_death_solve` 两个既有能力（最小第一步） | 注册表 + 单测 | ⬜ |
-| D1.3 | 注册其余既有能力（analyze / evaluate_last_move / ownership / variation_pv / count_territory） | 注册表 + 单测 | ⬜ |
-| D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ⬜ |
-| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch） | `agent/loop.h` + 单测 | ⬜ |
-| D1.6 | 环路 trace 落 `agent_trace.jsonl` | `agent/loop.h` | ⬜ |
+| D1.1 | 定义 `Tool` / `ToolResult` / `ToolRegistry`（纯逻辑、可单测） | `agent/tool.h` `agent/tool_registry.h` + 单测 | ✅ |
+| D1.2 | 注册 `evaluate_move` 与 `life_death_solve` 两个既有能力（最小第一步） | 注册表 + 单测 | ✅ |
+| D1.3 | 注册其余既有能力（analyze / evaluate_last_move / ownership / variation_pv / count_territory） | 注册表 + 单测 | ✅ |
+| D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ✅ |
+| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch） | `agent/loop.h` + 单测 | ✅ |
+| D1.6 | 环路 trace 落 `agent_trace.jsonl` | `agent/loop.h` | 🔄 |
 | D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ⬜ |
 
 **单测要点**：工具 JSON 参数解析（含非法坐标拒答）、环路终止 / 超时 / 取消、工具结果回填。
@@ -230,9 +230,9 @@ struct Tool {
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
-| D2.1 | `Claim` / `ClaimExtractor` / `ClaimVerifier`（纯逻辑 + 单测） | `verify/` | ⬜ |
-| D2.2 | 输出结构化：`<claims>` JSON（或 strict schema 分支）进 prompt | `conversation_http` + 模板 | ⬜ |
-| D2.3 | 三档处置接线：改写标注 / 灰显 + unsure / 正常渲染 | `AiAdvisor` + `ConversationReply` | ⬜ |
+| D2.1 | `Claim` / `ClaimExtractor` / `ClaimVerifier`（纯逻辑 + 单测） | `verify/` | ✅ |
+| D2.2 | 输出结构化：`<claims>` JSON（或 strict schema 分支）进 prompt | `conversation_http` + 模板 | ✅ |
+| D2.3 | 三档处置接线：改写标注 / 灰显 + unsure / 正常渲染 | `AiAdvisor` + `ConversationReply` | ✅ |
 | D2.4 | 证据挂载：`source` 字段 + hover 溯源 + 跳 PV | `ChatPanel` / `GobanWidget` | ⬜ |
 | D2.5 | 拦截失败进 telemetry（坏样本集） | 与 D5 观测共用 | ⬜ |
 
@@ -277,9 +277,9 @@ struct Tool {
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
-| D3.1 | `LearnerModel` 纯逻辑：弱项向量 / 棋力估计 / 滚动窗口 | `learner/learner_model.*` + 单测 | ⬜ |
+| D3.1 | `LearnerModel` 纯逻辑：弱项向量 / 棋力估计 / 滚动窗口 | `learner/learner_model.*` + 单测 | ✅ |
 | D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ⬜ |
-| D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | ⬜ |
+| D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | 🔄 |
 | D3.4 | 动态难度：观测棋力自动标定 level（保留手动 override） | `NewGameDialog` + `LearnerModel` | ⬜ |
 | D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ⬜ |
 | D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ⬜ |
@@ -337,10 +337,10 @@ last_score: 0.71
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
-| D4.1 | skill 文件格式升级（YAML frontmatter + version + last_score） | `skill.*` + 解析单测 | ⬜ |
-| D4.2 | 渐进式披露：frontmatter 常驻、body 按需加载 | `skill.*` + 注入路径 | ⬜ |
-| D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ⬜ |
-| D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | ⬜ |
+| D4.1 | skill 文件格式升级（YAML frontmatter + version + last_score） | `skill.*` + 解析单测 | ✅ |
+| D4.2 | 渐进式披露：frontmatter 常驻、body 按需加载 | `skill.*` + 注入路径 | 🔄 |
+| D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ✅ |
+| D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | 🔄 |
 | D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `tests/` + 工具脚本 | ⬜ |
 | D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ⬜ |
 | D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ⬜ |
@@ -383,12 +383,12 @@ last_score: 0.71
 
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
-| D5.1 | 降级档位徽标（最便宜、立竿见影，消除静默降级） | `MainWindow` / `ChatPanel` | ⬜ |
+| D5.1 | 降级档位徽标（最便宜、立竿见影，消除静默降级） | `MainWindow` / `ChatPanel` | ✅ |
 | D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `session` / `AiAdvisor` | ⬜ |
 | D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_kata` / `AiAdvisor` | ⬜ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ⬜ |
-| D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | ⬜ |
+| D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | 🔄 |
 | D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ⬜ |
 
 ### 7.4 验收标准

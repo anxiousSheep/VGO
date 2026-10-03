@@ -77,6 +77,12 @@ public:
     double weakScore(WeakArea a) const;
     void clear();
 
+    // Serialize the full profile to a JSON string (persistence-ready, D3.3);
+    // deserialize loads it back (returns false on malformed input). The Qt layer
+    // (src/ui/model/LearnerStore) owns the actual file I/O and privacy controls.
+    std::string serialize() const;
+    bool deserialize(const std::string& json);
+
 private:
     double weak_[kWeakAreaCount] = {0.0};
     std::vector<GameSummary> games_;     // rolling window (max 20)

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../json.h"
+
 namespace vgo {
 
 namespace {
@@ -109,6 +111,83 @@ void LearnerModel::clear() {
     for (double& w : weak_) w = 0.0;
     games_.clear();
     reviews_.clear();
+}
+
+std::string LearnerModel::serialize() const {
+    std::vector<Json> weak;
+    for (double w : weak_) weak.push_back(Json::makeNumber(w));
+
+    std::vector<Json> games;
+    for (const GameSummary& g : games_) {
+        games.push_back(Json::makeObject({
+            {"avg_loss", Json::makeNumber(g.avg_loss_per_move)},
+            {"winrate_dev", Json::makeNumber(g.winrate_deviation)},
+            {"moves", Json::makeNumber(g.moves)},
+            {"won", Json::makeBool(g.won)},
+            {"level", Json::makeNumber(g.level)},
+        }));
+    }
+
+    std::vector<Json> reviews;
+    for (const ReviewItem& r : reviews_) {
+        reviews.push_back(Json::makeObject({
+            {"id", Json::makeString(r.id)},
+            {"area", Json::makeNumber(static_cast<int>(r.area))},
+            {"repetitions", Json::makeNumber(r.repetitions)},
+            {"interval", Json::makeNumber(r.interval_days)},
+            {"ease", Json::makeNumber(r.ease)},
+            {"due_day", Json::makeNumber(r.due_day)},
+        }));
+    }
+
+    return dumpJson(Json::makeObject({
+        {"weak", Json::makeArray(std::move(weak))},
+        {"games", Json::makeArray(std::move(games))},
+        {"reviews", Json::makeArray(std::move(reviews))},
+    }));
+}
+
+bool LearnerModel::deserialize(const std::string& json) {
+    Json root;
+    if (!parseJson(json, &root) || !root.isObject()) return false;
+
+    if (const Json* weak = root.get("weak"); weak && weak->isArray()) {
+        const int n = std::min<int>(kWeakAreaCount,
+                                    static_cast<int>(weak->array.size()));
+        for (int i = 0; i < n; ++i) weak_[i] = weak->array[static_cast<std::size_t>(i)].asNumber();
+    }
+
+    games_.clear();
+    if (const Json* games = root.get("games"); games && games->isArray()) {
+        for (const Json& g : games->array) {
+            GameSummary s;
+            s.avg_loss_per_move = g.get("avg_loss") ? g.get("avg_loss")->asNumber() : 0.0;
+            s.winrate_deviation = g.get("winrate_dev") ? g.get("winrate_dev")->asNumber() : 0.0;
+            s.moves = g.get("moves") ? static_cast<int>(g.get("moves")->asNumber()) : 0;
+            s.won = g.get("won") ? g.get("won")->asBool(false) : false;
+            s.level = g.get("level") ? static_cast<int>(g.get("level")->asNumber()) : 5;
+            games_.push_back(s);
+        }
+        if (games_.size() > kMaxGames) games_.erase(games_.begin(), games_.end() - kMaxGames);
+    }
+
+    reviews_.clear();
+    if (const Json* reviews = root.get("reviews"); reviews && reviews->isArray()) {
+        for (const Json& r : reviews->array) {
+            ReviewItem it;
+            it.id = r.get("id") ? r.get("id")->asString() : "";
+            const int area = r.get("area") ? static_cast<int>(r.get("area")->asNumber()) : 0;
+            it.area = (area >= 0 && area < kWeakAreaCount) ? static_cast<WeakArea>(area)
+                                                           : WeakArea::Fighting;
+            it.repetitions =
+                r.get("repetitions") ? static_cast<int>(r.get("repetitions")->asNumber()) : 0;
+            it.interval_days = r.get("interval") ? r.get("interval")->asNumber() : 1.0;
+            it.ease = r.get("ease") ? r.get("ease")->asNumber() : 2.5;
+            it.due_day = r.get("due_day") ? static_cast<int>(r.get("due_day")->asNumber()) : 0;
+            reviews_.push_back(std::move(it));
+        }
+    }
+    return true;
 }
 
 }  // namespace vgo
