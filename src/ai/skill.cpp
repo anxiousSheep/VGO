@@ -1,7 +1,10 @@
 #include "skill.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <sstream>
+#include <unordered_map>
 
 namespace vgo {
 
@@ -31,6 +34,53 @@ std::string trim(const std::string& s) {
     return s.substr(b, e - b);
 }
 
+bool isAsciiWordChar(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0;
+}
+
+// Split into tokens: ASCII words (lowercased) + CJK unigrams and bigrams. This
+// is a small, dependency-free TF-IDF tokenizer for skill retrieval.
+std::vector<std::string> tokenize(const std::string& s) {
+    std::vector<std::string> out;
+    std::vector<std::string> cjk;  // buffered CJK logical chars (3-byte UTF-8)
+    std::string ascii;
+
+    auto flushAscii = [&]() {
+        if (ascii.empty()) return;
+        std::string w;
+        for (char c : ascii)
+            w += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        out.push_back(w);
+        ascii.clear();
+    };
+    auto flushCjk = [&]() {
+        for (std::size_t i = 0; i < cjk.size(); ++i) out.push_back(cjk[i]);  // unigram
+        for (std::size_t i = 0; i + 1 < cjk.size(); ++i)
+            out.push_back(cjk[i] + cjk[i + 1]);  // bigram
+        cjk.clear();
+    };
+
+    for (std::size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c >= 0xE0 && c < 0xF0 && i + 2 < s.size()) {
+            flushAscii();
+            cjk.push_back(s.substr(i, 3));
+            i += 3;
+        } else if (isAsciiWordChar(static_cast<char>(c))) {
+            flushCjk();
+            ascii += static_cast<char>(c);
+            ++i;
+        } else {
+            flushAscii();
+            flushCjk();
+            ++i;
+        }
+    }
+    flushAscii();
+    flushCjk();
+    return out;
+}
+
 }  // namespace
 
 SkillRegistry SkillRegistry::builtin() {
@@ -39,6 +89,7 @@ SkillRegistry SkillRegistry::builtin() {
         Skill s;
         s.id = "life-death";
         s.name = "死活基础";
+        s.description = "两眼活、一眼死、真眼假眼、眼位大小";
         s.applies_to = {QuestionClass::LifeDeath};
         s.prompt =
             "死活常识：一块棋要活，必须做出两只真眼（或具备双活/劫活等特殊形态）。"
@@ -51,6 +102,7 @@ SkillRegistry SkillRegistry::builtin() {
         Skill s;
         s.id = "move-quality";
         s.name = "落点对比";
+        s.description = "用胜率与领先目数变化评估一手棋的好坏";
         s.applies_to = {QuestionClass::MoveQuality};
         s.prompt =
             "评估一手棋的好坏，看两点：落子前后的胜率变化（winrate，百分点）和领先目数变化"
@@ -63,6 +115,7 @@ SkillRegistry SkillRegistry::builtin() {
         Skill s;
         s.id = "counting";
         s.name = "数子与形势";
+        s.description = "数子法领地计算、贴目与领先目数";
         s.applies_to = {QuestionClass::WhoIsWinning};
         s.prompt =
             "围棋数子：活棋的棋子数加上围住的交叉点（目）为一方领地，死子归对方。"
@@ -74,6 +127,7 @@ SkillRegistry SkillRegistry::builtin() {
         Skill s;
         s.id = "ko";
         s.name = "打劫规则";
+        s.description = "打劫、劫材与提劫的规则";
         s.applies_to = {QuestionClass::Other};
         s.prompt =
             "打劫：一方提子后，另一方不能立即提回，必须先在别处找劫材、对方应一手后才能提回。"
@@ -84,6 +138,7 @@ SkillRegistry SkillRegistry::builtin() {
         Skill s;
         s.id = "terms";
         s.name = "围棋术语";
+        s.description = "打吃、提子、连接、延展、扳、断、气、眼等术语";
         s.applies_to = {};  // all
         s.prompt =
             "常用围棋术语：打吃（把对方打成只剩一口气）、提子（吃掉无气的子）、连接（把己方"
@@ -101,6 +156,84 @@ std::vector<const Skill*> SkillRegistry::forQuestion(QuestionClass q) const {
             std::find(s.applies_to.begin(), s.applies_to.end(), q) != s.applies_to.end())
             out.push_back(&s);
     }
+    return out;
+}
+
+std::vector<SkillMatch> SkillRegistry::retrieve(const std::string& query, int k) const {
+    struct Doc {
+        const Skill* skill;
+        std::unordered_map<std::string, int> tf;
+    };
+    std::vector<Doc> docs;
+    std::unordered_map<std::string, int> df;
+    docs.reserve(skills_.size());
+
+    for (const Skill& s : skills_) {
+        const std::string text =
+            s.id + " " + s.name + " " + s.description + " " + s.prompt;
+        const std::vector<std::string> toks = tokenize(text);
+        Doc d;
+        d.skill = &s;
+        std::unordered_map<std::string, int> uniq;
+        for (const std::string& t : toks) {
+            ++d.tf[t];
+            uniq[t] = 1;
+        }
+        for (const auto& kv : uniq) ++df[kv.first];
+        docs.push_back(std::move(d));
+    }
+    if (docs.empty()) return {};
+
+    const double n = static_cast<double>(docs.size());
+    auto idf = [&](const std::string& t) -> double {
+        auto it = df.find(t);
+        if (it == df.end()) return 0.0;
+        return std::log((n + 1.0) / (1.0 + static_cast<double>(it->second))) + 1.0;
+    };
+
+    const std::vector<std::string> qtok = tokenize(query);
+    std::unordered_map<std::string, int> qtf;
+    for (const std::string& t : qtok) ++qtf[t];
+
+    double qnorm = 0.0;
+    for (const auto& kv : qtf) {
+        const double w = static_cast<double>(kv.second) * idf(kv.first);
+        qnorm += w * w;
+    }
+    qnorm = std::sqrt(qnorm);
+    if (qnorm <= 0.0) return {};
+
+    std::vector<SkillMatch> out;
+    for (const Doc& d : docs) {
+        double dot = 0.0;
+        for (const auto& kv : qtf) {
+            auto it = d.tf.find(kv.first);
+            if (it == d.tf.end()) continue;
+            const double w = static_cast<double>(kv.second) * idf(kv.first) *
+                             static_cast<double>(it->second) * idf(kv.first);
+            dot += w;
+        }
+        double dnorm = 0.0;
+        for (const auto& kv : d.tf) {
+            const double w = static_cast<double>(kv.second) * idf(kv.first);
+            dnorm += w * w;
+        }
+        dnorm = std::sqrt(dnorm);
+        if (dnorm <= 0.0) continue;
+        const double score = dot / (qnorm * dnorm);
+        if (score <= 0.0) continue;
+        SkillMatch m;
+        m.skill = d.skill;
+        m.score = score;
+        std::ostringstream os;
+        os << "命中「" << d.skill->name << "」（相关度 " << score << "）";
+        m.reason = os.str();
+        out.push_back(std::move(m));
+    }
+    std::sort(out.begin(), out.end(),
+              [](const SkillMatch& a, const SkillMatch& b) { return a.score > b.score; });
+    if (k >= 0 && static_cast<std::size_t>(k) < out.size())
+        out.resize(static_cast<std::size_t>(k));
     return out;
 }
 
@@ -126,9 +259,12 @@ std::string SkillRegistry::toText(const Skill& s) {
     std::ostringstream os;
     os << "id: " << s.id << '\n';
     os << "name: " << s.name << '\n';
+    os << "description: " << s.description << '\n';
     os << "applies:";
     for (QuestionClass q : s.applies_to) os << ' ' << questionClassToString(q);
     os << '\n';
+    os << "version: " << s.version << '\n';
+    os << "last_score: " << s.last_score << '\n';
     os << "---\n";
     os << s.prompt << '\n';
     return os.str();
@@ -152,11 +288,17 @@ bool SkillRegistry::fromText(const std::string& text, Skill* out) {
                 s.id = trim(t.substr(3));
             } else if (t.rfind("name:", 0) == 0) {
                 s.name = trim(t.substr(5));
+            } else if (t.rfind("description:", 0) == 0) {
+                s.description = trim(t.substr(12));
             } else if (t.rfind("applies:", 0) == 0) {
                 for (const std::string& tok : split(t.substr(8), ' ')) {
                     QuestionClass q;
                     if (questionClassFromString(tok, &q)) s.applies_to.push_back(q);
                 }
+            } else if (t.rfind("version:", 0) == 0) {
+                s.version = std::atoi(trim(t.substr(8)).c_str());
+            } else if (t.rfind("last_score:", 0) == 0) {
+                s.last_score = std::strtod(trim(t.substr(11)).c_str(), nullptr);
             }
         } else {
             body += line;

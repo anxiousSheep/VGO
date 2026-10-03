@@ -59,6 +59,26 @@ add_library(vgo_ai STATIC
     src/ai/evaluate.cpp
     src/ai/lifedeath.h
     src/ai/lifedeath.cpp
+    src/ai/json.h
+    src/ai/json.cpp
+    src/ai/degradation.h
+    src/ai/degradation.cpp
+    src/ai/agent/tool.h
+    src/ai/agent/tool_registry.h
+    src/ai/agent/tool_registry.cpp
+    src/ai/agent/agent_tools.h
+    src/ai/agent/agent_tools.cpp
+    src/ai/agent/loop.h
+    src/ai/agent/loop.cpp
+    src/ai/agent/trace.h
+    src/ai/agent/trace.cpp
+    src/ai/verify/claim.h
+    src/ai/verify/claim_extractor.h
+    src/ai/verify/claim_extractor.cpp
+    src/ai/verify/claim_verifier.h
+    src/ai/verify/claim_verifier.cpp
+    src/ai/learner/learner_model.h
+    src/ai/learner/learner_model.cpp
 )
 target_include_directories(vgo_ai PUBLIC src)
 target_link_libraries(vgo_ai PUBLIC vgo_core)
@@ -90,6 +110,9 @@ add_executable(vgo_ai_tests
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
     tests/test_record.cpp
+    tests/test_agent.cpp
+    tests/test_verify.cpp
+    tests/test_learner.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)

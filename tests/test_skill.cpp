@@ -1,5 +1,7 @@
 #include "test_framework.h"
 
+#include <cmath>
+
 #include "ai/skill.h"
 
 using namespace vgo;
@@ -67,4 +69,50 @@ TEST(question_class_string_roundtrip) {
     }
     QuestionClass o;
     CHECK(!questionClassFromString("nope", &o));
+}
+
+TEST(skill_frontmatter_roundtrip) {
+    Skill s;
+    s.id = "life-death";
+    s.name = "死活基础";
+    s.description = "两眼活一眼死";
+    s.applies_to = {QuestionClass::LifeDeath};
+    s.version = 3;
+    s.last_score = 0.71;
+    s.prompt = "两眼活。";
+    const std::string text = SkillRegistry::toText(s);
+    Skill out;
+    CHECK(SkillRegistry::fromText(text, &out));
+    CHECK_EQ(out.id, std::string("life-death"));
+    CHECK_EQ(out.description, std::string("两眼活一眼死"));
+    CHECK_EQ(out.version, 3);
+    CHECK(std::abs(out.last_score - 0.71) < 1e-9);
+}
+
+TEST(skill_backward_compat_from_text) {
+    // Old format (id/name/applies only) still parses.
+    const std::string old =
+        "id: ko\nname: 打劫规则\napplies: other\n---\n打劫：一方提子后。\n";
+    Skill out;
+    CHECK(SkillRegistry::fromText(old, &out));
+    CHECK_EQ(out.id, std::string("ko"));
+    CHECK_EQ(out.prompt, std::string("打劫：一方提子后。"));
+    CHECK_EQ(out.version, 1);       // default
+    CHECK_EQ(out.last_score, -1.0); // never evaluated
+}
+
+TEST(skill_retrieve_ko) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const auto hits = r.retrieve("打劫的规则是什么", 1);
+    CHECK_EQ(hits.size(), 1u);
+    CHECK(hits[0].skill != nullptr);
+    CHECK_EQ(hits[0].skill->id, std::string("ko"));
+    CHECK(!hits[0].reason.empty());
+}
+
+TEST(skill_retrieve_life_death) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const auto hits = r.retrieve("这块棋死没死，能不能活", 1);
+    CHECK_EQ(hits.size(), 1u);
+    CHECK_EQ(hits[0].skill->id, std::string("life-death"));
 }
