@@ -91,6 +91,7 @@ private:
     void refresh();
     void updateStatus();
     void updateModelStatus();
+    void updateTierStatus();
     void updateActionsForMode();
     void appendAi(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
@@ -139,6 +140,7 @@ private:
     QLabel* status_ = nullptr;
     QLabel* modelStatus_ = nullptr;
     QLabel* scoreStatus_ = nullptr;
+    QLabel* tierStatus_ = nullptr;  // 讲解档位徽标（D5.1 明示降级）
     vgo::ChatPanel* chat_ = nullptr;
     QDockWidget* dock_ = nullptr;
     QTabBar* mode_bar_ = nullptr;

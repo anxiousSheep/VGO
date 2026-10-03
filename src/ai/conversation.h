@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/tool_registry.h"
 #include "explain.h"
 #include "go/go_types.h"
 
@@ -137,6 +138,12 @@ public:
         answer(req, [cb](const ConversationReply& r) { cb(r.text, true); });
     }
     virtual void cancel() {}
+
+    // D1: inject a position-bound tool registry before answering. The model may
+    // then call any of these tools (function-calling) instead of a keyword
+    // classifier deciding what to compute. Default no-op (template conversation
+    // ignores tools).
+    virtual void setTools(ToolRegistry tools) {}
 };
 
 }  // namespace vgo

@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "ai/agent/tool_registry.h"
 #include "ai/conversation.h"
 #include "ai/skill.h"
 
@@ -42,6 +43,11 @@ public:
     using ToolHandler = std::function<std::string(const QString& name, const QJsonObject& args)>;
     void setToolHandler(ToolHandler h) { tool_handler_ = std::move(h); }
 
+    // D1: inject the position-bound tool registry (built by the advisor from the
+    // current board + engine facts). Its schemas are declared alongside the demo
+    // tool, and its invoke() runs when the model calls one of them.
+    void setTools(ToolRegistry tools) override { tool_registry_ = std::move(tools); }
+
 private:
     void doChat(QJsonArray messages, int depth, Callback cb);
 
@@ -51,6 +57,7 @@ private:
     bool available_ = false;
     SkillRegistry skills_ = SkillRegistry::builtin();
     ToolHandler tool_handler_;
+    ToolRegistry tool_registry_;  // D1：多工具（position-bound，advisor 注入）
     QNetworkAccessManager nam_;
     QNetworkReply* reply_ = nullptr;
     QByteArray stream_buffer_;  // SSE partial-line accumulation

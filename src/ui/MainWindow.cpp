@@ -31,6 +31,7 @@
 #include "VariationPanel.h"
 
 #include "ai/advisor.h"
+#include "ai/degradation.h"
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
 #include "ai/session.h"
@@ -102,6 +103,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     statusBar()->addPermanentWidget(scoreStatus_);
     modelStatus_ = new QLabel(this);
     statusBar()->addPermanentWidget(modelStatus_);
+    tierStatus_ = new QLabel(this);  // 讲解档位徽标（D5.1）
+    statusBar()->addPermanentWidget(tierStatus_);
 
     // Chat side bar in a collapsible dock.
     chat_ = new vgo::ChatPanel(this);
@@ -389,6 +392,24 @@ void MainWindow::createAiServices(int level) {
             .arg(usingKata ? QStringLiteral("KataGo") : QStringLiteral("离线"),
                  usingHttp ? (ls.provider.isEmpty() ? QStringLiteral("HTTP") : ls.provider)
                            : QStringLiteral("本地模板")));
+    updateTierStatus();
+}
+
+void MainWindow::updateTierStatus() {
+    // D5.1：常驻讲解档位徽标，消除「静默降级」——用户始终知道当前拿到的质量档位。
+    if (!tierStatus_) return;
+    const vgo::ExplanationTier tier = vgo::resolveTier(usingKata(), usingHttp());
+    const QString label = QString::fromUtf8(vgo::tierLabel(tier));
+    const QString desc = QString::fromUtf8(vgo::tierDescription(tier).c_str());
+    QString color;
+    switch (tier) {
+        case vgo::ExplanationTier::FullKataGoLlm: color = QStringLiteral("#1a7f37"); break;
+        case vgo::ExplanationTier::LocalLlm: color = QStringLiteral("#9a6700"); break;
+        case vgo::ExplanationTier::Template: default: color = QStringLiteral("#6e7781"); break;
+    }
+    tierStatus_->setText(QStringLiteral("讲解档位：%1").arg(label));
+    tierStatus_->setToolTip(desc);
+    tierStatus_->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(color));
 }
 
 void MainWindow::startPlacement(int size) {
@@ -511,6 +532,7 @@ void MainWindow::updateModelStatus() {
     const auto& km = vgo::ModelManager::instance();
     modelStatus_->setText(QStringLiteral("引擎：%1 · 对话：%2")
                               .arg(km.katagoStatusText(), km.llmStatusText()));
+    updateTierStatus();
 }
 
 void MainWindow::onModeChanged(int index) {

@@ -2,10 +2,44 @@
 
 #include <utility>
 
+#include "agent/agent_tools.h"
 #include "lifedeath.h"
 #include "strength.h"
+#include "verify/claim_extractor.h"
+#include "verify/claim_verifier.h"
 
 namespace vgo {
+
+namespace {
+
+// D2 "Verify-then-Speak"：把模型回复里的断言抽出、对照真值校验，三档处置——
+// 通过 / 小偏差（追加「已按引擎数据修正」标注）/ 不可验证（置 unsure 灰显）。
+// 无任何真值时（模板解说 / 离线）为 no-op，不劣化现有可用性。
+void verifyAndAnnotate(ConversationReply& r, const Board& board,
+                       const GroundedFacts& facts, double score_black,
+                       Color to_move, int size) {
+    const bool has_truth = facts.analysis.valid || !facts.analysis.ownership.empty() ||
+                           !facts.dead_groups.empty() || facts.move_eval.has_value() ||
+                           facts.life_death.has_value();
+    if (!has_truth) return;
+
+    const std::vector<Claim> claims = ClaimExtractor{}.extract(r.text, size);
+    if (claims.empty()) return;
+
+    const std::vector<ClaimVerdict> verdicts =
+        ClaimVerifier{}.verify(claims, board, facts.analysis.ownership,
+                               facts.analysis, score_black, to_move);
+    bool corrected = false;
+    bool unverifiable = false;
+    for (const ClaimVerdict& v : verdicts) {
+        if (v.disposition == ClaimDisposition::Corrected) corrected = true;
+        else if (v.disposition == ClaimDisposition::Unverifiable) unverifiable = true;
+    }
+    if (corrected) r.text += "\n\n（注：以上部分数据已按引擎真值修正。）";
+    if (unverifiable) r.unsure = true;
+}
+
+}  // namespace
 
 AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation, int level)
     : engine_(engine), conversation_(conversation), level_(level) {}
@@ -178,11 +212,29 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.in_demo = demo_active_ctx_;
     req.demo_moves = demo_moves_;
     req.profile = PlayerProfile{level_, true};
+    // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
+    {
+        AgentToolContext tool_ctx;
+        tool_ctx.game = game;
+        tool_ctx.ownership = req.facts.analysis.ownership;
+        tool_ctx.analysis = req.facts.analysis;
+        conversation_->setTools(buildAgentTools(tool_ctx));
+    }
+    // D2：校验闸门需要真值与棋盘快照（facts 已 move 进 req，先复制一份）。
+    const GroundedFacts verify_facts = req.facts;
+    const Board verify_board = game.board();
+    const double verify_score = req.score_black;
+    const Color verify_to_move = req.to_move;
+    const int verify_size = req.size;
     const int gen = ++generation_;
-    conversation_->answer(req, [this, gen, cb](ConversationReply r) {
-        if (gen != generation_) return;  // stale / cancelled
-        cb(std::move(r));
-    });
+    conversation_->answer(
+        req, [this, gen, cb, verify_facts, verify_board, verify_score, verify_to_move,
+              verify_size](ConversationReply r) mutable {
+            if (gen != generation_) return;  // stale / cancelled
+            verifyAndAnnotate(r, verify_board, verify_facts, verify_score, verify_to_move,
+                              verify_size);
+            cb(std::move(r));
+        });
 }
 
 }  // namespace vgo

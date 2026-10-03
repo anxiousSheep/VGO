@@ -156,9 +156,12 @@ QJsonObject buildBody(const QString& model, bool stream, const QString& systemPr
     return body;
 }
 
-// The demo tool exposed to the model via function-calling. The model decides
-// when to call it and with which arguments (parsing natural language).
-QJsonArray buildTools() {
+// The tools exposed to the model via function-calling. The model decides when
+// to call each and with which arguments (parsing natural language). The demo
+// tool is always declared (UI-owned); the injected ToolRegistry (D1) adds the
+// deterministic capabilities: count_territory / life_death_solve / ownership_map /
+// dead_groups / analyze_position / evaluate_move / evaluate_last_move.
+QJsonArray buildTools(const ToolRegistry* reg) {
     QJsonObject fn;
     fn["name"] = "demonstrate_go_moves";
     fn["description"] = QStringLiteral(
@@ -203,6 +206,20 @@ QJsonArray buildTools() {
 
     QJsonArray tools;
     tools.append(tool);
+
+    if (reg) {
+        for (const Tool& t : reg->all()) {
+            QJsonObject f;
+            f["name"] = QString::fromStdString(t.name);
+            f["description"] = QString::fromStdString(t.description);
+            f["parameters"] =
+                QJsonDocument::fromJson(QByteArray::fromStdString(t.json_schema)).object();
+            QJsonObject o;
+            o["type"] = "function";
+            o["function"] = f;
+            tools.append(o);
+        }
+    }
     return tools;
 }
 
@@ -246,7 +263,8 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
     QJsonObject body;
     body["model"] = model_;
     body["messages"] = messages;
-    if (tool_handler_ && depth < 2) body["tools"] = buildTools();
+    if ((tool_handler_ || !tool_registry_.all().empty()) && depth < 4)
+        body["tools"] = buildTools(&tool_registry_);
     body["stream"] = false;
 
     QNetworkRequest request(url);
@@ -277,7 +295,8 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
                 reply_->deleteLater();
                 reply_ = nullptr;
 
-                if (toolCalls.isEmpty() || !tool_handler_) {
+                if (toolCalls.isEmpty() ||
+                    (!tool_handler_ && tool_registry_.all().empty())) {
                     r.text = content.toStdString();
                     cb(std::move(r));
                     return;
@@ -291,7 +310,18 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, Callback cb
                 QJsonObject args;
                 if (av.isString()) args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
                 else if (av.isObject()) args = av.toObject();
-                const std::string result = tool_handler_(fnName, args);
+
+                // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
+                const std::string result = [&]() -> std::string {
+                    if (const Tool* t = tool_registry_.find(fnName.toStdString())) {
+                        const std::string argsJson =
+                            QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
+                        const ToolResult tr = t->invoke(argsJson);
+                        return tr.ok ? tr.json : ("工具执行失败：" + tr.error);
+                    }
+                    if (tool_handler_) return tool_handler_(fnName, args);
+                    return "未知工具";
+                }();
 
                 QJsonArray next = messages;
                 QJsonObject assistantMsg;
