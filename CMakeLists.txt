@@ -183,6 +183,13 @@ add_executable(vgo_calibrate
 target_include_directories(vgo_calibrate PRIVATE src)
 target_link_libraries(vgo_calibrate PRIVATE vgo_ai_qt Qt6::Core)
 
+# 真实服务集成自检（L13）：KataGo 分析 + LLM 问答 + 校验闸门端到端。
+add_executable(vgo_integration_check
+    tools/integration_check.cpp
+)
+target_include_directories(vgo_integration_check PRIVATE src)
+target_link_libraries(vgo_integration_check PRIVATE vgo_ai_qt vgo_model Qt6::Core)
+
 add_executable(vgo_app WIN32
     src/ui/main.cpp
     src/ui/GobanWidget.h

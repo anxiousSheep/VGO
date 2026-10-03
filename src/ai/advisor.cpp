@@ -65,6 +65,21 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
                                   : game.current();
         const int gen = ++generation_;
         const Game snapshot = game;  // stable copy for the async callback
+
+        // 「谁领先」用满血形势判断引擎（analyze），保证与「形势」显示口径一致、
+        // 数字准确；「我该下哪」才用落子引擎（requestMove）给一手建议。
+        if (cls == QuestionClass::WhoIsWinning) {
+            EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+            eng->analyze(snapshot.board(), to_move, strengthForLevel(analysis_level_),
+                         [this, gen, question, snapshot, cb](const Analysis& a) {
+                             if (gen != generation_) return;  // stale / cancelled
+                             GroundedFacts f = currentFacts(snapshot);
+                             f.analysis = a;
+                             deliverAnswer(snapshot, question, std::move(f), cb);
+                         });
+            return;
+        }
+
         engine_->requestMove(game.board(), to_move, strengthForLevel(level_),
                              [this, gen, question, snapshot, cb](EngineResult r) {
                                  if (gen != generation_) return;  // stale / cancelled
