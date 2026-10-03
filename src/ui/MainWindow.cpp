@@ -1333,6 +1333,23 @@ bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, i
         return false;
     }
     if (placed) *placed = "";
+    // 首次进入（或重置）演示会以对局棋盘重建变化图：落点应在此之前用对局棋盘校验，
+    // 避免「打开了演示模式却落子失败」的半开状态（非法落点会留下一个空演示）。
+    if (p.x >= 0 && (!demo_active_ || reset)) {
+        const vgo::Color play = (color == vgo::Color::Empty) ? g->current() : color;
+        const vgo::Board b = g->board();
+        if (!b.in_bounds(p.x, p.y) || b.at(p.x, p.y) != vgo::Color::Empty) {
+            if (placed) *placed = "该位置无法落子";
+            status_->setText(QStringLiteral("试下：该位置无法落子"));
+            return false;
+        }
+        vgo::Game probe(b, play);
+        if (!probe.play(p.x, p.y)) {
+            if (placed) *placed = "该位置不能落子（自杀/打劫）";
+            status_->setText(QStringLiteral("试下：该位置不能落子（自杀/打劫）"));
+            return false;
+        }
+    }
     // 进入（或续用/重置）试下：默认在当前演示基础上继续，reset=true 才从头。
     if (!demo_active_) {
         variation_.start(g->board(), g->current());
@@ -1351,6 +1368,8 @@ bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, i
         updateVariationBoard();
         return true;
     }
+    // 继续（非重置）情况：变化图保留既有手数，须在 undo 后按变化图校验；对首次进入/
+    // 重置而言此校验与上方等价（变化图 == 对局棋盘），故这里仅对「继续」情况必要。
     const vgo::Color play = (color == vgo::Color::Empty) ? variation_.toMove() : color;
     const vgo::Board b = variation_.board();
     if (!b.in_bounds(p.x, p.y) || b.at(p.x, p.y) != vgo::Color::Empty) {

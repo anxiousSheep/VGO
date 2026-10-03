@@ -204,7 +204,8 @@ QJsonArray buildTools(const ToolRegistry* reg) {
 
     QJsonObject pPoint;
     pPoint["type"] = "string";
-    pPoint["description"] = QStringLiteral("假设手的 GTP 坐标（如 H6）；无明确落点时为空字符串");
+    pPoint["description"] = QStringLiteral(
+        "假设手的 GTP 坐标（如 H6），必须是当前棋盘上的空点；无明确落点或不确定时为空字符串");
     QJsonObject pColor;
     pColor["type"] = "string";
     pColor["enum"] = QJsonArray{"black", "white", ""};
