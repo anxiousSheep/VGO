@@ -7,7 +7,7 @@ namespace vgo {
 
 namespace {
 
-// One row of the 19-level difficulty table (see docs/技术路线-选型与任务计划.md
+// One row of the 19-level difficulty table (see docs/archive/技术路线-选型与任务计划.md
 // §2). 新手+业余段 use the HumanSL model (`rank_*` profiles); 职业段 use the
 // standard model with an increasing search budget. `randomness` keeps the
 // fallback engine monotonic too.

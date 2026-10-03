@@ -89,17 +89,17 @@ src/ui/                 桌面界面（Qt Widgets）：棋盘、聊天面板、�
 src/ui/model/           模型供给（Qt 层）：配置/密钥(DPAPI)/下载/GPU 检测/自安装
 tests/                  引擎与 AI 单元测试（自研轻量框架）
 tools/                  辅助工具（难度标定 spike）
-docs/                   设计文档与技术路线
+docs/                   文档（长期任务清单 + archive/ 历史归档）
 resources/skills/       Skills 知识包（可热更的 markdown 数据文件）
 ```
 
 ## 文档
 
-- [`docs/人机对弈-可交流模式-设计.md`](docs/人机对弈-可交流模式-设计.md) — 项目总体设计
-- [`docs/可交流模式-讲解增强与演示-设计.md`](docs/可交流模式-讲解增强与演示-设计.md) — 讲解增强 / 演示 / Skills 设计
-- [`docs/技术路线-选型与任务计划.md`](docs/技术路线-选型与任务计划.md) — 技术选型与 M/N 系列任务进度
-- [`docs/模型接入-技术路线与任务计划.md`](docs/模型接入-技术路线与任务计划.md) — KataGo/LLM 一键接入与密钥安全
 - [`docs/长期任务清单.md`](docs/长期任务清单.md) — **长期任务 backlog（持续进行）**
+
+> 历史设计与技术路线文档已归档至 [`docs/archive/`](docs/archive/)：
+>
+> - 人机对弈（可交流）模式设计、讲解增强与演示设计、技术路线（选型与任务计划）、模型接入（技术路线与任务计划）
 
 ## 长期任务（Roadmap）
 
