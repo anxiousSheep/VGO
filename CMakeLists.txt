@@ -139,9 +139,15 @@ add_library(vgo_ai_qt STATIC
     src/ai/engine_kata/kata_engine.cpp
     src/ai/conversation_http/http_conversation.h
     src/ai/conversation_http/http_conversation.cpp
+    src/ai/conversation_http/winhttp_transport.h
+    src/ai/conversation_http/winhttp_transport.cpp
 )
 target_include_directories(vgo_ai_qt PUBLIC src)
 target_link_libraries(vgo_ai_qt PUBLIC vgo_ai Qt6::Network)
+if(WIN32)
+    # L16：LLM HTTP 走 WinHTTP 直连，绕开 Qt6Network 的网卡枚举崩溃。
+    target_link_libraries(vgo_ai_qt PUBLIC winhttp)
+endif()
 
 # ---------------------------------------------------------------------------
 # Model provisioning (Qt layer): config/secrets, downloader, GPU detect,

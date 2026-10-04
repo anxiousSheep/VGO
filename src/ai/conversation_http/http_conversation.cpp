@@ -1,19 +1,18 @@
 #include "http_conversation.h"
 
-#include <memory>
-#include <utility>
-
 #include <chrono>
+#include <thread>
+#include <utility>
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkProxy>
-#include <QNetworkRequest>
+#include <QPointer>
 #include <QUrl>
 
 #include "ai/explain.h"
 #include "ai/gtp.h"
+#include "winhttp_transport.h"
 
 namespace vgo {
 
@@ -171,26 +170,6 @@ QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
 
 namespace {
 
-QJsonObject buildBody(const QString& model, bool stream, const QString& systemPrompt,
-                      const QString& userPrompt, int max_tokens) {
-    QJsonArray messages;
-    QJsonObject system;
-    system["role"] = "system";
-    system["content"] = systemPrompt;
-    messages.append(system);
-    QJsonObject user;
-    user["role"] = "user";
-    user["content"] = userPrompt;
-    messages.append(user);
-
-    QJsonObject body;
-    body["model"] = model;
-    body["messages"] = messages;
-    body["max_tokens"] = max_tokens;
-    body["stream"] = stream;
-    return body;
-}
-
 // The tools exposed to the model via function-calling. The model decides when
 // to call each and with which arguments (parsing natural language). The demo
 // tool is always declared (UI-owned); the injected ToolRegistry (D1) adds the
@@ -259,16 +238,11 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     return tools;
 }
 
-// 把 QNetworkReply 的错误翻译成对用户有用的中文：区分超时/取消、HTTP 状态码，并从
-// OpenAI 兼容端点常见的 JSON 错误体（{"error":{"message":…}}）里抽出 message。
-QString httpErrorDetail(QNetworkReply* reply) {
-    if (!reply || reply->error() == QNetworkReply::NoError) return {};
-    const auto err = reply->error();
-    if (err == QNetworkReply::TimeoutError) return QStringLiteral("请求超时（可稍后重试）");
-    if (err == QNetworkReply::OperationCanceledError) return QStringLiteral("请求被取消");
-    const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QByteArray body = reply->readAll();
-    const QJsonDocument doc = QJsonDocument::fromJson(body);
+// 把 HTTP 状态 + 响应体翻译成对用户有用的中文：从 OpenAI 兼容端点常见的错误体
+// （{"error":{"message":…}}）里抽出 message。
+QString httpErrorDetail(int status, const std::string& body) {
+    if (status <= 0) return QStringLiteral("请求超时或网络不可用（可稍后重试）");
+    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(body));
     QString msg;
     if (doc.isObject()) {
         msg = doc.object().value("error").toObject().value("message").toString();
@@ -276,10 +250,7 @@ QString httpErrorDetail(QNetworkReply* reply) {
     if (!msg.isEmpty()) {
         return QStringLiteral("服务返回 %1：%2").arg(status).arg(msg);
     }
-    if (status > 0) {
-        return QStringLiteral("服务返回 HTTP %1").arg(status);
-    }
-    return reply->errorString();
+    return QStringLiteral("服务返回 HTTP %1").arg(status);
 }
 
 }  // namespace
@@ -307,12 +278,6 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
                                                  const QString& model, QObject* parent)
     : QObject(parent), baseUrl_(baseUrl), apiKey_(apiKey), model_(model) {
-    // L16：QNAM 默认走系统代理检测，在部分 Windows 网络环境（VPN / Hyper-V / VMware
-    // 虚拟网卡）下会因代理旁路判断枚举本机网卡，触发 Qt6Network 的
-    // QNetworkInterface::interfaceNameFromIndex 空指针崩溃（0xC0000005）。改为直连
-    // （NoProxy）后不再走系统代理检测、不再枚举网卡，从根本上规避崩溃。LLM 端点
-    // （本地 Ollama / 直连 API）无需系统代理。
-    nam_.setProxy(QNetworkProxy::NoProxy);
     available_ = !baseUrl_.isEmpty() && !model_.isEmpty();
 }
 
@@ -357,139 +322,89 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
     body["max_tokens"] = max_tokens_;  // D5.5：单次回答 token 上限
     body["stream"] = false;
 
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setTransferTimeout(timeout_ms_);  // D5.5：超时熔断
-    if (!apiKey_.isEmpty())
-        request.setRawHeader("Authorization", ("Bearer " + apiKey_).toUtf8());
+    const std::string bodyJson =
+        QJsonDocument(body).toJson(QJsonDocument::Compact).toStdString();
+    const std::string auth = apiKey_.isEmpty()
+                                 ? std::string{}
+                                 : ("Authorization: Bearer " + apiKey_.toStdString());
+    const std::string urlStr = url.toString().toStdString();
+    const int timeout = timeout_ms_;
+    const int gen = ++generation_;
 
-    reply_ = nam_.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
-    connect(reply_, &QNetworkReply::finished, this,
-            [this, messages, depth, deadline_ms, cb = std::move(cb)]() mutable {
-                ConversationReply r;
-                if (reply_->error() != QNetworkReply::NoError) {
-                    r.text = "（语言服务暂时不可用：" + httpErrorDetail(reply_).toStdString() +
-                             "）";
-                    r.unsure = true;
-                    reply_->deleteLater();
-                    reply_ = nullptr;
-                    cb(std::move(r));
-                    return;
+    // L16：WinHTTP 直连（后台线程阻塞执行），结果经 queued 回主线程处理。QPointer
+    // 兜底：服务析构后（对局 teardown）在途请求直接丢弃，不触碰已释放的 this。
+    QPointer<HttpConversationService> self(this);
+    std::thread([self, gen, urlStr, bodyJson, auth, timeout, depth, deadline_ms, messages,
+                 cb = std::move(cb)]() mutable {
+        const WinHttpResult res = winHttpPost(urlStr, bodyJson, "application/json", auth, timeout);
+        if (!self) return;  // 服务已析构，丢弃结果
+        QMetaObject::invokeMethod(self, [self, gen, res, depth, deadline_ms, messages,
+                                         cb = std::move(cb)]() mutable {
+            if (!self || gen != self->generation_) return;  // stale / cancelled / destructed
+
+            ConversationReply r;
+            if (!res.ok) {
+                r.text = "（语言服务暂时不可用：" + res.error + "）";
+                r.unsure = true;
+                cb(std::move(r));
+                return;
+            }
+            if (res.status >= 400) {
+                r.text = "（语言服务暂时不可用：" +
+                         httpErrorDetail(res.status, res.body).toStdString() + "）";
+                r.unsure = true;
+                cb(std::move(r));
+                return;
+            }
+
+            const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(res.body));
+            const QJsonObject msg = doc.object()["choices"]
+                                        .toArray()
+                                        .first()
+                                        .toObject()["message"]
+                                        .toObject();
+            const QJsonArray toolCalls = msg["tool_calls"].toArray();
+            const QString content = msg["content"].toString();
+
+            if (toolCalls.isEmpty() ||
+                (!self->tool_handler_ && self->tool_registry_.all().empty())) {
+                r.text = content.toStdString();
+                cb(std::move(r));
+                return;
+            }
+
+            // Execute every requested tool call, then feed each result back and ask the
+            // model for the final natural-language answer. Every tool_call must be
+            // answered by a matching `tool` message (same tool_call_id), or the endpoint
+            // rejects the follow-up request.
+            auto exec = [self](const QJsonObject& call) -> std::string {
+                const QString fnName = call["function"].toObject()["name"].toString();
+                const QJsonValue av = call["function"].toObject()["arguments"];
+                QJsonObject args;
+                if (av.isString())
+                    args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
+                else if (av.isObject())
+                    args = av.toObject();
+
+                // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
+                if (const Tool* t = self->tool_registry_.find(fnName.toStdString())) {
+                    const std::string argsJson =
+                        QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
+                    const ToolResult tr = t->invoke(argsJson);
+                    return tr.ok ? tr.json : ("工具执行失败：" + tr.error);
                 }
-                const QJsonDocument doc = QJsonDocument::fromJson(reply_->readAll());
-                const QJsonObject msg = doc.object()["choices"]
-                                            .toArray()
-                                            .first()
-                                            .toObject()["message"]
-                                            .toObject();
-                const QJsonArray toolCalls = msg["tool_calls"].toArray();
-                const QString content = msg["content"].toString();
-                reply_->deleteLater();
-                reply_ = nullptr;
+                if (self->tool_handler_) return self->tool_handler_(fnName, args);
+                return "未知工具";
+            };
 
-                if (toolCalls.isEmpty() ||
-                    (!tool_handler_ && tool_registry_.all().empty())) {
-                    r.text = content.toStdString();
-                    cb(std::move(r));
-                    return;
-                }
-
-                // Execute every requested tool call, then feed each result back
-                // and ask the model for the final natural-language answer. Every
-                // tool_call must be answered by a matching `tool` message (same
-                // tool_call_id), or the endpoint rejects the follow-up request.
-                auto exec = [&](const QJsonObject& call) -> std::string {
-                    const QString fnName = call["function"].toObject()["name"].toString();
-                    const QJsonValue av = call["function"].toObject()["arguments"];
-                    QJsonObject args;
-                    if (av.isString())
-                        args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
-                    else if (av.isObject())
-                        args = av.toObject();
-
-                    // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
-                    if (const Tool* t = tool_registry_.find(fnName.toStdString())) {
-                        const std::string argsJson =
-                            QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
-                        const ToolResult tr = t->invoke(argsJson);
-                        return tr.ok ? tr.json : ("工具执行失败：" + tr.error);
-                    }
-                    if (tool_handler_) return tool_handler_(fnName, args);
-                    return "未知工具";
-                };
-
-                const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
-                doChat(next, depth + 1, deadline_ms, std::move(cb));
-            });
-}
-
-void HttpConversationService::answerStream(const ConversationRequest& req, DeltaCallback cb) {
-    if (!available_) {
-        cb("", true);
-        return;
-    }
-
-    QUrl url(baseUrl_);
-    if (!url.path().endsWith("/chat/completions")) {
-        QString path = url.path();
-        if (!path.endsWith('/')) path += '/';
-        path += "chat/completions";
-        url.setPath(path);
-    }
-
-    const QuestionClass cls = classifyQuestion(req.question);
-    const QJsonObject body =
-        buildBody(model_, true, buildSystemPrompt(skills_, cls, req),
-                  buildUserPrompt(req, cls), max_tokens_);
-
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setTransferTimeout(timeout_ms_);  // D5.5：超时熔断
-    if (!apiKey_.isEmpty())
-        request.setRawHeader("Authorization", ("Bearer " + apiKey_).toUtf8());
-
-    auto sharedCb = std::make_shared<DeltaCallback>(std::move(cb));
-    stream_buffer_.clear();
-    reply_ = nam_.post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
-
-    // Process complete SSE `data:` lines; a line may arrive split across chunks.
-    auto processBuffer = [sharedCb](QByteArray& buf) {
-        int nl;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-            const QByteArray line = buf.left(nl).trimmed();
-            buf.remove(0, nl + 1);
-            if (!line.startsWith("data:")) continue;
-            const QByteArray payload = line.mid(5).trimmed();
-            if (payload == "[DONE]" || payload.isEmpty()) continue;
-            const QJsonDocument doc = QJsonDocument::fromJson(payload);
-            const QJsonObject ch = doc.object()["choices"].toArray().first().toObject();
-            const QString content = ch.contains("delta")
-                                        ? ch["delta"].toObject()["content"].toString()
-                                        : ch["message"].toObject()["content"].toString();
-            if (!content.isEmpty()) (*sharedCb)(content.toStdString(), false);
-        }
-    };
-
-    connect(reply_, &QNetworkReply::readyRead, this, [this, processBuffer]() {
-        stream_buffer_ += reply_->readAll();
-        processBuffer(stream_buffer_);
-    });
-
-    connect(reply_, &QNetworkReply::finished, this, [this, processBuffer, sharedCb]() {
-        stream_buffer_ += '\n';  // flush a final unterminated `data:` line
-        processBuffer(stream_buffer_);
-        if (reply_->error() != QNetworkReply::NoError) {
-            (*sharedCb)("（语言服务暂时不可用：" + httpErrorDetail(reply_).toStdString() + "）", true);
-        } else {
-            (*sharedCb)("", true);
-        }
-        reply_->deleteLater();
-        reply_ = nullptr;
-    });
+            const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
+            self->doChat(next, depth + 1, deadline_ms, std::move(cb));
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void HttpConversationService::cancel() {
-    if (reply_) reply_->abort();
+    ++generation_;  // 在途请求的结果回到主线程后被丢弃
 }
 
 }  // namespace vgo

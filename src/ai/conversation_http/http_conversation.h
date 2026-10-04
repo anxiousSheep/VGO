@@ -2,8 +2,6 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QObject>
 #include <QString>
 
@@ -17,9 +15,12 @@ namespace vgo {
 
 // OpenAI-compatible chat-completions client (works with Ollama, llama.cpp
 // server, DeepSeek, Qwen, and other OpenAI-compatible endpoints). Supports
-// non-streaming `answer` (with function-calling / tools), SSE streaming
-// `answerStream`, and injects matching domain Skills into the system prompt
-// (N4). Falls back to TemplateConversation when not configured (by the caller).
+// non-streaming `answer` (with function-calling / tools) and injects matching
+// domain Skills into the system prompt (N4).
+//
+// 传输层（L16）：在 Windows 上走 WinHTTP 直连（`winhttp_transport`），而非
+// QNetworkAccessManager——因为 QNAM 每次连 socket 都会经 QNetworkConnectionMonitor
+// 枚举本机网卡，在 VPN / 虚拟网卡环境下触发 interfaceNameFromIndex 空指针崩溃。
 class HttpConversationService : public QObject, public ConversationService {
     Q_OBJECT
 public:
@@ -30,8 +31,6 @@ public:
     bool available() const { return available_; }
 
     void answer(const ConversationRequest& req, Callback cb) override;
-    void answerStream(const ConversationRequest& req, DeltaCallback cb) override;
-    bool supportsStreaming() const override { return true; }
     void cancel() override;
 
     // Replace the built-in skill set (e.g. loaded from hot-reloadable files).
@@ -67,9 +66,7 @@ private:
     int max_tokens_ = 1024;       // D5.5：单次回答 token 上限
     int timeout_ms_ = 120000;     // D5.5：HTTP 传输超时（熔断）；远端 LLM 慢，30s 过紧
     qint64 max_loop_ms_ = 60000;  // D1.10：工具环路墙钟预算
-    QNetworkAccessManager nam_;
-    QNetworkReply* reply_ = nullptr;
-    QByteArray stream_buffer_;  // SSE partial-line accumulation
+    int generation_ = 0;          // cancel() 递增，在途请求结果据此丢弃
 };
 
 // Builds the follow-up messages after the model issued tool calls: an
