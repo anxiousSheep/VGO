@@ -446,8 +446,8 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
     const bool usingHttp =
         (dynamic_cast<vgo::HttpConversationService*>(conversation_) != nullptr);
     // D5.2 投机预生成（每手 AI 落子后后台预跑「为什么下这里」）：仅在真正走 HTTP 时开启。
-    // L16 修复：坏网络环境（VPN / 虚拟网卡触发 Qt 网卡枚举崩溃）已在 HttpConversationService
-    // 构造时的主线程 SEH 自检中降级为模板解说（此时 usingHttp=false），故不会在崩溃环境发请求。
+    // L16 修复：HttpConversationService 已改为直连（NoProxy，绕过系统代理检测），不再触发
+    // Qt 网卡枚举崩溃；未配置 LLM 时 usingHttp=false，同样不开启。
     advisor_->setSpeculativeExplain(usingHttp);
     // D5.6：把每次问答的 trace 交给 TraceStore 落盘（route/model 由当前接线决定）。
     advisor_->setTraceMeta(usingHttp ? "http" : "template", ls.model.toStdString());

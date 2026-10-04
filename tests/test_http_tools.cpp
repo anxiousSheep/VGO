@@ -132,3 +132,13 @@ TEST(http_user_prompt_winning_keeps_engine_facts) {
     CHECK(s.contains(QStringLiteral("胜率")));
     CHECK(!s.contains(QStringLiteral("规则计分")));  // 有真值时走 KataGo 行
 }
+
+// L16：HttpConversationService 构造时改为直连（NoProxy，绕过系统代理检测的网卡枚举），
+// 并据此判定 available。冒烟测试：构造不崩溃，且配置完整时 available=true、缺配置时 false。
+TEST(http_service_constructs_available_and_direct) {
+    HttpConversationService svc{QStringLiteral("http://localhost:11434/v1"), QString(),
+                                QStringLiteral("qwen2.5:7b")};
+    CHECK(svc.available());
+    HttpConversationService unconfigured{QString(), QString(), QString()};
+    CHECK(!unconfigured.available());
+}

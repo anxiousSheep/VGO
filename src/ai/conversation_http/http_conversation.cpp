@@ -5,14 +5,12 @@
 
 #include <chrono>
 
-#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkProxy>
 #include <QNetworkRequest>
 #include <QUrl>
-
-#include "network_probe.h"
 
 #include "ai/explain.h"
 #include "ai/gtp.h"
@@ -309,15 +307,13 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
                                                  const QString& model, QObject* parent)
     : QObject(parent), baseUrl_(baseUrl), apiKey_(apiKey), model_(model) {
-    // L16：先做主线程网卡自检——坏网络环境（VPN / 虚拟网卡触发 Qt 网卡枚举崩溃）会令
-    // networkInterfaceSafe() 返回 false，这里直接置 available_=false，调用方随即降级到
-    // TemplateConversation，避免对局中闪退（0xC0000005）。
-    const bool netSafe = networkInterfaceSafe();
-    available_ = !baseUrl_.isEmpty() && !model_.isEmpty() && netSafe;
-    if (!available_ && !baseUrl_.isEmpty() && !model_.isEmpty()) {
-        qWarning("vgo: LLM 已配置，但本机网络环境可能触发 Qt 网卡枚举崩溃（L16），"
-                 "已降级到本地模板解说。");
-    }
+    // L16：QNAM 默认走系统代理检测，在部分 Windows 网络环境（VPN / Hyper-V / VMware
+    // 虚拟网卡）下会因代理旁路判断枚举本机网卡，触发 Qt6Network 的
+    // QNetworkInterface::interfaceNameFromIndex 空指针崩溃（0xC0000005）。改为直连
+    // （NoProxy）后不再走系统代理检测、不再枚举网卡，从根本上规避崩溃。LLM 端点
+    // （本地 Ollama / 直连 API）无需系统代理。
+    nam_.setProxy(QNetworkProxy::NoProxy);
+    available_ = !baseUrl_.isEmpty() && !model_.isEmpty();
 }
 
 HttpConversationService::~HttpConversationService() = default;
