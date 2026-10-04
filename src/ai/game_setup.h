@@ -16,6 +16,7 @@ struct GameSetup {
     bool nigiri = false;
     int level = 1;  // 1..19，见 strength.h
     double kyu_hint = 20.0;  // D3.4 新手难度爬坡：连续强度（20=20k 新手，0=1d），仅 level==1 生效
+    int handicap = 0;  // 让子数（2..9；0 = 平手局）。仅执黑有效，摆子为黑、白先行。
 };
 
 }  // namespace vgo

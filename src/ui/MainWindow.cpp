@@ -38,6 +38,7 @@
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
 #include "ai/session.h"
+#include "go/handicap.h"
 #include "ai/sgf.h"
 #include "ai/template_conversation.h"
 #include "ai/engine_kata/kata_engine.h"
@@ -513,8 +514,9 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     teardownServices();  // 按新难度重建落子引擎与 advisor
     createAiServices(setup.level, setup.kyu_hint);
 
-    controller_ = new vgo::AIMatchController(setup.size, setup.human_color, engine_,
-                                             advisor_, setup.level, setup.kyu_hint);
+    controller_ = new vgo::AIMatchController(
+        setup.size, setup.human_color, engine_, advisor_, setup.level, setup.kyu_hint,
+        vgo::handicapPoints(setup.size, setup.handicap));
     controller_->onChanged = [this] { refresh(); };
     controller_->onAiMove = [this](const vgo::Move& m, const vgo::Analysis&) {
         if (m.is_pass) {
@@ -547,7 +549,11 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     };
 
     chat_->clear();
-    if (setup.nigiri) {
+    if (setup.handicap >= 2) {
+        // 让子局（L6）：你执黑让 X 子，AI（白）先行。
+        appendNote(QStringLiteral("让子局：你执黑让 %1 子，AI（白）先行。"
+                                  "下棋时随时可以在右侧问我问题。").arg(setup.handicap));
+    } else if (setup.nigiri) {
         appendNote(setup.human_color == vgo::Color::Black
                      ? QStringLiteral("猜先结果：你执黑，请先行。")
                      : QStringLiteral("猜先结果：你执白，AI 执黑先行。"));

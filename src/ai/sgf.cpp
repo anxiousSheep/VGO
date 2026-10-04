@@ -93,6 +93,17 @@ std::string serializeSgf(const GameRecord& r) {
     std::ostringstream os;
     os << "(;GM[1]FF[4]CA[UTF-8]AP[VGO:1.0]SZ[" << r.size << "]KM["
        << formatKomi(r.komi) << "]\n";
+    // Setup stones (handicap / imported AB-AW): one multi-value property each.
+    if (!r.setup_black.empty()) {
+        os << "AB";
+        for (const Point& p : r.setup_black) os << '[' << sgfPoint(p) << ']';
+        os << '\n';
+    }
+    if (!r.setup_white.empty()) {
+        os << "AW";
+        for (const Point& p : r.setup_white) os << '[' << sgfPoint(p) << ']';
+        os << '\n';
+    }
     for (const BlunderNote& b : r.blunders) {
         const std::string coord =
             (b.point.x >= 0) ? sgfPoint(b.point) : std::string("-");
@@ -195,6 +206,16 @@ bool parseSgf(const std::string& text, GameRecord* out) {
                 r.komi = std::atof(values[0].c_str());
             } else if (id == "B" || id == "W") {
                 if (!applyMove(&r, id, values[0], r.size)) return false;
+            } else if (id == "AB" || id == "AW") {
+                // Setup stones: every value is an SGF coordinate.
+                const bool black = (id == "AB");
+                for (const std::string& v : values) {
+                    Point p;
+                    if (sgfParsePoint(v, r.size, &p)) {
+                        if (black) r.setup_black.push_back(p);
+                        else r.setup_white.push_back(p);
+                    }
+                }
             } else if (id == "C") {
                 // values[0] is already unescaped by the value reader above.
                 const std::string& v = values[0];

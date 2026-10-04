@@ -63,6 +63,27 @@ NewGameDialog::NewGameDialog(bool human_vs_ai, int suggested_level, double sugge
         colorLayout->addStretch(1);
         form->addRow(QStringLiteral("执子"), colorRow_);
 
+        // 让子（L6）：仅「执黑」时可用（让子石为黑、白先行）。让子数 0/2/3/…/9。
+        handicapCombo_ = new QComboBox(this);
+        handicapCombo_->addItem(QStringLiteral("0（平手）"), 0);
+        for (int h = 2; h <= 9; ++h)
+            handicapCombo_->addItem(QStringLiteral("%1 子").arg(h), h);
+        handicapRow_ = new QWidget(this);
+        auto* handicapLayout = new QHBoxLayout(handicapRow_);
+        handicapLayout->setContentsMargins(0, 0, 0, 0);
+        handicapLayout->addWidget(handicapCombo_);
+        handicapLayout->addStretch(1);
+        form->addRow(QStringLiteral("让子"), handicapRow_);
+
+        // 让子仅「执黑」成立；切到执白/猜先时禁用并归 0。
+        auto updateHandicap = [this](int colorId) {
+            const bool black = (colorId == 0);
+            handicapCombo_->setEnabled(black);
+            if (!black) handicapCombo_->setCurrentIndex(0);
+        };
+        connect(colorGroup_, &QButtonGroup::idClicked, this, updateHandicap);
+        updateHandicap(0);  // 初始「执黑」选中，让子可用
+
         // 难度（19 级下拉）+ 自动难度开关（D3.4：据学习者画像自动标定，含新手爬坡）
         autoLevel_ = new QCheckBox(QStringLiteral("自动难度（根据你的棋力推荐）"), this);
         autoLevel_->setChecked(true);
@@ -121,6 +142,9 @@ void NewGameDialog::accept() {
 
     if (human_vs_ai_) {
         const int color = colorGroup_->checkedId();
+        // 让子仅「执黑」成立（摆子为黑、白先行）；其余情况归 0。
+        setup_.handicap =
+            (color == 0 && handicapCombo_) ? handicapCombo_->currentData().toInt() : 0;
         if (color == 2) {  // 猜先
             setup_.nigiri = true;
             setup_.human_color = (QRandomGenerator::global()->bounded(2) == 0)

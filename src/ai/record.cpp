@@ -21,6 +21,8 @@ std::string serializeRecord(const GameRecord& r) {
     os << "VGO 1\n";
     os << "SIZE " << r.size << "\n";
     os << "KOMI " << r.komi << "\n";
+    for (const Point& p : r.setup_black) os << "AB " << gtpPoint(p, r.size) << "\n";
+    for (const Point& p : r.setup_white) os << "AW " << gtpPoint(p, r.size) << "\n";
     for (const MoveRecord& m : r.moves) {
         os << (m.color == Color::Black ? 'B' : 'W') << ' ';
         if (m.move.is_pass) {
@@ -89,6 +91,15 @@ bool parseRecord(const std::string& text, GameRecord* out) {
             got_size = true;
         } else if (tok == "KOMI") {
             ls >> r.komi;
+        } else if (tok == "AB" || tok == "AW") {
+            if (!got_size) return false;  // setup stones need a known board size
+            const bool black = (tok == "AB");
+            std::string coord;
+            if (!nextToken(ls, &coord)) return false;
+            Point p;
+            if (!gtpParsePoint(coord, r.size, &p)) return false;
+            if (black) r.setup_black.push_back(p);
+            else r.setup_white.push_back(p);
         } else if (tok == "B" || tok == "W") {
             if (!got_size) return false;  // moves need a known board size
             const Color c = (tok == "B") ? Color::Black : Color::White;
@@ -115,6 +126,7 @@ GameRecord recordFromGame(const Game& game) {
     GameRecord r;
     r.size = game.size();
     r.komi = game.komi();
+    r.setup_black = game.setup_stones();  // 让子摆子（普通局为空）
     // 用完整着法日志（含悔棋）：仍在棋盘上的进 moves，被悔掉的进 notes，保证
     // 悔棋历史不丢失，同时最终局面由 moves 干净重放。
     for (const Game::LoggedMove& lm : game.moveLog()) {
@@ -132,7 +144,20 @@ GameRecord recordFromGame(const Game& game) {
 }
 
 Game recordToGame(const GameRecord& r, int reveal) {
-    Game g(r.size, r.komi);
+    // Rebuild the starting position: place setup stones (handicap / SGF AB/AW),
+    // then determine whose turn it is before any moves are replayed. A black
+    // handicap with no white setup means White opens (standard handicap).
+    Board b(r.size);
+    for (const Point& p : r.setup_black) {
+        if (b.in_bounds(p.x, p.y)) b.set(p.x, p.y, Color::Black);
+    }
+    for (const Point& p : r.setup_white) {
+        if (b.in_bounds(p.x, p.y)) b.set(p.x, p.y, Color::White);
+    }
+    const Color to_move =
+        (!r.setup_black.empty() && r.setup_white.empty()) ? Color::White : Color::Black;
+    Game g(b, to_move, r.komi);
+
     if (reveal < 0) reveal = 0;
     const int n = static_cast<int>(r.moves.size());
     if (reveal > n) reveal = n;

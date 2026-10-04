@@ -20,12 +20,15 @@ struct BlunderNote {
     std::string text;      // 说明（胜率/领先缩水等）
 };
 
-// A whole game record (棋谱): board size, komi, the ordered move list, and
-// optional notes (悔棋记录 / 本局恶手), serialized as `#` comment lines. Pure
-// data, no Qt. Serialized to the `.vgo` text format (see record.cpp).
+// A whole game record (棋谱): board size, komi, setup stones (handicap), the
+// ordered move list, and optional notes (悔棋记录 / 本局恶手), serialized as
+// `#` comment lines. Pure data, no Qt. Serialized to the `.vgo` text format
+// (see record.cpp).
 struct GameRecord {
     int size = 9;
     double komi = 7.5;
+    std::vector<Point> setup_black;  // 让子摆子（黑，L6；SGF AB）
+    std::vector<Point> setup_white;  // 摆子（白，SGF AW；罕见）
     std::vector<MoveRecord> moves;
     std::vector<BlunderNote> blunders;  // 本局恶手（结构化，可命中检测）
     std::vector<std::string> notes;     // 其它备注（悔棋等）

@@ -27,6 +27,27 @@ Game::Game(const Board& board, Color to_move, double komi) : komi_(komi) {
     history_.reserve(static_cast<std::size_t>(board.size()) * board.size() * 2 + 16);
 }
 
+Game::Game(int size, double komi, const std::vector<Point>& handicap) : komi_(komi) {
+    Board b(size);
+    // Place each requested handicap stone (validated; duplicates/occupied points
+    // are ignored). The stones are setup, so they are recorded separately from
+    // the move log.
+    for (const Point& p : handicap) {
+        if (!b.in_bounds(p.x, p.y) || !b.is_empty(p.x, p.y)) continue;
+        b.set(p.x, p.y, Color::Black);
+        setup_stones_.push_back(p);
+    }
+
+    State s;
+    s.board = b;
+    s.snapshot = b.snapshot();
+    // Handicap stones are placed by Black; White opens. An empty handicap is an
+    // even game with Black to move (matching the two-arg constructor).
+    s.current = setup_stones_.empty() ? Color::Black : Color::White;
+    history_.push_back(std::move(s));
+    history_.reserve(static_cast<std::size_t>(size) * size * 2 + 16);
+}
+
 bool Game::legal_result(int x, int y, std::string* snap_out) const {
     const State& st = history_.back();
     if (st.is_over) return false;

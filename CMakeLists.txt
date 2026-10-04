@@ -20,6 +20,7 @@ endif()
 add_library(vgo_core STATIC
     src/go/board.cpp
     src/go/game.cpp
+    src/go/handicap.cpp
 )
 target_include_directories(vgo_core PUBLIC src/go)
 
@@ -122,6 +123,7 @@ add_executable(vgo_ai_tests
     tests/test_verify.cpp
     tests/test_learner.cpp
     tests/test_engine_pool.cpp
+    tests/test_handicap.cpp
 )
 target_link_libraries(vgo_ai_tests PRIVATE vgo_ai)
 add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)

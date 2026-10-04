@@ -20,6 +20,12 @@ public:
     // Loads an arbitrary position (mainly for tests / future "load game").
     explicit Game(const Board& board, Color to_move = Color::Black, double komi = 7.5);
 
+    // Starts a handicap game: `handicap` black stones pre-placed at the standard
+    // star points (see handicap.h), White to move, with the given komi (handicap
+    // games conventionally use 0.5). An empty `handicap` is an even game with
+    // Black to move (equivalent to the two-arg constructor).
+    Game(int size, double komi, const std::vector<Point>& handicap);
+
     const Board& board() const { return history_.back().board; }
     int size() const { return board().size(); }
     Color current() const { return history_.back().current; }
@@ -28,6 +34,10 @@ public:
     Point last_move() const { return history_.back().last_move; }
     bool is_over() const { return history_.back().is_over; }
     double komi() const { return komi_; }
+
+    // Stones pre-placed at game start (handicap stones). Empty for even games.
+    // These are not part of moveLog()/moves(), since they are setup, not moves.
+    const std::vector<Point>& setup_stones() const { return setup_stones_; }
 
     // Stones captured by the given color so far.
     int captures(Color c) const { return history_.back().captures[static_cast<int>(c)]; }
@@ -90,6 +100,7 @@ private:
 
     std::vector<State> history_;
     std::vector<LoggedMove> move_log_;  // 完整着法日志（含悔棋，仅记录用）
+    std::vector<Point> setup_stones_;   // 让子摆子（黑），普通局为空
     double komi_;
 };
 

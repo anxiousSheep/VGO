@@ -34,7 +34,8 @@ public:
     std::function<void()> onAiResign;       // AI 主动认输（中盘明显劣势）
 
     AIMatchController(int size, Color human_color, EngineInterface* engine,
-                      AiAdvisor* advisor, int level = 5, double kyu_hint = 20.0);
+                      AiAdvisor* advisor, int level = 5, double kyu_hint = 20.0,
+                      const std::vector<Point>& handicap = {});
 
     Game& game() { return game_; }
     const Game& game() const { return game_; }

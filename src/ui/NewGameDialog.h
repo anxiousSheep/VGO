@@ -35,6 +35,8 @@ private:
     QButtonGroup* colorGroup_ = nullptr;
     QCheckBox* autoLevel_ = nullptr;
     QComboBox* levelCombo_ = nullptr;
+    QComboBox* handicapCombo_ = nullptr;  // L6：让子数（仅执黑时可用）
     QWidget* colorRow_ = nullptr;
     QWidget* levelRow_ = nullptr;
+    QWidget* handicapRow_ = nullptr;
 };
