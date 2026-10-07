@@ -22,6 +22,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -135,6 +136,33 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         v->addStretch(3);
     }
     central_stack_->addWidget(daily_placeholder_);
+    // 人机对弈空态：未开始对局时显示「新对局」大按钮（取代不可点击的空棋盘）。
+    newgame_placeholder_ = new QWidget(this);
+    {
+        auto* v = new QVBoxLayout(newgame_placeholder_);
+        v->addStretch(2);
+        auto* hint = new QLabel(QStringLiteral("尚未开始对局"), newgame_placeholder_);
+        QFont hintFont = hint->font();
+        hintFont.setPointSize(hintFont.pointSize() + 3);
+        hint->setFont(hintFont);
+        hint->setAlignment(Qt::AlignCenter);
+        auto* btn = new QPushButton(QStringLiteral("新对局…"), newgame_placeholder_);
+        btn->setMinimumSize(240, 64);
+        QFont btnFont = btn->font();
+        btnFont.setPointSize(btnFont.pointSize() + 4);
+        btn->setFont(btnFont);
+        connect(btn, &QPushButton::clicked, this, &MainWindow::newGame);
+        auto* sub = new QLabel(QStringLiteral("选择棋盘大小、执子与难度，开始人机对弈"), newgame_placeholder_);
+        sub->setAlignment(Qt::AlignCenter);
+        sub->setStyleSheet(QStringLiteral("color: #6e7781;"));
+        v->addWidget(hint);
+        v->addSpacing(12);
+        v->addWidget(btn, 0, Qt::AlignCenter);
+        v->addSpacing(8);
+        v->addWidget(sub);
+        v->addStretch(3);
+    }
+    central_stack_->addWidget(newgame_placeholder_);
     setCentralWidget(central_stack_);
 
     // 四个同级标签页：摆棋 / 人机对弈 / 复盘 / 每日一题（各自独立，不再经「新对局」选模式）。
@@ -297,19 +325,43 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->insertAction(actQuit, demoAction_);
     gameMenu->insertSeparator(actQuit);
 
-    // 侧边工具栏（仿 IDEA 工具窗口栏，靠右）：AI 交流（上）、演示/试下（下）。
+    // 侧边工具栏（靠右，窄）：AI 交流（上）、演示（下）。按钮文字纵向排布，避免横向
+    // 文字撑宽侧边栏；菜单里仍用完整文字（「AI 交流面板」「演示/试下」）。
     {
         auto* sideBar = new QToolBar(QStringLiteral("侧边栏"), this);
         sideBar->setObjectName(QStringLiteral("sideBar"));
         sideBar->setMovable(false);
         sideBar->setOrientation(Qt::Vertical);
         sideBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        addToolBar(Qt::RightToolBarArea, sideBar);
-        sideBar->addAction(toggleChatAction_);
+
+        // 交流面板开关：与 dock 可见性双向同步。
+        auto* chatBtn = new QToolButton(sideBar);
+        chatBtn->setText(QStringLiteral("交\n流"));
+        chatBtn->setToolTip(QStringLiteral("AI 交流面板"));
+        chatBtn->setCheckable(true);
+        chatBtn->setChecked(dock_->isVisible());
+        chatBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        chatBtn->setAutoRaise(true);
+        connect(chatBtn, &QToolButton::toggled, dock_, &QDockWidget::setVisible);
+        connect(dock_, &QDockWidget::visibilityChanged, chatBtn, &QToolButton::setChecked);
+
+        // 演示开关：与菜单里的演示动作（demoAction_）互为镜像。
+        sideDemoBtn_ = new QToolButton(sideBar);
+        sideDemoBtn_->setText(QStringLiteral("演\n示"));
+        sideDemoBtn_->setToolTip(QStringLiteral("进入/退出棋盘演示（试下，不改变真实对局）"));
+        sideDemoBtn_->setCheckable(true);
+        sideDemoBtn_->setChecked(demoAction_->isChecked());
+        sideDemoBtn_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        sideDemoBtn_->setAutoRaise(true);
+        connect(demoAction_, &QAction::toggled, sideDemoBtn_, &QToolButton::setChecked);
+        connect(sideDemoBtn_, &QToolButton::toggled, demoAction_, &QAction::setChecked);
+
+        sideBar->addWidget(chatBtn);
         auto* spacer = new QWidget(sideBar);
         spacer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
         sideBar->addWidget(spacer);
-        sideBar->addAction(demoAction_);
+        sideBar->addWidget(sideDemoBtn_);
+        addToolBar(Qt::RightToolBarArea, sideBar);
     }
 
     // 教学增强（M3b.2）：局中预警开关。
@@ -825,9 +877,12 @@ void MainWindow::updateModeView() {
     const bool emptyReview = (app_mode_ == vgo::GameMode::Review) && !review_game_;
     // 每日一题且无到期习题：显示空态引导。
     const bool emptyDaily = (app_mode_ == vgo::GameMode::DailyPuzzle) && !daily_ready_;
+    // 人机对弈且尚未开始对局：显示「新对局」大按钮，取代不可点击的空棋盘。
+    const bool emptyAi = (app_mode_ == vgo::GameMode::HumanVsAi) && !controller_;
     central_stack_->setCurrentWidget(emptyReview ? review_placeholder_
                                      : emptyDaily ? daily_placeholder_
-                                                  : board_view_);
+                                     : emptyAi   ? newgame_placeholder_
+                                                 : board_view_);
 }
 
 void MainWindow::refresh() {
@@ -1214,18 +1269,22 @@ void MainWindow::onDemoToggled(bool on) {
     }
 }
 
+void MainWindow::setDemoChecked(bool on) {
+    // 菜单动作与侧边按钮的演示勾选同步（互不触发 onDemoToggled）。
+    { QSignalBlocker b(demoAction_); demoAction_->setChecked(on); }
+    if (sideDemoBtn_) { QSignalBlocker b(sideDemoBtn_); sideDemoBtn_->setChecked(on); }
+}
+
 void MainWindow::startDemo() {
     if (demo_active_) return;
     vgo::Game* g = currentGame();
     if (!g) {
-        QSignalBlocker b(demoAction_);
-        demoAction_->setChecked(false);
+        setDemoChecked(false);
         return;
     }
     if (inAiMode() && controller_ && !controller_->humanMayAct()) {
         status_->setText(QStringLiteral("请等 AI 落子后再进入演示"));
-        QSignalBlocker b(demoAction_);
-        demoAction_->setChecked(false);
+        setDemoChecked(false);
         return;
     }
     variation_.start(g->board(), g->current());
@@ -1417,8 +1476,7 @@ bool MainWindow::enterDemoAndPlace(vgo::Point p, vgo::Color color, bool reset, i
         demo_active_ = true;
         demo_dock_->setVisible(true);
         if (advisor_) advisor_->noteAnalysis(vgo::Analysis{});
-        QSignalBlocker b(demoAction_);
-        demoAction_->setChecked(true);
+        setDemoChecked(true);
     } else if (reset) {
         variation_.start(g->board(), g->current());
     }
@@ -1538,8 +1596,7 @@ void MainWindow::onDemoUndo() {
 }
 
 void MainWindow::onDemoExit() {
-    QSignalBlocker b(demoAction_);
-    demoAction_->setChecked(false);
+    setDemoChecked(false);
     exitDemo();
 }
 

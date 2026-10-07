@@ -18,6 +18,7 @@ class QDockWidget;
 class QJsonObject;
 class QStackedWidget;
 class QTabBar;
+class QToolButton;
 
 namespace vgo {
 class GobanWidget;
@@ -122,6 +123,7 @@ private:
     void startDemo();
     void exitDemo();
     void onDemoPointClicked(int x, int y);
+    void setDemoChecked(bool on);  // 菜单动作与侧边按钮的演示勾选同步（互不触发）
     void updateVariationBoard();
     vgo::Game demoGame() const;
     std::string demoMovesDescription() const;
@@ -209,6 +211,11 @@ private:
     bool daily_solved_ = false;               // 已过关（不再判题）
     QWidget* daily_placeholder_ = nullptr;    // 无题空态引导
     QAction* skipDailyAction_ = nullptr;      // 「换一题」
+
+    // 人机对弈空态：未开始对局时显示「新对局」大按钮（取代空棋盘）。
+    QWidget* newgame_placeholder_ = nullptr;
+    // 侧边栏纵向「演示」按钮（与菜单里的演示动作互为镜像）。
+    QToolButton* sideDemoBtn_ = nullptr;
 
     // 可观测（D5.6）：trace 落盘 + 最近一次回复的主变化（供证据点击跳 PV）
     std::unique_ptr<vgo::TraceStore> trace_store_;
