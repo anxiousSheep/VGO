@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -42,6 +43,19 @@ QString ensureChatCompletions(QString baseUrl) {
     while (u.endsWith('/')) u.chop(1);
     if (!u.endsWith("/chat/completions")) u += "/chat/completions";
     return u;
+}
+
+// 比较 "a.b.c" 版本号，返回 -1（a<b）/0（相等）/1（a>b）。
+int compareVersion(const QString& a, const QString& b) {
+    const QStringList pa = a.split(QLatin1Char('.'));
+    const QStringList pb = b.split(QLatin1Char('.'));
+    const int n = qMax(pa.size(), pb.size());
+    for (int i = 0; i < n; ++i) {
+        const int va = i < pa.size() ? pa.at(i).toInt() : 0;
+        const int vb = i < pb.size() ? pb.at(i).toInt() : 0;
+        if (va != vb) return va < vb ? -1 : 1;
+    }
+    return 0;
 }
 
 }  // namespace
@@ -300,10 +314,34 @@ void SettingsDialog::buildLearnerGroup() {
 
 void SettingsDialog::refreshKataGoStatus() {
     const KataGoSettings& s = ModelManager::instance().katago();
+    katagoStatus_->setStyleSheet(QString());  // 重置颜色（成功/失败态由事件处理单独上色）
     katagoStatus_->setText(ModelManager::instance().katagoStatusText());
     if (!s.variant.isEmpty()) {
         const int idx = variantCombo_->findData(s.variant);
         if (idx >= 0) variantCombo_->setCurrentIndex(idx);
+    }
+
+    // 引擎已装且无可用升级 → 主按钮显示「已安装」并禁用；否则保留「安装/更新」。
+    const bool installed = ModelManager::instance().katagoReady();
+    const bool upgradable =
+        installed && !s.version.isEmpty() &&
+        compareVersion(s.version, QString::fromStdString(kataGoVersion())) < 0;
+    const bool engineOk = installed && !upgradable;
+    installBtn_->setText(engineOk ? QStringLiteral("已安装")
+                                  : QStringLiteral("安装/更新 KataGo 引擎"));
+    installBtn_->setEnabled(!engineOk);
+
+    // 模型按钮：对应模型文件已存在则显示「已安装」并禁用。
+    const auto& models = modelAssets();
+    for (std::size_t i = 0; i < models.size() && i < 3; ++i) {
+        if (!modelButtons_[i]) continue;
+        const ModelAsset& m = models[i];
+        const bool modelInstalled = m.humanStyle
+            ? (!s.humanModel.isEmpty() && QFileInfo::exists(s.humanModel))
+            : (!s.model.isEmpty() && QFileInfo::exists(s.model));
+        modelButtons_[i]->setText(modelInstalled ? QStringLiteral("已安装")
+                                                 : QStringLiteral("安装"));
+        modelButtons_[i]->setEnabled(!modelInstalled);
     }
 }
 
@@ -329,7 +367,10 @@ void SettingsDialog::startInstall(const QString& variant, const QString& modelId
     if (!provisioner_) {
         provisioner_ = new KataGoProvisioner(this);
         connect(provisioner_, &KataGoProvisioner::stepChanged, this,
-                [this](const QString& s) { katagoStatus_->setText(s); });
+                [this](const QString& s) {
+                    katagoStatus_->setStyleSheet(QString());
+                    katagoStatus_->setText(s);
+                });
         connect(provisioner_, &KataGoProvisioner::progress, this,
                 [this](qint64 r, qint64 t) {
                     progress_->setRange(0, t > 0 ? static_cast<int>(t) : 0);
@@ -342,7 +383,14 @@ void SettingsDialog::startInstall(const QString& variant, const QString& modelId
                     progress_->setVisible(false);
                     refreshKataGoStatus();
                     emit settingsChanged();
-                    if (!ok && !e.isEmpty()) katagoStatus_->setText(QStringLiteral("失败：") + e);
+                    if (ok) {
+                        katagoStatus_->setText(QStringLiteral("安装成功"));
+                        katagoStatus_->setStyleSheet(QStringLiteral("color: #1a7f37;"));
+                    } else {
+                        katagoStatus_->setText(e.isEmpty() ? QStringLiteral("失败")
+                                                           : QStringLiteral("失败：") + e);
+                        katagoStatus_->setStyleSheet(QStringLiteral("color: #cf222e;"));
+                    }
                 });
     }
     provisioner_->install(variant, modelId);
@@ -351,9 +399,11 @@ void SettingsDialog::startInstall(const QString& variant, const QString& modelId
 void SettingsDialog::testLlmConnection() {
     const QString baseUrl = ensureChatCompletions(baseUrlEdit_->text().trimmed());
     if (baseUrl.isEmpty()) {
+        llmResult_->setStyleSheet(QString());
         llmResult_->setText(QStringLiteral("请先填写 Base URL"));
         return;
     }
+    llmResult_->setStyleSheet(QString());
     llmResult_->setText(QStringLiteral("测试中…"));
 
     QJsonObject msg;
@@ -376,7 +426,9 @@ void SettingsDialog::testLlmConnection() {
     testReply_ = nam_->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(testReply_, &QNetworkReply::finished, this, [this]() {
         QString out;
+        bool ok = false;
         if (testReply_->error() == QNetworkReply::NoError) {
+            ok = true;
             const QJsonDocument doc = QJsonDocument::fromJson(testReply_->readAll());
             const QString content = doc.object()["choices"].toArray().first().toObject()["message"]
                                         .toObject()["content"].toString();
@@ -390,6 +442,7 @@ void SettingsDialog::testLlmConnection() {
         }
         testReply_->deleteLater();
         testReply_ = nullptr;
+        llmResult_->setStyleSheet(ok ? QStringLiteral("color: #1a7f37;") : QString());
         llmResult_->setText(out);
     });
 }
