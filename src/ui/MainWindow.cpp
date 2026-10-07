@@ -29,7 +29,6 @@
 #include "ChatPanel.h"
 #include "GobanWidget.h"
 #include "NewGameDialog.h"
-#include "ReviewDialog.h"
 #include "SettingsDialog.h"
 #include "TracePanel.h"
 #include "VariationPanel.h"
@@ -46,6 +45,7 @@
 #include "ai/engine_kata/kata_engine.h"
 #include "ai/conversation_http/http_conversation.h"
 #include "ai/evaluate.h"
+#include "ai/learner/daily_puzzle.h"
 #include "ai/learner/learner_model.h"
 #include "ai/skill.h"
 #include "ai/variation.h"
@@ -114,13 +114,35 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         v->addStretch(3);
     }
     central_stack_->addWidget(review_placeholder_);
+    // 每日一题空态：无到期习题时显示引导（去下一盘让 AI 记下弱项）。
+    daily_placeholder_ = new QWidget(this);
+    {
+        auto* v = new QVBoxLayout(daily_placeholder_);
+        v->addStretch(2);
+        auto* hint = new QLabel(QStringLiteral("今日暂无习题"), daily_placeholder_);
+        QFont hintFont = hint->font();
+        hintFont.setPointSize(hintFont.pointSize() + 3);
+        hint->setFont(hintFont);
+        hint->setAlignment(Qt::AlignCenter);
+        auto* sub = new QLabel(QStringLiteral("去「人机对弈」下一盘（需 KataGo），"
+                                             "AI 会记下你的恶手，明天就有题可做了。"),
+                               daily_placeholder_);
+        sub->setAlignment(Qt::AlignCenter);
+        sub->setStyleSheet(QStringLiteral("color: #6e7781;"));
+        v->addWidget(hint);
+        v->addSpacing(12);
+        v->addWidget(sub);
+        v->addStretch(3);
+    }
+    central_stack_->addWidget(daily_placeholder_);
     setCentralWidget(central_stack_);
 
-    // 三个同级标签页：摆棋 / 人机对弈 / 复盘（各自独立，不再经「新对局」选模式）。
+    // 四个同级标签页：摆棋 / 人机对弈 / 复盘 / 每日一题（各自独立，不再经「新对局」选模式）。
     mode_bar_ = new QTabBar(this);
     mode_bar_->addTab(QStringLiteral("摆棋"));
     mode_bar_->addTab(QStringLiteral("人机对弈"));
     mode_bar_->addTab(QStringLiteral("复盘"));
+    mode_bar_->addTab(QStringLiteral("每日一题"));
     mode_bar_->setExpanding(false);
     connect(mode_bar_, &QTabBar::currentChanged, this, &MainWindow::onModeChanged);
 
@@ -198,6 +220,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     analyzeAction_->setCheckable(true);  // 手动开关：开=显示并随落子刷新，关=隐藏
     analyzeAction_->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
     analyzeAction_->setEnabled(false);  // 无 KataGo 时隐藏/禁用（见 createAiServices）
+    // 每日一题（D3.5）：换一题（跳到下一道到期习题）。
+    skipDailyAction_ = new QAction(QStringLiteral("换一题"), this);
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
     actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     auto* actSettings = new QAction(QStringLiteral("模型设置…"), this);
@@ -213,6 +237,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(prevAction_, &QAction::triggered, this, [this] { stepReview(-1); });
     connect(nextAction_, &QAction::triggered, this, [this] { stepReview(1); });
     connect(analyzeAction_, &QAction::toggled, this, &MainWindow::onAnalyzeToggled);
+    connect(skipDailyAction_, &QAction::triggered, this, &MainWindow::skipDailyProblem);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
     connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
@@ -232,6 +257,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->addSeparator();
     gameMenu->addAction(prevAction_);
     gameMenu->addAction(nextAction_);
+    gameMenu->addSeparator();
+    gameMenu->addAction(skipDailyAction_);
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
@@ -303,11 +330,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actTrace, &QAction::triggered, this, &MainWindow::showTracePanel);
     settingsMenu->addAction(actTrace);
 
-    // 学习者画像（D3.5）：今日一题复习队列。
-    auto* actReview = new QAction(QStringLiteral("今日一题（复习）"), this);
-    connect(actReview, &QAction::triggered, this, &MainWindow::showDailyReview);
-    settingsMenu->addAction(actReview);
-
     variation_panel_ = new vgo::VariationPanel(this);
     connect(variation_panel_, &vgo::VariationPanel::aiMoveRequested, this,
             &MainWindow::onDemoAiMove);
@@ -352,6 +374,8 @@ vgo::Game* MainWindow::currentGame() const {
             return controller_ ? &controller_->game() : nullptr;
         case vgo::GameMode::Review:
             return review_game_.get();
+        case vgo::GameMode::DailyPuzzle:
+            return daily_game_.get();
         case vgo::GameMode::Placement:
         default:
             return game_;
@@ -655,8 +679,10 @@ void MainWindow::onModeChanged(int index) {
         case 0: app_mode_ = vgo::GameMode::Placement; break;
         case 1: app_mode_ = vgo::GameMode::HumanVsAi; break;
         case 2: app_mode_ = vgo::GameMode::Review; break;
+        case 3: app_mode_ = vgo::GameMode::DailyPuzzle; break;
         default: return;
     }
+    if (app_mode_ == vgo::GameMode::DailyPuzzle) enterDailyPuzzle();
     refresh();
     updateActionsForMode();
 }
@@ -770,6 +796,7 @@ void MainWindow::updateActionsForMode() {
     const bool placement = (app_mode_ == vgo::GameMode::Placement);
     const bool ai = (app_mode_ == vgo::GameMode::HumanVsAi);
     const bool review = (app_mode_ == vgo::GameMode::Review);
+    const bool daily = (app_mode_ == vgo::GameMode::DailyPuzzle);
     const int n = static_cast<int>(review_record_.moves.size());
 
     // 菜单/工具栏从属当前标签页：只显示本模式相关动作（隐藏而非置灰）。
@@ -784,17 +811,23 @@ void MainWindow::updateActionsForMode() {
     prevAction_->setVisible(review);         // 上一步：复盘
     nextAction_->setVisible(review);         // 下一步：复盘
     if (blunderAction_) blunderAction_->setVisible(ai);  // 局中预警：对弈
+    skipDailyAction_->setVisible(daily);     // 换一题：每日一题
 
     // 复盘导航随光标可用/不可用。
     prevAction_->setEnabled(review && review_cursor_ > 0);
     nextAction_->setEnabled(review && review_cursor_ < n);
+    skipDailyAction_->setEnabled(daily);
 }
 
 void MainWindow::updateModeView() {
     if (!central_stack_) return;
     // 复盘且未导入棋谱：不显示棋盘（实际棋谱尺寸未知），改为导入引导大按钮。
     const bool emptyReview = (app_mode_ == vgo::GameMode::Review) && !review_game_;
-    central_stack_->setCurrentWidget(emptyReview ? review_placeholder_ : board_view_);
+    // 每日一题且无到期习题：显示空态引导。
+    const bool emptyDaily = (app_mode_ == vgo::GameMode::DailyPuzzle) && !daily_ready_;
+    central_stack_->setCurrentWidget(emptyReview ? review_placeholder_
+                                     : emptyDaily ? daily_placeholder_
+                                                  : board_view_);
 }
 
 void MainWindow::refresh() {
@@ -828,10 +861,12 @@ void MainWindow::refresh() {
     // analyze 会让 genmove 被判忙而停一手）。AI 落子后 refresh 会再触发一次并成功。
     if (analyzeAction_ && analyzeAction_->isChecked()) {
         QTimer::singleShot(0, this, [this] { requestAnalysis(false); });
-    } else if (advisor_ && usingKata() && currentGame()) {
+    } else if (app_mode_ != vgo::GameMode::DailyPuzzle && advisor_ && usingKata() &&
+               currentGame()) {
         // D1.8：形势开关关闭时，仍用 Background 优先级预热工具快照（与形势开关解耦），
         // 供模型调用 analyze_position / ownership_map / dead_groups / life_death_solve
         // 时拿到真值，而非误报「KataGo 不可用」。分析池独立于落子引擎，不争抢 genmove。
+        // 每日一题 tab 不预热（判题走 onDailyAnswer 的 what-if，无需工具快照）。
         advisor_->prewarmAnalysis(*currentGame());
     }
 }
@@ -843,6 +878,10 @@ void MainWindow::onPointClicked(int x, int y) {
     }
     if (app_mode_ == vgo::GameMode::Review) {
         status_->setText(QStringLiteral("复盘模式下请点「演示/试下」才能落子"));
+        return;
+    }
+    if (app_mode_ == vgo::GameMode::DailyPuzzle) {
+        onDailyAnswer(x, y);
         return;
     }
     if (app_mode_ == vgo::GameMode::HumanVsAi) {
@@ -1523,12 +1562,14 @@ void MainWindow::maybeWarnBlunder() {
     const vgo::Color mover = vgo::opponent(g->current());
     vgo::Game before = *g;
     before.undo();
+    // 恶手前一手的局面快照：作为「每日一题」的题面（棋盘题）。
+    const std::string snapshot = before.board().snapshot();
     const auto facts = vgo::extractBoardFacts(
         before.board(), g->board(), vgo::Move{p, false},
         g->captures(mover) - before.captures(mover), mover);
 
     // evaluateLastMove 才是「已落子」的正确评估语义（evaluateMove 会再落一手而失败）。
-    advisor_->evaluateLastMove(*g, [this, move_number, size, facts, p](
+    advisor_->evaluateLastMove(*g, [this, move_number, size, facts, p, mover, snapshot](
                                        const vgo::MoveEvaluation& e) {
         if (!vgo::isBlunder(e)) return;
         const double lost = std::max(0.0, e.lead_before - e.lead_after);
@@ -1541,10 +1582,11 @@ void MainWindow::maybeWarnBlunder() {
             learner_->model().recordBlunder(vgo::BlunderEvent{area, lost});
             game_total_loss_ += lost;
             ++game_blunder_count_;
-            // D3.5：把恶手沉淀进 SM-2 复习队列（「今日一题」的题源之一）。
+            // D3.5：把恶手沉淀成「每日一题」棋盘题（含局面快照 + 领先基准，供判题）。
             const int today = QDate::currentDate().toJulianDay();
-            learner_->model().addReviewItem(
-                vgo::reviewItemFromBlunder(move_number, p, warning, area, today, size));
+            learner_->model().addReviewItem(vgo::reviewItemFromBlunder(
+                move_number, p, warning, area, today, size, snapshot, e.lead_before,
+                e.lead_after, mover));
             learner_->save();
         }
 
@@ -1587,12 +1629,104 @@ void MainWindow::showTracePanel() {
     dlg->show();
 }
 
-void MainWindow::showDailyReview() {
-    if (!learner_) return;
+void MainWindow::enterDailyPuzzle() {
+    if (demo_active_) exitDemo();
+    daily_ready_ = false;
+    daily_solved_ = false;
+    daily_game_.reset();
+    daily_problem_ = vgo::ReviewItem{};
+
+    chat_->clear();
+    if (!learner_ || !learner_->enabled()) {
+        appendNote(QStringLiteral("每日一题：学习记忆已关闭，暂无习题。可在「模型设置」里开启。"));
+        refresh();
+        return;
+    }
+
     const int today = QDate::currentDate().toJulianDay();
-    auto* dlg = new ReviewDialog(learner_.get(), today, this);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->show();
+    const std::vector<const vgo::ReviewItem*> due = learner_->model().dueItems(today);
+    for (const vgo::ReviewItem* it : due) {
+        if (it->board_snapshot.empty()) continue;
+        vgo::Board b;
+        if (!vgo::boardFromSnapshot(it->board_snapshot, it->size, &b)) continue;
+        daily_problem_ = *it;
+        daily_game_ = std::make_unique<vgo::Game>(b, it->to_move);
+        daily_ready_ = true;
+        break;
+    }
+
+    if (daily_ready_) {
+        const QString coord = daily_problem_.blunder_move.x >= 0
+                                  ? QString::fromStdString(vgo::gtpPoint(
+                                        daily_problem_.blunder_move, daily_problem_.size))
+                                  : QStringLiteral("—");
+        appendNote(QStringLiteral("每日一题 · %1\n%2\n（你上次下在 %3，找到更好的落点。）")
+                       .arg(QString::fromUtf8(vgo::weakAreaLabel(daily_problem_.area)))
+                       .arg(QString::fromStdString(daily_problem_.prompt))
+                       .arg(coord));
+    } else {
+        appendNote(QStringLiteral("今日暂无到期习题。去「人机对弈」下一盘（需 KataGo），"
+                                  "AI 会记下你的恶手，之后就有题可做了。"));
+    }
+    refresh();
+}
+
+void MainWindow::onDailyAnswer(int x, int y) {
+    if (!daily_ready_ || !daily_game_ || daily_solved_) return;
+    if (!daily_game_->is_legal(x, y)) {
+        status_->setText(QStringLiteral("该位置不能落子（已占/自杀/打劫）"));
+        return;
+    }
+    if (!advisor_ || !usingKata()) {
+        status_->setText(QStringLiteral("需要 KataGo 才能判题"));
+        return;
+    }
+    const vgo::Point p{x, y};
+    const std::string id = daily_problem_.id;
+    const double lead_blunder = daily_problem_.lead_blunder;
+    const double lead_before = daily_problem_.lead_before;
+    status_->setText(QStringLiteral("判题中…"));
+    advisor_->evaluateMove(*daily_game_, p,
+        [this, p, id, lead_blunder, lead_before](const vgo::MoveEvaluation& e) {
+            // 已切走 / 换题 / 已过关：丢弃过期结果。
+            if (!daily_ready_ || daily_solved_ || daily_problem_.id != id) return;
+            if (!e.valid) {
+                status_->setText(QStringLiteral("判题失败（引擎不可用）"));
+                return;
+            }
+            const vgo::DailyVerdict v =
+                vgo::judgeDailyMove(e.lead_after, lead_blunder, lead_before);
+            if (!v.passed) {
+                status_->setText(QStringLiteral("这手没比上次更好（提升 %1 目），再想想。")
+                                     .arg(v.improvement, 0, 'f', 1));
+                return;
+            }
+            daily_game_->play(p.x, p.y);
+            daily_solved_ = true;
+            refresh();                      // 更新棋盘（落子）+ updateStatus 显示「已完成」
+            board_view_->setHighlight({p}); // 高亮你的答案
+            const QString msg = QStringLiteral("答对了！相较上次提升 %1 目 · 得分 %2。")
+                                    .arg(v.improvement, 0, 'f', 1)
+                                    .arg(v.score);
+            status_->setText(msg);          // 覆盖为结果
+            appendNote(msg);
+            // 推进 SM-2（质量按分数映射：≥90→5，≥75→4，否则 3）。
+            if (learner_ && learner_->enabled()) {
+                const int quality = v.score >= 90 ? 5 : (v.score >= 75 ? 4 : 3);
+                learner_->model().review(id, quality, QDate::currentDate().toJulianDay());
+                learner_->save();
+            }
+        });
+}
+
+void MainWindow::skipDailyProblem() {
+    if (app_mode_ != vgo::GameMode::DailyPuzzle) return;
+    // 把当前题延后到明天（记复习质量=2），再重新选一道到期题。
+    if (daily_ready_ && learner_ && learner_->enabled()) {
+        learner_->model().review(daily_problem_.id, 2, QDate::currentDate().toJulianDay());
+        learner_->save();
+    }
+    enterDailyPuzzle();
 }
 
 void MainWindow::loadSkills() {
@@ -1634,6 +1768,20 @@ void MainWindow::updateStatus() {
         status_->setText(QStringLiteral("复盘：第 %1 / %2 手")
                              .arg(review_cursor_)
                              .arg(static_cast<int>(review_record_.moves.size())));
+        return;
+    }
+
+    if (app_mode_ == vgo::GameMode::DailyPuzzle) {
+        if (!daily_ready_) {
+            status_->setText(QStringLiteral("每日一题：今日暂无到期习题"));
+        } else if (daily_solved_) {
+            status_->setText(QStringLiteral("每日一题：已完成今天的习题 ✓"));
+        } else {
+            status_->setText(QStringLiteral("每日一题：轮到%1，找到比上次更好的落点。")
+                                 .arg(daily_problem_.to_move == vgo::Color::Black
+                                          ? QStringLiteral("黑")
+                                          : QStringLiteral("白")));
+        }
         return;
     }
 

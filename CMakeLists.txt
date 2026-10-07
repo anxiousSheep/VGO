@@ -90,6 +90,8 @@ add_library(vgo_ai STATIC
     src/ai/verify/bad_sample.cpp
     src/ai/learner/learner_model.h
     src/ai/learner/learner_model.cpp
+    src/ai/learner/daily_puzzle.h
+    src/ai/learner/daily_puzzle.cpp
 )
 target_include_directories(vgo_ai PUBLIC src)
 target_link_libraries(vgo_ai PUBLIC vgo_core)
@@ -127,6 +129,7 @@ add_executable(vgo_ai_tests
     tests/test_agent.cpp
     tests/test_verify.cpp
     tests/test_learner.cpp
+    tests/test_daily_puzzle.cpp
     tests/test_engine_pool.cpp
     tests/test_handicap.cpp
 )
@@ -236,8 +239,6 @@ add_executable(vgo_app WIN32
     src/ui/VariationPanel.cpp
     src/ui/NewGameDialog.h
     src/ui/NewGameDialog.cpp
-    src/ui/ReviewDialog.h
-    src/ui/ReviewDialog.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
     src/ui/AppConfig.h

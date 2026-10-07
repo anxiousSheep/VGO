@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ai/game_setup.h"
+#include "ai/learner/learner_model.h"
 #include "ai/record.h"
 #include "ai/variation.h"
 #include "go/game.h"
@@ -88,8 +89,10 @@ private slots:
     // 可观测（D5.6）：查看运行 trace 面板
     void showTracePanel();
 
-    // 学习者画像（D3.5）：打开「今日一题」复习队列
-    void showDailyReview();
+    // 学习者画像（D3.5）：进入「每日一题」标签页 / 判题 / 换一题
+    void enterDailyPuzzle();
+    void onDailyAnswer(int x, int y);
+    void skipDailyProblem();
 
 private:
     void applySetup(const vgo::GameSetup& setup);
@@ -198,6 +201,14 @@ private:
     double game_total_loss_ = 0.0;   // 本局累计恶手点数损失（喂 avg_loss_per_move）
     int game_blunder_count_ = 0;
     bool game_recorded_ = false;
+
+    // 每日一题（D3.5）：当天恶手复盘题 + 判题状态
+    std::unique_ptr<vgo::Game> daily_game_;   // 由题目快照重建的局面
+    vgo::ReviewItem daily_problem_;           // 当前题目（含快照 / 领先 / 恶手说明）
+    bool daily_ready_ = false;                // 当天有题可做
+    bool daily_solved_ = false;               // 已过关（不再判题）
+    QWidget* daily_placeholder_ = nullptr;    // 无题空态引导
+    QAction* skipDailyAction_ = nullptr;      // 「换一题」
 
     // 可观测（D5.6）：trace 落盘 + 最近一次回复的主变化（供证据点击跳 PV）
     std::unique_ptr<vgo::TraceStore> trace_store_;

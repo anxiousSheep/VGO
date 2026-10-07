@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 复习队列（SM-2 + 今日一题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→SM-2 复习项 + `ReviewDialog` 今日一题入口；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
+| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -293,7 +293,7 @@ struct Tool {
 | D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ✅ |
 | D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | ✅ |
 | D3.4 | 动态难度：观测棋力自动标定 level + **新手难度动态爬坡**（`rank_20k→…→rank_1d` 细粒度阶梯，消除新手→业余1段断崖；保留手动 override） | `NewGameDialog` + `LearnerModel` + `strength.*` | ✅ |
-| D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ✅ |
+| D3.5 | 每日一题标签页：恶手棋盘题（动态棋盘 + 宽松判题 + 分数 60..100 双射）+ SM-2 | `learner/` + `ui/` | ✅ |
 | D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ✅ |
 
 ### 5.4 验收标准
@@ -323,6 +323,20 @@ struct Tool {
 - **炸鱼惩罚（反炸鱼）**：`smurfGuardedLevel`——强手（估计 `业余1段` 及以上）**手动**选择新手档时，有 5% 概率匹配职业 AI（采用形势判断 AI 的段位 `analysisLevel`）；系统**自动**选档不触发，以此惩罚「开小号虐新手」的炸鱼棋手。
 - KataGo HumanSL 的 `rank_*` 档位已随 L13 真实集成实测确认（`rank_20k/1d/3d/5d/7d/9d`），阶梯中的 `15k/10k/7k/5k/3k/1k` 可在真实 KataGo 上进一步校准。
 - 与 L1/L2（难度标定）共用同一阶梯：L2 的「更细难度标定」落地后，本阶梯即为其新手带部分；对数映射为 L1 精确标定前的合理启发式。
+
+### 5.6 每日一题（D3.5 细化：棋盘题 + 宽松判题）
+
+**题源**：恶手复盘题——把学习者自己的恶手局面存成棋盘题（`reviewItemFromBlunder` 存恶手前一手的 `Board::snapshot()` + `lead_before/lead_blunder` + 恶手落点），而非内置静态题库（无 KataGo / 没下过棋时当天无题，空态引导「去下一盘让 AI 记下弱项」）。
+
+**出题选择**：当天取到期（SM-2 `due_day`）且带棋盘快照的第一道；「换一题」记复习质量=2（失败）延到明天再选下一道。
+
+**判题口径（宽松）**：用户在新标签页落子 → `MoveEvaluator::evaluate` 求该点 `lead_new`；`improvement = lead_new - lead_blunder`，`max = lead_before - lead_blunder`。
+
+- **过关**：`improvement > 0`（比恶手好即可，与恶手持平 / 更差都不过）。
+- **分数**：`score = clamp(round(60 + 40·improvement/max), 60, 100)` —— 与提升目数 `(0, max]` 双射（提升→0⁺ 得 60，提升=max 得 100，找到比当时引擎最佳还好的点钳制 100）。
+- 过关后展示「提升 X.X 目 · 得分 Y」并推进该题 SM-2（质量按分数映射：≥90→5、≥75→4、否则 3）；未过提示「没比上次更好」可重试。
+
+**动态棋盘**：题目带 `size`，用 `Game(Board, to_move)` 重建局面，`GobanWidget` 按 `Board::size()` 自动变棋盘大小。
 
 ---
 

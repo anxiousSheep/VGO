@@ -5,6 +5,7 @@
 
 #include "../gtp.h"
 #include "../json.h"
+#include "daily_puzzle.h"
 
 namespace vgo {
 
@@ -60,11 +61,18 @@ WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,
 
 ReviewItem reviewItemFromBlunder(int move_number, const Point& point,
                                  const std::string& note, WeakArea area,
-                                 int today, int size) {
+                                 int today, int size,
+                                 const std::string& board_snapshot,
+                                 double lead_before, double lead_blunder,
+                                 Color to_move) {
     ReviewItem it;
     const std::string coord =
         (point.x >= 0 && point.y >= 0) ? gtpPoint(point, size) : std::string();
-    it.id = "blunder-" + std::to_string(move_number) + "-" + coord;
+    // 有棋盘快照时按「局面」去重（跨局同位复用同一条）；否则回退「手数-坐标」。
+    if (!board_snapshot.empty())
+        it.id = "blunder-" + snapshotHash(board_snapshot);
+    else
+        it.id = "blunder-" + std::to_string(move_number) + "-" + coord;
     it.area = area;
     it.due_day = today;
     // 题面：手数 + 落点 + 恶手说明；无坐标（虚着）时退化为纯文字。
@@ -74,6 +82,14 @@ ReviewItem reviewItemFromBlunder(int move_number, const Point& point,
     it.prompt += note.empty() ? std::string("这一步是恶手") : note;
     it.prompt += "。回想一下这手棋的问题，以及更稳的下法。";
     it.position_key = std::to_string(move_number) + "-" + coord;
+    // D3.5 棋盘题字段。
+    it.size = size;
+    it.board_snapshot = board_snapshot;
+    it.to_move = to_move;
+    it.blunder_move = point;
+    it.lead_before = lead_before;
+    it.lead_blunder = lead_blunder;
+    it.note = note;
     return it;
 }
 
@@ -197,6 +213,14 @@ std::string LearnerModel::serialize() const {
             {"due_day", Json::makeNumber(r.due_day)},
             {"prompt", Json::makeString(r.prompt)},
             {"position_key", Json::makeString(r.position_key)},
+            {"size", Json::makeNumber(r.size)},
+            {"board_snapshot", Json::makeString(r.board_snapshot)},
+            {"to_move", Json::makeNumber(static_cast<int>(r.to_move))},
+            {"blunder_x", Json::makeNumber(r.blunder_move.x)},
+            {"blunder_y", Json::makeNumber(r.blunder_move.y)},
+            {"lead_before", Json::makeNumber(r.lead_before)},
+            {"lead_blunder", Json::makeNumber(r.lead_blunder)},
+            {"note", Json::makeString(r.note)},
         }));
     }
 
@@ -246,6 +270,15 @@ bool LearnerModel::deserialize(const std::string& json) {
             it.due_day = r.get("due_day") ? static_cast<int>(r.get("due_day")->asNumber()) : 0;
             it.prompt = r.get("prompt") ? r.get("prompt")->asString() : "";
             it.position_key = r.get("position_key") ? r.get("position_key")->asString() : "";
+            it.size = r.get("size") ? static_cast<int>(r.get("size")->asNumber()) : 9;
+            it.board_snapshot = r.get("board_snapshot") ? r.get("board_snapshot")->asString() : "";
+            const int to_move = r.get("to_move") ? static_cast<int>(r.get("to_move")->asNumber()) : 1;
+            it.to_move = (to_move == 2) ? Color::White : (to_move == 1 ? Color::Black : Color::Empty);
+            it.blunder_move = {r.get("blunder_x") ? static_cast<int>(r.get("blunder_x")->asNumber()) : -1,
+                               r.get("blunder_y") ? static_cast<int>(r.get("blunder_y")->asNumber()) : -1};
+            it.lead_before = r.get("lead_before") ? r.get("lead_before")->asNumber() : 0.0;
+            it.lead_blunder = r.get("lead_blunder") ? r.get("lead_blunder")->asNumber() : 0.0;
+            it.note = r.get("note") ? r.get("note")->asString() : "";
             reviews_.push_back(std::move(it));
         }
     }
