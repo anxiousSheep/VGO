@@ -366,8 +366,11 @@ void SettingsDialog::testLlmConnection() {
 
     QNetworkRequest req{QUrl(baseUrl)};
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    const QString key = keyEdit_->text().trimmed();
-    if (!key.isEmpty() && !key.startsWith(QStringLiteral("••••")))
+    // 输入框里回显的是掩码（••••1234），不能直接拿去鉴权。用户没改过 key 时，
+    // 取 ModelManager 中已解密的真实 key；只有当场编辑过（keyChanged_）才用输入框文本。
+    const QString key = keyChanged_ ? keyEdit_->text().trimmed()
+                                    : ModelManager::instance().apiKey();
+    if (!key.isEmpty())
         req.setRawHeader("Authorization", ("Bearer " + key).toUtf8());
 
     testReply_ = nam_->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
