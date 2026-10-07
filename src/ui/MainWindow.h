@@ -28,6 +28,7 @@ class AiAdvisor;
 class AIMatchController;
 class LearnerStore;
 class TraceStore;
+class BadSampleStore;
 struct ConversationReply;
 struct Analysis;
 struct MoveEvaluation;
@@ -86,6 +87,9 @@ private slots:
 
     // 可观测（D5.6）：查看运行 trace 面板
     void showTracePanel();
+
+    // 学习者画像（D3.5）：打开「今日一题」复习队列
+    void showDailyReview();
 
 private:
     void applySetup(const vgo::GameSetup& setup);
@@ -197,5 +201,6 @@ private:
 
     // 可观测（D5.6）：trace 落盘 + 最近一次回复的主变化（供证据点击跳 PV）
     std::unique_ptr<vgo::TraceStore> trace_store_;
+    std::unique_ptr<vgo::BadSampleStore> bad_sample_store_;  // D2.5 坏样本集
     std::vector<vgo::Point> last_pv_;
 };

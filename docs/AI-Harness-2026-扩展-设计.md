@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成** |
+| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 复习队列（SM-2 + 今日一题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→SM-2 复习项 + `ReviewDialog` 今日一题入口；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -244,7 +244,7 @@ struct Tool {
 | D2.2 | 输出结构化：`<claims>` JSON（或 strict schema 分支）进 prompt | `conversation_http` + 模板 | ✅ |
 | D2.3 | 三档处置接线：改写标注 / 灰显 + unsure / 正常渲染 | `AiAdvisor` + `ConversationReply` | ✅ |
 | D2.4 | 证据挂载：`source` 字段 + hover 溯源 + 跳 PV | `ChatPanel` / `GobanWidget` | ✅ |
-| D2.5 | 拦截失败进 telemetry（坏样本集） | 与 D5 观测共用 | 🔄 |
+| D2.5 | 拦截失败进 telemetry（坏样本集） | `verify/bad_sample.*` + `ui/model/BadSampleStore` | ✅ |
 
 ### 4.4 验收标准
 
@@ -293,7 +293,7 @@ struct Tool {
 | D3.2 | blunder 采集：UI 空闲时异步 what-if（复用 `MoveEvaluator`） | `AiAdvisor` + UI 线程策略 | ✅ |
 | D3.3 | `LearnerStore` 持久化（jsonl）+ 隐私开关 / 导出 / 清空 | `ui/model/` | ✅ |
 | D3.4 | 动态难度：观测棋力自动标定 level + **新手难度动态爬坡**（`rank_20k→…→rank_1d` 细粒度阶梯，消除新手→业余1段断崖；保留手动 override） | `NewGameDialog` + `LearnerModel` + `strength.*` | ✅ |
-| D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ⬜ |
+| D3.5 | 复习队列：SM-2（简化）+「今日一题」入口 | `learner/` + `ui/` | ✅ |
 | D3.6 | 教练记忆注入 prompt | `http_conversation` + `template_conversation` | ✅ |
 
 ### 5.4 验收标准
@@ -419,11 +419,11 @@ last_score: 0.71
 |---|---|---|---|
 | D5.1 | 降级档位徽标（最便宜、立竿见影，消除静默降级） | `MainWindow` / `ChatPanel` | ✅ |
 | D5.2 | 投机预生成：genmove 期间并行预跑讲解，position hash 缓存 | `advisor` / `MainWindow` | ✅（经 L16 WinHTTP 直连修复后恢复） |
-| D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ⬜ |
+| D5.3 | 模型路由：轻模型（意图/工具）+ 强模型（讲解） | `conversation_http` / 配置 | ✅ |
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_pool` / `AiAdvisor` / `MainWindow` | ✅ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |
 | D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | ✅ |
-| D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ⬜ |
+| D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ✅ |
 
 ### 7.4 验收标准
 

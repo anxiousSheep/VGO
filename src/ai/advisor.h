@@ -11,6 +11,7 @@
 #include "engine.h"
 #include "evaluate.h"
 #include "go/game.h"
+#include "verify/bad_sample.h"
 
 namespace vgo {
 
@@ -102,6 +103,12 @@ public:
         trace_model_ = model;
     }
 
+    // D2.5 坏样本集：校验闸门拦截到「修正/不可验证」时，把样本交给 UI 落盘，
+    // 反哺 D4 评估闭环（纯逻辑层不碰 I/O）。
+    void setBadSampleSink(std::function<void(const BadSample&)> fn) {
+        bad_sample_sink_ = std::move(fn);
+    }
+
 private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
@@ -127,6 +134,7 @@ private:
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
+    std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5
     std::string trace_route_ = "template";
     std::string trace_model_;
     bool speculative_explain_ = false;                 // D5.2 投机预生成开关

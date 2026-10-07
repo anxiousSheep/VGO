@@ -52,6 +52,7 @@ private:
     QComboBox* providerCombo_ = nullptr;
     QLineEdit* baseUrlEdit_ = nullptr;
     QLineEdit* modelEdit_ = nullptr;
+    QLineEdit* routerModelEdit_ = nullptr;  // D5.3：可选轻模型（工具选择）
     QLineEdit* keyEdit_ = nullptr;
     QLabel* llmResult_ = nullptr;
 

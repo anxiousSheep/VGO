@@ -55,7 +55,15 @@ struct ReviewItem {
     double interval_days = 1.0;
     double ease = 2.5;
     int due_day = 0;
+    std::string prompt;        // D3.5 题面（恶手说明 / 复习提示），供「今日一题」展示
+    std::string position_key;  // D3.5 定位锚点（如「12-C3」），用于跨局去重 / 回看
 };
+
+// D3.5 复习队列：把一次恶手映射成一条 SM-2 复习项。id 由手数 + 落点稳定生成
+// （跨局同手同点复用同一条，addReviewItem 按 id 去重），题面含手数 / 坐标 / 说明。
+ReviewItem reviewItemFromBlunder(int move_number, const Point& point,
+                                 const std::string& note, WeakArea area,
+                                 int today, int size);
 
 class LearnerModel {
 public:

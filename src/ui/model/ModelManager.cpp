@@ -101,6 +101,7 @@ void ModelManager::readConfig() {
         llm_.provider = l.value("provider").toString();
         llm_.baseUrl = l.value("base_url").toString();
         llm_.model = l.value("model").toString();
+        llm_.routerModel = l.value("router_model").toString();
     }
     onboardingDone_ = root.value("onboarding_done").toBool(false);
     analysisLevel_ = root.value("analysis_level").toInt(15);
@@ -121,6 +122,7 @@ void ModelManager::saveConfig() {
     l["provider"] = llm_.provider;
     l["base_url"] = llm_.baseUrl;
     l["model"] = llm_.model;
+    l["router_model"] = llm_.routerModel;
 
     QJsonObject root;
     root["katago"] = k;

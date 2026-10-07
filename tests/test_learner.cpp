@@ -109,6 +109,42 @@ TEST(learner_sm2_reset_on_fail) {
     CHECK_EQ(m.dueItems(2).size(), 1u);
 }
 
+TEST(learner_review_item_from_blunder) {
+    // 由恶手生成复习项：id 稳定（手数+落点）、题面含手数/坐标/说明、到期日=今天。
+    // Point{2,6} 在 9 路盘 = GTP "C3"（y=0 为顶，行号 = size - y）。
+    const ReviewItem it =
+        reviewItemFromBlunder(12, Point{2, 6}, "胜率掉了 15%", WeakArea::Fighting, 100, 9);
+    CHECK_EQ(it.id, std::string("blunder-12-C3"));
+    CHECK(it.prompt.find("第 12 手") != std::string::npos);
+    CHECK(it.prompt.find("C3") != std::string::npos);
+    CHECK(it.prompt.find("胜率掉了 15%") != std::string::npos);
+    CHECK_EQ(it.position_key, std::string("12-C3"));
+    CHECK_EQ(it.due_day, 100);
+    CHECK(it.area == WeakArea::Fighting);
+
+    // 无坐标（虚着）退化为纯文字题面，仍可复习。
+    const ReviewItem pass = reviewItemFromBlunder(5, Point{-1, -1}, "", WeakArea::Endgame, 0, 9);
+    CHECK(pass.prompt.find("第 5 手") != std::string::npos);
+    CHECK(!pass.prompt.empty());
+}
+
+TEST(learner_review_item_content_roundtrip) {
+    // prompt / position_key 应随画像序列化往返，供「今日一题」跨启动展示题面。
+    LearnerModel m;
+    const ReviewItem it =
+        reviewItemFromBlunder(12, Point{2, 6}, "胜率掉了 15%", WeakArea::Ko, 100, 9);
+    m.addReviewItem(it);
+
+    const std::string json = m.serialize();
+    LearnerModel out;
+    CHECK(out.deserialize(json));
+    CHECK_EQ(out.reviewCount(), 1u);
+    const std::vector<const ReviewItem*> due = out.dueItems(100);
+    CHECK_EQ(due.size(), 1u);
+    CHECK_EQ(due[0]->prompt, it.prompt);
+    CHECK_EQ(due[0]->position_key, it.position_key);
+}
+
 TEST(learner_serialize_roundtrip) {
     LearnerModel m;
     m.recordBlunder({WeakArea::Ko, 2.0});

@@ -4,6 +4,7 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDate>
 #include <QDir>
 #include <QDockWidget>
 #include <QEventLoop>
@@ -28,6 +29,7 @@
 #include "ChatPanel.h"
 #include "GobanWidget.h"
 #include "NewGameDialog.h"
+#include "ReviewDialog.h"
 #include "SettingsDialog.h"
 #include "TracePanel.h"
 #include "VariationPanel.h"
@@ -47,6 +49,7 @@
 #include "ai/learner/learner_model.h"
 #include "ai/skill.h"
 #include "ai/variation.h"
+#include "model/BadSampleStore.h"
 #include "model/LearnerStore.h"
 #include "model/ModelManager.h"
 #include "model/TraceStore.h"
@@ -76,6 +79,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     learner_->load();
     // D5.6：运行 trace 落盘（每次问答一条，供本地面板查看）。
     trace_store_ = std::make_unique<vgo::TraceStore>(vgo::TraceStore::defaultPath());
+    // D2.5：坏样本集落盘（校验拦截到的幻觉断言，反哺 D4 评估闭环）。
+    bad_sample_store_ = std::make_unique<vgo::BadSampleStore>(vgo::BadSampleStore::defaultPath());
 
     board_view_ = new vgo::GobanWidget(this);
     connect(board_view_, &vgo::GobanWidget::pointClicked, this, &MainWindow::onPointClicked);
@@ -298,6 +303,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(actTrace, &QAction::triggered, this, &MainWindow::showTracePanel);
     settingsMenu->addAction(actTrace);
 
+    // 学习者画像（D3.5）：今日一题复习队列。
+    auto* actReview = new QAction(QStringLiteral("今日一题（复习）"), this);
+    connect(actReview, &QAction::triggered, this, &MainWindow::showDailyReview);
+    settingsMenu->addAction(actReview);
+
     variation_panel_ = new vgo::VariationPanel(this);
     connect(variation_panel_, &vgo::VariationPanel::aiMoveRequested, this,
             &MainWindow::onDemoAiMove);
@@ -421,6 +431,8 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
         auto* h = new vgo::HttpConversationService(ls.baseUrl,
                                                    vgo::ModelManager::instance().apiKey(),
                                                    ls.model);
+        // D5.3 模型路由：可选轻模型（意图/工具选择），空则单模型。
+        if (!ls.routerModel.isEmpty()) h->setRouterModel(ls.routerModel);
         if (h->available()) conversation_ = h; else delete h;
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
@@ -454,6 +466,10 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
     advisor_->setTraceMeta(usingHttp ? "http" : "template", ls.model.toStdString());
     advisor_->setTraceSink([this](const vgo::AgentTraceRecord& rec) {
         if (trace_store_) trace_store_->append(rec);
+    });
+    // D2.5：校验拦截到「修正/不可验证」时，沉淀坏样本。
+    advisor_->setBadSampleSink([this](const vgo::BadSample& s) {
+        if (bad_sample_store_) bad_sample_store_->append(s);
     });
     // 形势显示依赖 KataGo 的 ownership；未接 KataGo 时隐藏该功能（M6 验收）。
     analyzeAction_->setEnabled(usingKata);
@@ -1519,20 +1535,24 @@ void MainWindow::maybeWarnBlunder() {
 
         // D3.2：把恶手喂给学习者画像（跨局弱项向量 + 本局点数损失），仅人机对弈
         // 采集，避免摆棋试下污染画像；隐私开关关闭时不采集。
+        const vgo::WeakArea area = vgo::classifyBlunderArea(facts, move_number, size);
+        const std::string warning = vgo::blunderWarning(e);
         if (inAiMode() && learner_ && learner_->enabled()) {
-            learner_->model().recordBlunder(
-                vgo::BlunderEvent{vgo::classifyBlunderArea(facts, move_number, size), lost});
+            learner_->model().recordBlunder(vgo::BlunderEvent{area, lost});
             game_total_loss_ += lost;
             ++game_blunder_count_;
+            // D3.5：把恶手沉淀进 SM-2 复习队列（「今日一题」的题源之一）。
+            const int today = QDate::currentDate().toJulianDay();
+            learner_->model().addReviewItem(
+                vgo::reviewItemFromBlunder(move_number, p, warning, area, today, size));
             learner_->save();
         }
 
         // 局中预警（仅当开关打开时展示），并记录落点供棋谱持久化 / 复盘命中检测。
         if (blunderAction_ && blunderAction_->isChecked()) {
-            const std::string w = vgo::blunderWarning(e);
-            if (!w.empty()) {
-                blunders_.push_back(vgo::BlunderNote{move_number, p, w});
-                appendNote(QString::fromStdString(w));
+            if (!warning.empty()) {
+                blunders_.push_back(vgo::BlunderNote{move_number, p, warning});
+                appendNote(QString::fromStdString(warning));
             }
         }
     });
@@ -1563,6 +1583,14 @@ void MainWindow::onReloadSkills() {
 
 void MainWindow::showTracePanel() {
     auto* dlg = new vgo::TracePanel(trace_store_.get(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+}
+
+void MainWindow::showDailyReview() {
+    if (!learner_) return;
+    const int today = QDate::currentDate().toJulianDay();
+    auto* dlg = new ReviewDialog(learner_.get(), today, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

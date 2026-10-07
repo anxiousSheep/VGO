@@ -1,11 +1,13 @@
 #include "advisor.h"
 
 #include <chrono>
+#include <sstream>
 #include <utility>
 
 #include "agent/agent_tools.h"
 #include "engine_pool.h"
 #include "lifedeath.h"
+#include "ownership.h"
 #include "strength.h"
 #include "verify/claim_extractor.h"
 #include "verify/claim_verifier.h"
@@ -35,6 +37,28 @@ const char* verifySummary(const std::vector<ClaimVerdict>& verdicts) {
     if (unverifiable) return "unverifiable";
     if (corrected) return "corrected";
     return "pass";
+}
+
+// D2.5：把真值压成一行可读摘要，写进坏样本供后续复盘（统一转成黑方视角）。
+std::string truthSummary(const GroundedFacts& facts, double score_black, Color to_move) {
+    if (facts.analysis.valid) {
+        const double blackLead = (to_move == Color::Black) ? facts.analysis.score_lead
+                                                           : -facts.analysis.score_lead;
+        const double blackWinrate = (to_move == Color::Black)
+                                        ? facts.analysis.winrate
+                                        : 1.0 - facts.analysis.winrate;
+        std::ostringstream os;
+        os << "黑领先 " << blackLead << " 目 / 黑胜率 " << (blackWinrate * 100.0) << "%";
+        return os.str();
+    }
+    if (!facts.analysis.ownership.empty()) {
+        std::ostringstream os;
+        os << "归属领先 " << ownershipLead(facts.analysis.ownership) << " 目";
+        return os.str();
+    }
+    std::ostringstream os;
+    os << "规则计分黑领先 " << score_black << " 目";
+    return os.str();
 }
 
 // D2 "Verify-then-Speak"：把模型回复里的断言抽出、对照真值校验，三档处置——
@@ -348,8 +372,9 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     const std::int64_t start_ms = nowEpochMs();
     conversation_->answer(
         req, [this, gen, cb, verify_facts, verify_board, verify_score, verify_to_move,
-              verify_size, start_ms](ConversationReply r) mutable {
+              verify_size, start_ms, question](ConversationReply r) mutable {
             if (gen != generation_) return;  // stale / cancelled
+            const std::string raw_text = r.text;  // 校验前原样保留（供坏样本回看）
             verifyAndAnnotate(r, verify_board, verify_facts, verify_score, verify_to_move,
                               verify_size);
             // D2.4：挂上 grounding 分析的最佳变化，供 UI「跳 PV」。
@@ -365,6 +390,26 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
                 rec.latency_ms = static_cast<int>(nowEpochMs() - start_ms);
                 rec.verify = verifySummary(r.verdicts);
                 trace_sink_(rec);
+            }
+            // D2.5：校验拦截到「修正/不可验证」时，逐条沉淀坏样本（反哺 D4 评估闭环）。
+            if (bad_sample_sink_) {
+                const std::string truth = truthSummary(verify_facts, verify_score, verify_to_move);
+                for (const ClaimVerdict& v : r.verdicts) {
+                    if (v.disposition != ClaimDisposition::Corrected &&
+                        v.disposition != ClaimDisposition::Unverifiable)
+                        continue;
+                    BadSample s;
+                    s.ts_ms = nowEpochMs();
+                    s.position_hash = positionHash(verify_board);
+                    s.question = question;
+                    s.reply_text = raw_text;
+                    s.disposition = (v.disposition == ClaimDisposition::Corrected)
+                                        ? "corrected"
+                                        : "unverifiable";
+                    s.truth_summary = truth;
+                    s.model = trace_model_;
+                    bad_sample_sink_(s);
+                }
             }
             cb(std::move(r));
         });

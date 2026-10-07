@@ -142,3 +142,44 @@ TEST(http_service_constructs_available_and_direct) {
     HttpConversationService unconfigured{QString(), QString(), QString()};
     CHECK(!unconfigured.available());
 }
+
+// D5.3 模型路由：无轻模型时单模型（强模型），声明工具直到 depth 上限；有轻模型且有
+// 工具时，depth 0 用轻模型挑工具、depth>=1 用强模型做最终讲解（不再声明工具）。
+TEST(http_route_turn_single_model) {
+    const QString strong = QStringLiteral("deepseek-chat");
+    // 无 router → 单模型。
+    TurnRoute r = routeTurn(strong, QString(), 0, true, true);
+    CHECK(r.model == strong);
+    CHECK(r.declare_tools);
+    // depth 达上限后不再声明工具（D1.10 有界环路）。
+    r = routeTurn(strong, QString(), 4, true, true);
+    CHECK(!r.declare_tools);
+    // 超时后不再声明工具。
+    r = routeTurn(strong, QString(), 1, true, false);
+    CHECK(!r.declare_tools);
+}
+
+TEST(http_route_turn_light_then_strong) {
+    const QString strong = QStringLiteral("deepseek-chat");
+    const QString router = QStringLiteral("qwen2.5:7b");
+    // depth 0：轻模型挑工具。
+    TurnRoute r = routeTurn(strong, router, 0, true, true);
+    CHECK(r.model == router);
+    CHECK(r.declare_tools);
+    // depth >= 1：强模型最终讲解，不再声明工具。
+    r = routeTurn(strong, router, 1, true, true);
+    CHECK(r.model == strong);
+    CHECK(!r.declare_tools);
+    // 无工具可调时，即便配了轻模型也退化为单模型。
+    r = routeTurn(strong, router, 0, false, true);
+    CHECK(r.model == strong);
+    CHECK(!r.declare_tools);
+}
+
+TEST(http_service_router_model_settable) {
+    HttpConversationService svc{QStringLiteral("http://localhost:11434/v1"), QString(),
+                                QStringLiteral("deepseek-chat")};
+    CHECK(svc.routerModel().isEmpty());
+    svc.setRouterModel(QStringLiteral("qwen2.5:7b"));
+    CHECK(svc.routerModel() == QStringLiteral("qwen2.5:7b"));
+}

@@ -54,6 +54,8 @@ add_library(vgo_ai STATIC
     src/ai/skill.cpp
     src/ai/skill_eval.h
     src/ai/skill_eval.cpp
+    src/ai/harness_eval.h
+    src/ai/harness_eval.cpp
     src/ai/variation.h
     src/ai/variation.cpp
     src/ai/record.h
@@ -84,6 +86,8 @@ add_library(vgo_ai STATIC
     src/ai/verify/claim_extractor.cpp
     src/ai/verify/claim_verifier.h
     src/ai/verify/claim_verifier.cpp
+    src/ai/verify/bad_sample.h
+    src/ai/verify/bad_sample.cpp
     src/ai/learner/learner_model.h
     src/ai/learner/learner_model.cpp
 )
@@ -114,6 +118,7 @@ add_executable(vgo_ai_tests
     tests/test_llm_presets.cpp
     tests/test_skill.cpp
     tests/test_skill_eval.cpp
+    tests/test_harness_eval.cpp
     tests/test_variation.cpp
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
@@ -174,6 +179,8 @@ add_library(vgo_model STATIC
     src/ui/model/LearnerStore.cpp
     src/ui/model/TraceStore.h
     src/ui/model/TraceStore.cpp
+    src/ui/model/BadSampleStore.h
+    src/ui/model/BadSampleStore.cpp
 )
 target_include_directories(vgo_model PUBLIC src)
 target_link_libraries(vgo_model PUBLIC vgo_ai Qt6::Core Qt6::Network)
@@ -187,6 +194,7 @@ add_executable(vgo_model_tests
     tests/test_model_manager.cpp
     tests/test_learner_store.cpp
     tests/test_trace_store.cpp
+    tests/test_bad_sample_store.cpp
 )
 target_link_libraries(vgo_model_tests PRIVATE vgo_model)
 add_test(NAME vgo_model_tests COMMAND vgo_model_tests)
@@ -228,6 +236,8 @@ add_executable(vgo_app WIN32
     src/ui/VariationPanel.cpp
     src/ui/NewGameDialog.h
     src/ui/NewGameDialog.cpp
+    src/ui/ReviewDialog.h
+    src/ui/ReviewDialog.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
     src/ui/AppConfig.h

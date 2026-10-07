@@ -53,12 +53,18 @@ public:
     // D1.10：工具环路墙钟预算（配合 depth 上限，保证环路有界）。
     void setMaxLoopMs(qint64 ms) { max_loop_ms_ = ms; }
 
+    // D5.3 模型路由：可选「轻模型」（意图 / 工具选择）。配置后，工具选择回合用轻模型、
+    // 最终讲解回合用强模型（model_）；为空则退回单模型（现有行为）。
+    void setRouterModel(const QString& m) { router_model_ = m; }
+    QString routerModel() const { return router_model_; }
+
 private:
     void doChat(QJsonArray messages, int depth, qint64 deadline_ms, Callback cb);
 
     QString baseUrl_;
     QString apiKey_;
     QString model_;
+    QString router_model_;   // D5.3：可选轻模型（工具选择）；空 = 不路由
     bool available_ = false;
     SkillRegistry skills_ = SkillRegistry::builtin();
     ToolHandler tool_handler_;
@@ -84,5 +90,16 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
 // candidates / dead groups) are omitted so the model fetches them via tools (D1.9).
 // Exposed (like buildToolFollowup) for unit-testing the convergence.
 QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls);
+
+// D5.3 模型路由：决定某一次环路迭代用哪个模型、是否声明工具（纯逻辑、可单测）。
+//   - 无 routerModel / 本局面无工具：单模型（强模型），声明工具直到 depth 上限。
+//   - 有 routerModel 且有工具：depth 0（工具选择）用轻模型并声明工具；depth>=1
+//     （最终讲解）用强模型且不再声明工具——轻模型挑工具、强模型做最终讲解。
+struct TurnRoute {
+    QString model;         // 本次请求用的模型 id
+    bool declare_tools = false;
+};
+TurnRoute routeTurn(const QString& strong, const QString& router, int depth,
+                    bool has_tools, bool before_deadline);
 
 }  // namespace vgo

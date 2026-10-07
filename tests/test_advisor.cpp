@@ -158,6 +158,44 @@ TEST(advisor_emits_trace) {
     CHECK(recs[0].latency_ms >= 0);
 }
 
+TEST(advisor_emits_bad_sample) {
+    // D2.5：校验拦截到「修正」时，把坏样本交给 sink（含模型原文本 + 真值摘要 + 处置）。
+    struct AnalyzeEngine : EngineInterface {
+        void requestMove(const Board&, Color, const StrengthParams&, Callback cb) override {
+            cb(EngineResult{});
+        }
+        void analyze(const Board&, Color, const StrengthParams&, AnalysisCallback cb) override {
+            Analysis a;
+            a.valid = true;
+            a.winrate = 0.6;
+            a.score_lead = 5.5;
+            cb(a);
+        }
+    };
+    struct BadClaimConversation : ConversationService {
+        void answer(const ConversationRequest&, Callback cb) override {
+            ConversationReply r;
+            r.text = "黑领先 99 目。"
+                     "<claims>[{\"type\":\"score_lead\",\"value\":99,\"color\":\"black\"}]</claims>";
+            cb(std::move(r));
+        }
+    };
+    AnalyzeEngine eng;
+    BadClaimConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    a.setTraceMeta("http", "test-model");
+    std::vector<BadSample> samples;
+    a.setBadSampleSink([&](const BadSample& s) { samples.push_back(s); });
+    Game g(9);
+    a.ask(g, "谁领先", [](const ConversationReply&) {});
+    CHECK_EQ(samples.size(), 1u);
+    CHECK_EQ(samples[0].disposition, std::string("corrected"));
+    CHECK_EQ(samples[0].model, std::string("test-model"));
+    CHECK(samples[0].reply_text.find("99") != std::string::npos);
+    CHECK(samples[0].truth_summary.find("5.5") != std::string::npos);
+    CHECK(!samples[0].position_hash.empty());
+}
+
 TEST(advisor_prewarm_explanation_cache_hit) {
     struct CountingConversation : ConversationService {
         int answers = 0;

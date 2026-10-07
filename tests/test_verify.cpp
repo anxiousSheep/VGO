@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "ai/verify/bad_sample.h"
 #include "ai/verify/claim.h"
 #include "ai/verify/claim_extractor.h"
 #include "ai/verify/claim_verifier.h"
@@ -143,4 +144,32 @@ TEST(verify_group_life_unverifiable_no_ownership) {
         ClaimVerifier{}.verify({c}, Board(9), OwnershipMap{}, Analysis{}, 0.0, Color::Black);
     CHECK_EQ(v.size(), 1u);
     CHECK(v[0].disposition == ClaimDisposition::Unverifiable);
+}
+
+TEST(bad_sample_jsonl_roundtrip) {
+    BadSample s;
+    s.ts_ms = 123456;
+    s.position_hash = "abcd";
+    s.question = "谁领先";
+    s.reply_text = "黑领先 99 目。";
+    s.disposition = "corrected";
+    s.truth_summary = "黑领先 5.5 目";
+    s.model = "deepseek";
+
+    const std::string line = badSampleToJsonl(s);
+    BadSample out;
+    CHECK(parseBadSample(line, &out));
+    CHECK_EQ(out.ts_ms, s.ts_ms);
+    CHECK_EQ(out.position_hash, s.position_hash);
+    CHECK_EQ(out.question, s.question);
+    CHECK_EQ(out.reply_text, s.reply_text);
+    CHECK_EQ(out.disposition, s.disposition);
+    CHECK_EQ(out.truth_summary, s.truth_summary);
+    CHECK_EQ(out.model, s.model);
+}
+
+TEST(bad_sample_parse_rejects_garbage) {
+    BadSample out;
+    CHECK(!parseBadSample("not json", &out));
+    CHECK(!parseBadSample("[1,2]", &out));
 }

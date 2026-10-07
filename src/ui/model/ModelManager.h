@@ -18,6 +18,7 @@ struct LlmSettings {
     QString provider;  // 预设 id
     QString baseUrl;
     QString model;
+    QString routerModel;  // D5.3 可选「轻模型」（意图/工具选择）；空 = 不路由
     // API key 不在此处（内存/磁盘都经 ModelManager::apiKey 加解密）
 };
 

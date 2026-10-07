@@ -131,6 +131,8 @@ void SettingsDialog::buildLlmGroup() {
     }
     baseUrlEdit_ = new QLineEdit(box);
     modelEdit_ = new QLineEdit(box);
+    routerModelEdit_ = new QLineEdit(box);
+    routerModelEdit_->setPlaceholderText(QStringLiteral("可选：轻模型负责选工具，留空则单模型"));
     keyEdit_ = new QLineEdit(box);
     keyEdit_->setEchoMode(QLineEdit::Password);
 
@@ -149,6 +151,7 @@ void SettingsDialog::buildLlmGroup() {
     form->addRow(QStringLiteral("Provider"), providerCombo_);
     form->addRow(QStringLiteral("Base URL"), baseUrlEdit_);
     form->addRow(QStringLiteral("模型"), modelEdit_);
+    form->addRow(QStringLiteral("轻模型（可选）"), routerModelEdit_);
     form->addRow(QStringLiteral("API Key"), keyEdit_);
     form->addRow(row);
     form->addRow(QStringLiteral("结果"), llmResult_);
@@ -311,6 +314,7 @@ void SettingsDialog::refreshLlmFields() {
     providerCombo_->setCurrentIndex(idx >= 0 ? idx : providerCombo_->findData(QStringLiteral("custom")));
     if (!s.baseUrl.isEmpty()) baseUrlEdit_->setText(s.baseUrl);
     if (!s.model.isEmpty()) modelEdit_->setText(s.model);
+    if (!s.routerModel.isEmpty()) routerModelEdit_->setText(s.routerModel);
     keyEdit_->setText(KeyStore::mask(ModelManager::instance().apiKey()));
     keyChanged_ = false;
 }
@@ -393,6 +397,7 @@ void SettingsDialog::accept() {
     s.provider = providerCombo_->currentData().toString();
     s.baseUrl = baseUrlEdit_->text().trimmed();
     s.model = modelEdit_->text().trimmed();
+    s.routerModel = routerModelEdit_->text().trimmed();
     ModelManager::instance().setLlm(s);
     if (keyChanged_) ModelManager::instance().setApiKey(keyEdit_->text().trimmed());
     ModelManager::instance().setAnalysisLevel(analysisCombo_->currentData().toInt());

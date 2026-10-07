@@ -275,6 +275,26 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
     return next;
 }
 
+TurnRoute routeTurn(const QString& strong, const QString& router, int depth,
+                    bool has_tools, bool before_deadline) {
+    TurnRoute r;
+    const bool routing = !router.isEmpty() && has_tools;
+    if (!routing) {
+        // 无轻模型或本局面无可调工具：单模型（强模型），声明工具直到 depth 上限。
+        r.model = strong;
+        r.declare_tools = has_tools && depth < 4 && before_deadline;
+        return r;
+    }
+    if (depth == 0) {
+        r.model = router;         // 轻模型挑工具
+        r.declare_tools = true;   // 声明工具供其选择
+    } else {
+        r.model = strong;         // 强模型做最终讲解
+        r.declare_tools = false;  // 不再声明工具，模型直接给出文本答案
+    }
+    return r;
+}
+
 HttpConversationService::HttpConversationService(const QString& baseUrl, const QString& apiKey,
                                                  const QString& model, QObject* parent)
     : QObject(parent), baseUrl_(baseUrl), apiKey_(apiKey), model_(model) {
@@ -311,14 +331,16 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
         url.setPath(path);
     }
 
+    // D5.3 模型路由 + D1.10 双界：用 routeTurn 决定本回合模型与是否声明工具。
+    // 轻模型（router_model_）承担工具选择，强模型（model_）做最终讲解。
+    const bool has_tools = (tool_handler_ || !tool_registry_.all().empty());
+    const TurnRoute tr = routeTurn(model_, router_model_, depth, has_tools,
+                                   nowMs() < deadline_ms);
+
     QJsonObject body;
-    body["model"] = model_;
+    body["model"] = tr.model;
     body["messages"] = messages;
-    // D1.10：depth 上限 + 墙钟预算双界——超时后本轮不再声明工具，模型必须给出最终
-    // 文本答案，环路自然终止。
-    if ((tool_handler_ || !tool_registry_.all().empty()) && depth < 4 &&
-        nowMs() < deadline_ms)
-        body["tools"] = buildTools(&tool_registry_);
+    if (tr.declare_tools) body["tools"] = buildTools(&tool_registry_);
     body["max_tokens"] = max_tokens_;  // D5.5：单次回答 token 上限
     body["stream"] = false;
 
@@ -366,8 +388,14 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
             const QJsonArray toolCalls = msg["tool_calls"].toArray();
             const QString content = msg["content"].toString();
 
-            if (toolCalls.isEmpty() ||
-                (!self->tool_handler_ && self->tool_registry_.all().empty())) {
+            const bool has_tools = (self->tool_handler_ || !self->tool_registry_.all().empty());
+            if (toolCalls.isEmpty()) {
+                // D5.3：轻模型在工具选择回合没挑工具 → 忽略其文本，改由强模型直接作答
+                // （强模型在本回合不声明工具，给出最终文本答案）。
+                if (!self->router_model_.isEmpty() && has_tools && depth == 0) {
+                    self->doChat(messages, depth + 1, deadline_ms, std::move(cb));
+                    return;
+                }
                 r.text = content.toStdString();
                 cb(std::move(r));
                 return;

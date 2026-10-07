@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "../gtp.h"
 #include "../json.h"
 
 namespace vgo {
@@ -55,6 +56,25 @@ WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,
     if (move_number <= area / 4) return WeakArea::Joseki;
     if (move_number <= area / 2) return WeakArea::Fighting;
     return WeakArea::Endgame;
+}
+
+ReviewItem reviewItemFromBlunder(int move_number, const Point& point,
+                                 const std::string& note, WeakArea area,
+                                 int today, int size) {
+    ReviewItem it;
+    const std::string coord =
+        (point.x >= 0 && point.y >= 0) ? gtpPoint(point, size) : std::string();
+    it.id = "blunder-" + std::to_string(move_number) + "-" + coord;
+    it.area = area;
+    it.due_day = today;
+    // 题面：手数 + 落点 + 恶手说明；无坐标（虚着）时退化为纯文字。
+    it.prompt = "第 " + std::to_string(move_number) + " 手";
+    if (!coord.empty()) it.prompt += "（" + coord + "）";
+    it.prompt += "：";
+    it.prompt += note.empty() ? std::string("这一步是恶手") : note;
+    it.prompt += "。回想一下这手棋的问题，以及更稳的下法。";
+    it.position_key = std::to_string(move_number) + "-" + coord;
+    return it;
 }
 
 void LearnerModel::recordBlunder(const BlunderEvent& e) {
@@ -175,6 +195,8 @@ std::string LearnerModel::serialize() const {
             {"interval", Json::makeNumber(r.interval_days)},
             {"ease", Json::makeNumber(r.ease)},
             {"due_day", Json::makeNumber(r.due_day)},
+            {"prompt", Json::makeString(r.prompt)},
+            {"position_key", Json::makeString(r.position_key)},
         }));
     }
 
@@ -222,6 +244,8 @@ bool LearnerModel::deserialize(const std::string& json) {
             it.interval_days = r.get("interval") ? r.get("interval")->asNumber() : 1.0;
             it.ease = r.get("ease") ? r.get("ease")->asNumber() : 2.5;
             it.due_day = r.get("due_day") ? static_cast<int>(r.get("due_day")->asNumber()) : 0;
+            it.prompt = r.get("prompt") ? r.get("prompt")->asString() : "";
+            it.position_key = r.get("position_key") ? r.get("position_key")->asString() : "";
             reviews_.push_back(std::move(it));
         }
     }
