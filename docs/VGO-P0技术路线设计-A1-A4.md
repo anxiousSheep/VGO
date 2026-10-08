@@ -40,10 +40,9 @@ A2/A3/A4 会触碰共享类型，先列出，便于评审一次看清影响面�
 
 ### 1.2 文件格式与 few-shot 约定
 
-沿用 `Skill::fromText` 现有解析格式（`skill.cpp` L366-411）：frontmatter（`id/name/description/applies/version`）+ 一行 `---` + 正文。**few-shot 是正文的一部分**（`fromText` 不解析它，只是内容约定），采用 `【示例】` 标记分隔：
+沿用 `Skill::fromText` 现有解析格式（`skill.cpp` L366-411）：**frontmatter 无前导 `---`**，字段（`id/name/description/applies/version`）在前，随后一行 `---` 分隔正文——`fromText` 把**首个** `---` 当作 header/body 分隔符，若文件以 `---` 开头，`id:` 会被解析进正文、`s.id` 为空、整包静默加载失败（与存量 5 包格式对齐）。**few-shot 是正文的一部分**（`fromText` 不解析它，只是内容约定），采用 `【示例】` 标记分隔：
 
 ```markdown
----
 id: fuseki-joseki
 name: 布局与定式
 description: 星/小目/三三布局常识、常用定式与选择逻辑
@@ -92,14 +91,14 @@ version: 1
 ```cpp
 {"开局第一手该下哪",   QuestionClass::WhereToPlay, "fuseki-joseki"},
 {"这个定式怎么选",      QuestionClass::Other,        "fuseki-joseki"},
-{"现在该攻还是该守",    QuestionClass::WhereToPlay, "middle-game"},
+{"现在该攻还是该守",    QuestionClass::Other,        "middle-game"},
 {"这手棋妙在哪",        QuestionClass::WhyThisMove,  "tesuji-shape"},
-{"收官先收哪",          QuestionClass::WhereToPlay, "endgame"},
+{"收官先收哪",          QuestionClass::Other,        "endgame"},
 {"这个劫该不该打",      QuestionClass::Other,        "ko-fight"},
 ...
 ```
 
-每条 `expected_skill` 必须能被 `retrieve(question, 1)` 的 Top-1 命中（TF-IDF 词面匹配）；选词时优先用包 id/name/description 里出现的词，避免加包导致 `top1_hit_rate` 回退。
+每条 `expected_skill` 必须能被 `retrieve(question, 1)` 的 Top-1 命中（TF-IDF 词面匹配）；选词时优先用包 id/name/description 里出现的词，避免加包导致 `top1_hit_rate` 回退。**注意 `cls` 必须与 `classifyQuestion(question)` 实际输出一致**——`evaluateSkills`（skill_eval.cpp L28）会断言分类命中率，「现在该攻还是该守」「收官先收哪」这类被分类器判为 `Other` 的题若标成 `WhereToPlay` 会直接拖低 gate；`cls` 只影响分类断言，`expected_skill` 的检索断言（`retrieve`）与 `cls` 无关，改 `cls` 不影响技能命中验证。
 
 ### 1.6 体积/预算交互（关键约束）
 

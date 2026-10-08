@@ -109,9 +109,9 @@ GamePhase classifyPhase(int move_number, int size, const OwnershipMap& ownership
 const char* phaseLabel(GamePhase p);  // "布局" / "中盘" / "官子"
 ```
 
-启发式（尺寸自适应，均可调参）：
-- `Fuseki`：`move_number < max(3 * size, 24)`（开局手数阈值随棋盘尺寸缩放）。
-- `Endgame`：ownership 非空且「固化度」`fraction(|ownership| > 0.8) > 0.55`（领地大面积定型），或 `move_number > 4 * size * size / 3`（手数远超全盘平均，兜底）。
+启发式（尺寸自适应；阈值为**初值**，需按 9/13/19 路真实对局校准后在 `test_phase` 锁定）：
+- `Fuseki`：`move_number < 2 * size`（9 路 18、19 路 38；原 `max(3*size,24)` 在 9 路为 27 手偏长）。
+- `Endgame`：ownership 非空且「固化度」`fraction(|ownership| > 0.8) > 0.55`（**主信号**，领地大面积定型），兜底 `move_number > size * size / 2`（9 路 40、19 路 180，可达；原 `4*size²/3` 在 19 路为 481 手几乎不可达）。
 - 其余 `MiddleGame`。
 
 ownership 为空（fallback 引擎）时只用 `move_number` 阈值：`< 阈值1 → Fuseki`，`> 阈值2 → Endgame`，中间 `MiddleGame`。
@@ -189,6 +189,7 @@ private:
 
 - 组装 messages（复用 A2 的历史 + 摘要，与 `answer()` 同源）。
 - **逐轮流式**：每轮 `body["stream"]=true`，worker 线程 `winHttpPostStream` + `SseParser`，按 `generation_` 代际丢弃过期增量。
+- **stream+tools 的 4xx 兜底（防弱兼容端点流式整体失效）**：若某轮已声明 `tools` 且流式请求返回 4xx（端点不支持 stream+tools 组合），该回合**降级为 `stream=false` 重试**（走非流式 `doChat` 路径），其余回合仍流式——避免弱端点上整条 `answerStream` 失效。`status 5xx`/超时仍走 C3 的 failover/重试（见 P2 文档 §4），4xx 不重试。
 - **工具回合与最终回合的边界**（评审报告 v1.1 §B3 边界约束的落地）：
   - 每轮累积 `round_content`（本回合 content 增量）与 `round_tool_calls`。
   - 一轮结束（`[DONE]` 或 `finish_reason`）时：
@@ -339,7 +340,7 @@ std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>
 |---|---|
 | B1a 形状判定误报（几何启发式 vs 战术语义） | 经典局部形 golden 单测锁死；误报可接受（grounding 宁多勿错，校验闸门兜底数字）；不宣称战术正确 |
 | B1a 新 FactType 未映射 `classifyBlunderArea` | §1.5 明确为必做，单测覆盖 |
-| B2 阶段阈值粗糙 | 参数集中、可调；仅作 prompt 提示，不参与真值 |
+| B2 阶段阈值初值偏粗 | 按 9/13/19 路真实对局校准后在 `test_phase` 锁定；仅作 prompt 提示，不参与真值 |
 | B3 工具回合内容泄漏到 UI | 逐轮缓冲 + `abortAiStream()`；`SseParser` 单测 |
 | B3 跨线程 delta 洪泛 | 批量回主线程（30–50ms 或每 K 条） |
 | B4 judge 本身幻觉/偏差 | judge 用强模型、prompt 锚定真值、4 维分列、保留 note；仅作人工验收不自动门禁 |

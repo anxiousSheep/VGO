@@ -37,7 +37,7 @@
 ```cpp
 enum class CommentaryEvent { None, Blunder, Brilliant, Swing };
 // 据一手棋的胜负率/领先变化三分：Blunder（掉 >0.15）/ Brilliant（涨 >0.15）/
-// Swing（局面级胜率波动 >0.15pp，非单手而是连续几手累积）/ None。
+// Swing（局面级胜率波动 >0.15，即 15 个百分点，非单手而是连续几手累积）/ None。
 CommentaryEvent classifyCommentary(const MoveEvaluation& e);
 ```
 
@@ -116,9 +116,12 @@ QString buildHintDirective(int tier, QuestionClass cls);
 | `src/ai/conversation.h` | `hint` → `hint_tier`；`hintTierFromText` |
 | `conversation_http/http_conversation.cpp` | `buildHintDirective` + `buildUserPrompt` 按档注入 |
 | `src/ai/advisor.cpp` | `deliverAnswer` 填 `hint_tier` |
+| `src/ai/template_conversation.cpp` | `req.hint` → 档位映射（见下） |
 | `src/ui/MainWindow.cpp` | 递进交互 |
 
-**单测（纯逻辑）**：`hintTierFromText` 升级判定；`buildHintDirective` 三档 × 类别（落点/死活）措辞；死活类档 2 降级。手测：递进提示不提前泄露答案。
+**模板层降级映射（必做，否则编译断 + 打断「未配置 LLM」降级链）**：`template_conversation.cpp` L15 `const bool hint = req.hint;` 与 L35 `if (hint)` 在 `hint` 改名 `hint_tier` 后编译断。改为 `const bool hint = (req.hint_tier >= 1 && req.hint_tier < 3);`——档 1/2 = 现有半提示（方向），档 3/0 = 完整作答；模板无「要点」能力，档 2 与档 1 同视为方向提示。
+
+**单测（纯逻辑）**：`hintTierFromText` 升级判定；`buildHintDirective` 三档 × 类别（落点/死活）措辞；死活类档 2 降级；`TemplateConversation` 在 tier 1/2 给方向、tier 3/0 给坐标。手测：递进提示不提前泄露答案。
 
 ---
 
@@ -172,7 +175,7 @@ void setEndpoints(std::vector<QString> endpoints);  // 首个为主，其余备�
 
 ### 4.2 配置扩展
 
-`ModelManager` 的 `LlmSettings`（运行时配置，MainWindow.cpp L506 读取）增备选端点字段（如 `baseUrlAlt` 或 `endpoints` 列表）；`MainWindow::createAiServices` 读配置后 `setEndpoints`。默认空 = 单端点（现有行为不变）。
+`ModelManager` 的 `LlmSettings`（运行时配置，MainWindow.cpp L504 读取）增备选端点字段（如 `baseUrlAlt` 或 `endpoints` 列表）；`MainWindow::createAiServices` 读配置后 `setEndpoints`。默认空 = 单端点（现有行为不变）。
 
 ### 4.3 超时策略
 
@@ -204,6 +207,8 @@ void setEndpoints(std::vector<QString> endpoints);  // 首个为主，其余备�
    - 重建 Game；构造问题（如「上一手为什么在这个点失误？更好的点在哪？为什么？」）；
    - **真相来源**：快照局面的 `analysis` 未预热（`prewarmAnalysis` 只覆盖当前对局），故 `explainDailyProblem` 需**异步 analyze 该快照棋盘**（`analyzePrioritized` 或 `analysis_engine_->analyze`，Interactive 优先级）取 `analysis`，再 `deliverAnswer`；
    - 若引擎不可用，退化为用 `lead_before`/`lead_blunder`（ReviewItem 存好的领先基准）作为规则级真值，走模板/降级讲解。
+
+**共享态干扰（必做，否则与在局问答互相抢占）**：`explainDailyProblem` 的异步 analyze 与在局 `ask` **共用 `generation_` 与 `last_analysis_`**——在局提问递增 `generation_` 会丢弃每日题的 analyze 结果，写 `last_analysis_` 会污染在局 grounding 快照。因此：① 每日题 analyze 用**独立代际计数器**（如 `daily_gen_`，与 `prewarm_generation_` 同模式），不依赖 `generation_`；② 结果**直填** `GroundedFacts f; f.analysis = a;` 再 `deliverAnswer(game, question, std::move(f), cb)`，**不写 `last_analysis_`**；③ 抢占/排队策略：每日题讲透与在局问答并发时走 `analyzePrioritized` 的 Interactive 优先级排队，或 UI 层在讲透期间禁用新提问。
 4. 复用 D3.5 快照字段，无新持久化。
 
 ### 5.3 D-b 文件改动与测试
