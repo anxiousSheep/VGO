@@ -117,11 +117,11 @@ resources/skills/           Skills 知识包（可热更的 markdown 数据文�
 
 - [`docs/AI-Harness-2026-扩展-设计.md`](docs/AI-Harness-2026-扩展-设计.md) — **2026 Harness 扩展设计与任务计划（D1–D5，已基本完成）**
 - [`docs/长期任务清单.md`](docs/长期任务清单.md) — **长期任务 backlog（L 系列，持续进行）**
-- [`docs/VGO-AI-Harness-2026-扩展路线.md`](docs/VGO-AI-Harness-2026-扩展路线.md) — 五个扩展方向的原始设想（已被设计文档承接）
 
 > 历史设计与技术路线文档已归档至 [`docs/archive/`](docs/archive/)：
 >
 > - 人机对弈（可交流）模式设计、讲解增强与演示设计、技术路线（选型与任务计划）、模型接入（技术路线与任务计划）、下一步优先级建议（已完成）
+> - `VGO-AI-Harness-2026-扩展路线.md` — 五个扩展方向的原始设想（已全部落地，承接于设计文档）
 
 ## 长期任务（Roadmap）
 
