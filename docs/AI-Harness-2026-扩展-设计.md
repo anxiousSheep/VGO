@@ -170,9 +170,9 @@ struct Tool {
 | D1.3 | 注册其余既有能力（analyze / ownership / count_territory；`evaluate_*` 因引擎异步、`Tool::invoke` 同步而不注册为工具，改由 `handleMoveQuality` 异步求值注入 prompt） | 注册表 + 单测 | ✅ |
 | D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ✅ |
 | D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch）——**仅单测，生产未接线**：实际环路由 `doChat` 的 depth 上限兜底 | `agent/loop.h` + 单测 | 🔄 |
-| D1.6 | 环路 trace 落 `agent_trace.jsonl` | `agent/loop.h` | 🔄 |
+| D1.6 | 环路 trace 落 `agent_trace.jsonl`（生产已接：advisor 每答走 `trace_sink_` → `TraceStore` 落盘 + `TracePanel` 展示） | `agent/loop.h` + `advisor.*` + `ui/model/TraceStore` | ✅ |
 | D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ✅ |
-| D1.8 | 移除 `ask` 的阻塞式 `Interactive` 预取（MCP 回潮回归）；新增 `prewarmAnalysis`（`EnginePriority::Background`、与形势开关解耦）维护工具快照 + 抽 `groundFromAnalysis` 统一 `dead_groups`/`life_death` 口径 | `advisor.*` + 单测 | ⬜ |
+| D1.8 | 移除 `ask` 的阻塞式 `Interactive` 预取（MCP 回潮回归）；新增 `prewarmAnalysis`（`EnginePriority::Background`、与形势开关解耦）维护工具快照 + 抽 `groundFromAnalysis` 统一 `dead_groups`/`life_death` 口径 | `advisor.*` + 单测 | ✅ |
 | D1.9 | 关键词分发降级为兜底（sync 能力主路径交工具环路，async 能力仍由 `handle*` 前置注入）；`buildUserPrompt` 收敛（Other 只注入无引擎基础事实，胜率/候选点/死棋清单改由工具按需取） | `advisor` + `conversation_http` + 单测 | ✅ |
 | D1.10 | `doChat` 补墙钟超时兜底（`max_loop_ms_` + depth 双界，环路有界）；`AgentLoop` 保留为纯逻辑参考 + 单测（生产环路由 `doChat` 承担） | `conversation_http` | ✅ |
 
@@ -389,7 +389,7 @@ last_score: 0.71
 | D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ✅ |
 | D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | ✅ |
 | D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `skill_eval.*` + `tests/` | ✅ |
-| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ✅（pending/采纳/评分；模型提议改写待 L13） |
+| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ✅（pending/采纳/评分；模型提议改写未实现——L13 已完成，此能力仍待建） |
 | D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ✅（校验/体积上限；版本回滚 UI 待 L15） |
 
 ### 6.4 验收标准
