@@ -1,10 +1,14 @@
 #include "ChatPanel.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QColor>
 #include <QFont>
+#include <QFrame>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QTextBlockFormat>
 #include <QTextBrowser>
@@ -12,6 +16,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextDocumentFragment>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -21,73 +26,27 @@ namespace vgo {
 
 namespace {
 
-// 用户消息颜色：与 AI 回复（默认深色）区分，避免连续问答混淆。调亮一些以更醒目。
+// 用户消息颜色：与 AI 回复（默认深色）区分，避免连续问答混淆。
 const QColor kUserColor(0x1f, 0x6f, 0xeb);  // 蓝 #1f6feb
 
-// 固定格式 AI 提示（非 LLM 生成）的淡色：让「系统播报」后退，突出正文答复。
+// 固定格式 AI 提示（非 LLM 生成）的淡色。
 const QColor kNoteColor(0x57, 0x60, 0x6a);  // 灰 #57606a
 
-// 证据/trace 行的标签色：区分于正文与系统提示，提示「这是溯源信息」。
+// 证据/trace 行的标签色。
 const QColor kTraceLabelColor(0x82, 0x50, 0xdf);  // 紫 #8250df
 
-// A4：<claims> 机器断言 JSON 原文的淡化灰——保留可溯源，但不抢正文。
+// A4：<claims> 机器断言 JSON 原文的淡化灰。
 const QColor kClaimsColor(0x8b, 0x94, 0x9e);  // 灰 #8b949e
 
-// A4：反馈按钮配色——未评价/未选中为浅灰，选中高亮（👍 绿、👎 红）。
-const QColor kFeedbackInactive(0xb0, 0xb6, 0xbc);  // #b0b6bc
-const QColor kFeedbackUp(0x1a, 0x7f, 0x37);        // 绿 #1a7f37
-const QColor kFeedbackDown(0xd1, 0x24, 0x2f);      // 红 #d1242f
+// A4：反馈按钮高亮色——👍 绿、👎 橙（与「证据」橙一致）。
+const char* const kFeedbackUpAccent = "#1a7f37";
+const char* const kFeedbackDownAccent = "#9a6700";
 
-// 每条消息之间的空隙（px）：加大段落间距，让请求/回复更易分辨。
-constexpr int kMessageSpacing = 14;
-
-// 追加内容后把视图滚到底部。QTextEdit::ensureCursorVisible 依赖「组件自身光标」
-// 的位置，而我们在局部 QTextCursor 上插入时组件光标仍停留在文首，导致新消息
-// 反而向上跳到历史记录；直接以滚动条最大值兜底最可靠。
-void scrollToBottom(QTextEdit* log) {
-    if (QScrollBar* sb = log->verticalScrollBar()) sb->setValue(sb->maximum());
-}
-
-// Render a markdown string (as produced by the LLM) into a document fragment
-// using Qt's built-in GitHub-flavoured markdown parser, so the AI reply shows
-// headings / bold / lists / code blocks instead of raw markdown source.
+// Render a markdown string (as produced by the LLM) into a document fragment.
 QTextDocumentFragment markdownFragment(const QString& markdown) {
     QTextDocument doc;
     doc.setMarkdown(markdown);
     return QTextDocumentFragment(&doc);
-}
-
-// Append one chat message: a bold "<label>：" header followed by the content,
-// rendered as markdown when `markdown` is true and plain text otherwise. When
-// `color` is valid the whole message (label + body) is tinted — used for the
-// user's own messages. Each message ends on its own paragraph with extra top
-// spacing so consecutive messages stay clearly separated.
-void appendMessage(QTextEdit* log, const QString& label, const QString& text,
-                   bool markdown, const QColor& color) {
-    QTextCursor cursor(log->document());
-    cursor.movePosition(QTextCursor::End);
-
-    QTextBlockFormat block;
-    block.setTopMargin(kMessageSpacing);
-    cursor.setBlockFormat(block);
-
-    cursor.beginEditBlock();
-    if (color.isValid()) {
-        QTextCharFormat fmt;
-        fmt.setForeground(color);
-        cursor.insertHtml(QStringLiteral("<span style=\"color:%1;\"><b>%2：</b></span>")
-                              .arg(color.name(), label.toHtmlEscaped()));
-        cursor.insertText(text, fmt);
-    } else {
-        cursor.insertHtml(QStringLiteral("<b>%1：</b>").arg(label.toHtmlEscaped()));
-        if (markdown)
-            cursor.insertFragment(markdownFragment(text));
-        else
-            cursor.insertText(text);
-    }
-    cursor.insertBlock();
-    cursor.endEditBlock();
-    scrollToBottom(log);
 }
 
 // A one-line human-readable label for a verified claim (D2.4 evidence footer).
@@ -131,51 +90,39 @@ void splitClaimsBlock(const QString& text, QString* body, QString* json) {
     *body += text.mid(close + closeTag.size());
 }
 
-// A4：把 <claims> 的 JSON 原文以淡化灰小字渲染（保留可溯源，但不抢正文）。
-void appendClaimsJson(QTextEdit* log, const QString& json) {
-    QTextCursor cursor(log->document());
-    cursor.movePosition(QTextCursor::End);
-    QTextBlockFormat block;
-    block.setTopMargin(2);
-    cursor.setBlockFormat(block);
-    QTextCharFormat fmt;
-    fmt.setForeground(kClaimsColor);
-    fmt.setFontPointSize(qMax(9.0, log->font().pointSizeF() - 1.0));
-    cursor.insertText(json, fmt);
-    cursor.insertBlock();
-    scrollToBottom(log);
+// A4：反馈按钮样式——未选中透明+灰边，悬停/按下有浅灰动画；选中后高亮（👍 绿 / 👎 橙）。
+void applyFeedbackStyle(QPushButton* b, bool up, bool selected) {
+    const QString accent =
+        QString::fromLatin1(up ? kFeedbackUpAccent : kFeedbackDownAccent);
+    const QString bg = selected ? accent : QStringLiteral("transparent");
+    const QString border = selected ? accent : QStringLiteral("#d0d7de");
+    const QString hover = selected ? accent : QStringLiteral("#f3f4f6");
+    const QString pressed = selected ? accent : QStringLiteral("#e6ebf1");
+    b->setStyleSheet(QStringLiteral(
+                         "QPushButton {"
+                         "  background-color: %1;"
+                         "  border: 1px solid %2;"
+                         "  border-radius: 13px;"
+                         "}"
+                         "QPushButton:hover { background-color: %3; }"
+                         "QPushButton:pressed { background-color: %4; }")
+                         .arg(bg, border, hover, pressed));
 }
 
 }  // namespace
 
 ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
-    log_ = new QTextBrowser(this);
-    log_->setReadOnly(true);
-    log_->setOpenLinks(false);  // 不自动跳转，仅靠 anchorClicked 处理内部「claim:/feedback:」链接
-    // 证据行是超链接（hover 看来源、点击跳 PV），需要 TextBrowser 交互；只读 + 可选文本。
-    log_->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    connect(log_, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
-        const QString s = url.toString();
-        if (s.startsWith(QStringLiteral("claim:"))) {
-            bool ok = false;
-            const int idx = s.mid(6).toInt(&ok);
-            if (ok) emit evidenceActivated(idx);
-            return;
-        }
-        if (s.startsWith(QStringLiteral("feedback:"))) {
-            // "feedback:up:3" / "feedback:down:3"
-            const QString rest = s.mid(QStringLiteral("feedback:").size());
-            const int colon = rest.lastIndexOf(QLatin1Char(':'));
-            if (colon <= 0) return;
-            const bool up = rest.left(colon) == QStringLiteral("up");
-            const int idx = rest.mid(colon + 1).toInt();
-            auto it = feedbacks_.find(idx);
-            if (it == feedbacks_.end() || it->second.rating != 0) return;  // 已评价，忽略
-            it->second.rating = up ? 1 : -1;
-            recolorFeedback(idx, up);
-            emit feedbackGiven(idx, up);
-        }
-    });
+    scroll_ = new QScrollArea(this);
+    scroll_->setWidgetResizable(true);
+    scroll_->setFrameShape(QFrame::NoFrame);
+    scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    messages_ = new QWidget(scroll_);
+    messages_layout_ = new QVBoxLayout(messages_);
+    messages_layout_->setContentsMargins(8, 8, 8, 8);
+    messages_layout_->setSpacing(10);
+    messages_layout_->addStretch(1);  // 消息从顶部堆叠，末尾留空
+    scroll_->setWidget(messages_);
 
     input_ = new QLineEdit(this);
     input_->setPlaceholderText(QStringLiteral("问 AI：为什么下这里 / 我该下哪 / 谁领先…"));
@@ -214,37 +161,74 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
     topRow->addStretch(1);
 
     auto* v = new QVBoxLayout(this);
+    v->setContentsMargins(0, 0, 0, 0);
     v->addLayout(topRow);
-    v->addWidget(log_, 1);
+    v->addWidget(scroll_, 1);
     v->addLayout(quickRow);
     v->addLayout(sendRow);
 }
 
-void ChatPanel::appendHuman(const QString& text) {
-    appendMessage(log_, QStringLiteral("你"), text, /*markdown=*/false, kUserColor);
+void ChatPanel::addMessageWidget(QWidget* w) {
+    // 插在末尾 stretch 之前，保持消息从上往下堆叠。
+    messages_layout_->insertWidget(messages_layout_->count() - 1, w);
+    scrollToBottom();
 }
 
-void ChatPanel::appendAi(const QString& text) {
-    appendAi(text, std::vector<ClaimVerdict>{}, 0);
+void ChatPanel::scrollToBottom() {
+    QTimer::singleShot(0, scroll_, [this]() {
+        scroll_->verticalScrollBar()->setValue(scroll_->verticalScrollBar()->maximum());
+    });
 }
 
-void ChatPanel::appendNote(const QString& text) {
-    // 固定格式提示用淡灰，正文不渲染 markdown（这些是程序拼接的纯文本）。
-    appendMessage(log_, QStringLiteral("AI"), text, /*markdown=*/false, kNoteColor);
+QTextBrowser* ChatPanel::makeAiBrowser() {
+    auto* b = new QTextBrowser(messages_);
+    b->setReadOnly(true);
+    b->setOpenLinks(false);
+    b->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    b->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    b->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    b->setFrameShape(QFrame::NoFrame);
+    b->setStyleSheet(QStringLiteral("QTextBrowser { background: transparent; }"));
+    b->document()->setDocumentMargin(0);
+    // 随内容高度自适应（去掉内部滚动条后必须显式撑高）。
+    connect(b->document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
+            b, [b](const QSizeF& sz) {
+                b->setFixedHeight(static_cast<int>(sz.height()) + 2);
+            });
+    connect(b, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
+        const QString s = url.toString();
+        if (!s.startsWith(QStringLiteral("claim:"))) return;
+        bool ok = false;
+        const int idx = s.mid(6).toInt(&ok);
+        if (ok) emit evidenceActivated(idx);
+    });
+    return b;
 }
 
-void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& verdicts,
-                         int size) {
-    QString body;
-    QString json;
-    splitClaimsBlock(text, &body, &json);
-    appendMessage(log_, QStringLiteral("AI"), body, /*markdown=*/true, QColor());
-    if (!json.isEmpty()) appendClaimsJson(log_, json);
+void ChatPanel::composeAi(QTextBrowser* b, const QString& body, const QString& json,
+                          const std::vector<ClaimVerdict>& verdicts, int size) {
+    QTextCursor cursor(b->document());
+    cursor.movePosition(QTextCursor::End);
 
-    // 证据行：每条断言一个可点击超链接，hover 显示来源与校验说明，点击跳 PV。
+    // "AI：" 头 + markdown 正文。
+    cursor.insertHtml(QStringLiteral("<b>AI：</b>"));
+    if (!body.isEmpty()) cursor.insertFragment(markdownFragment(body));
+    cursor.insertBlock();
+
+    // <claims> JSON 原文淡化灰小字。
+    if (!json.isEmpty()) {
+        QTextBlockFormat block;
+        block.setTopMargin(2);
+        cursor.setBlockFormat(block);
+        QTextCharFormat fmt;
+        fmt.setForeground(kClaimsColor);
+        fmt.setFontPointSize(qMax(9.0, b->font().pointSizeF() - 1.0));
+        cursor.insertText(json, fmt);
+        cursor.insertBlock();
+    }
+
+    // 证据行：每条断言一个可点击超链接，hover 看来源、点击跳 PV。
     if (!verdicts.empty()) {
-        QTextCursor cursor(log_->document());
-        cursor.movePosition(QTextCursor::End);
         QTextBlockFormat block;
         block.setTopMargin(2);
         cursor.setBlockFormat(block);
@@ -276,116 +260,139 @@ void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& v
             cursor.insertText(claimLabel(v.claim, size), link);
         }
         cursor.insertBlock();
-        scrollToBottom(log_);
     }
+}
 
-    // A4：每条 AI 回复下方内嵌 👍/👎（小字、灰色），选择后高亮被选、置灰另一项。
+void ChatPanel::appendAiBubble(const QString& text, const std::vector<ClaimVerdict>& verdicts,
+                               int size, int replyIndex) {
+    QString body;
+    QString json;
+    splitClaimsBlock(text, &body, &json);
+
+    auto* bubble = new QWidget(messages_);
+    auto* v = new QVBoxLayout(bubble);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(2);
+
+    QTextBrowser* browser = makeAiBrowser();
+    composeAi(browser, body, json, verdicts, size);
+    v->addWidget(browser);
+
+    // A4：圆形 👍/👎 小按钮，仅在正文非空时显示。
     if (!text.trimmed().isEmpty()) {
-        insertFeedbackButtons(reply_counter_);
-        ++reply_counter_;
+        auto* up = new QPushButton(QStringLiteral("👍"), bubble);
+        up->setFixedSize(26, 26);
+        up->setCursor(Qt::PointingHandCursor);
+        up->setFocusPolicy(Qt::NoFocus);
+        up->setToolTip(QStringLiteral("这条回答有帮助"));
+        applyFeedbackStyle(up, /*up=*/true, /*selected=*/false);
+
+        auto* down = new QPushButton(QStringLiteral("👎"), bubble);
+        down->setFixedSize(26, 26);
+        down->setCursor(Qt::PointingHandCursor);
+        down->setFocusPolicy(Qt::NoFocus);
+        down->setToolTip(QStringLiteral("这条回答不好（会记入坏样本供改进）"));
+        applyFeedbackStyle(down, /*up=*/false, /*selected=*/false);
+
+        const int idx = replyIndex;
+        connect(up, &QPushButton::clicked, this, [this, idx]() { handleFeedback(idx, true); });
+        connect(down, &QPushButton::clicked, this, [this, idx]() { handleFeedback(idx, false); });
+        feedback_buttons_[idx] = {up, down};
+
+        auto* row = new QHBoxLayout;
+        row->setContentsMargins(0, 2, 0, 0);
+        row->setSpacing(6);
+        row->addWidget(up);
+        row->addWidget(down);
+        row->addStretch(1);
+        v->addLayout(row);
     }
+
+    addMessageWidget(bubble);
 }
 
-void ChatPanel::insertFeedbackButtons(int replyIndex) {
-    QTextCursor cursor(log_->document());
-    cursor.movePosition(QTextCursor::End);
-    QTextBlockFormat block;
-    block.setTopMargin(2);
-    cursor.setBlockFormat(block);
-
-    const qreal pt = qMax(9.0, log_->font().pointSizeF() - 2.0);
-
-    QTextCharFormat upFmt;
-    upFmt.setForeground(kFeedbackInactive);
-    upFmt.setFontPointSize(pt);
-    upFmt.setAnchor(true);
-    upFmt.setAnchorHref(QStringLiteral("feedback:up:%1").arg(replyIndex));
-
-    FeedbackLine line;
-    line.up_start = cursor.position();
-    cursor.insertText(QStringLiteral("👍"), upFmt);
-    line.up_end = cursor.position();
-
-    QTextCharFormat sepFmt;
-    sepFmt.setFontPointSize(pt);
-    cursor.insertText(QStringLiteral("  "), sepFmt);
-
-    QTextCharFormat downFmt = upFmt;
-    downFmt.setAnchorHref(QStringLiteral("feedback:down:%1").arg(replyIndex));
-    line.down_start = cursor.position();
-    cursor.insertText(QStringLiteral("👎"), downFmt);
-    line.down_end = cursor.position();
-
-    cursor.insertBlock();
-    scrollToBottom(log_);
-    feedbacks_[replyIndex] = line;
+void ChatPanel::handleFeedback(int replyIndex, bool up) {
+    const auto it = feedback_buttons_.find(replyIndex);
+    if (it == feedback_buttons_.end()) return;
+    QPushButton* upBtn = it->second.first;
+    QPushButton* downBtn = it->second.second;
+    // 高亮被选项，另一项置为不可点击（禁用即不可再点，天然防重复投票）。
+    applyFeedbackStyle(upBtn, /*up=*/true, /*selected=*/up);
+    applyFeedbackStyle(downBtn, /*up=*/false, /*selected=*/!up);
+    upBtn->setEnabled(false);
+    downBtn->setEnabled(false);
+    emit feedbackGiven(replyIndex, up);
 }
 
-void ChatPanel::recolorFeedback(int replyIndex, bool up) {
-    const auto it = feedbacks_.find(replyIndex);
-    if (it == feedbacks_.end()) return;
-    const FeedbackLine& line = it->second;
-    const qreal pt = qMax(9.0, log_->font().pointSizeF() - 2.0);
+void ChatPanel::appendHuman(const QString& text) {
+    auto* label = new QLabel(messages_);
+    label->setWordWrap(true);
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>你：</b></span>%2")
+                       .arg(kUserColor.name(), text.toHtmlEscaped()));
+    addMessageWidget(label);
+}
 
-    QTextCursor cursor(log_->document());
-    // 👍：选中（up）时高亮绿，否则置灰；去掉锚点使其不可再点。
-    QTextCharFormat upFmt;
-    upFmt.setForeground(up ? kFeedbackUp : kFeedbackInactive);
-    upFmt.setFontPointSize(pt);
-    cursor.setPosition(line.up_start);
-    cursor.setPosition(line.up_end, QTextCursor::KeepAnchor);
-    cursor.setCharFormat(upFmt);
+void ChatPanel::appendAi(const QString& text) {
+    appendAi(text, std::vector<ClaimVerdict>{}, 0);
+}
 
-    // 👎：选中（!up）时高亮红，否则置灰。
-    QTextCharFormat downFmt;
-    downFmt.setForeground(up ? kFeedbackInactive : kFeedbackDown);
-    downFmt.setFontPointSize(pt);
-    cursor.setPosition(line.down_start);
-    cursor.setPosition(line.down_end, QTextCursor::KeepAnchor);
-    cursor.setCharFormat(downFmt);
+void ChatPanel::appendNote(const QString& text) {
+    auto* label = new QLabel(messages_);
+    label->setWordWrap(true);
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>AI：</b></span>%2")
+                       .arg(kNoteColor.name(), text.toHtmlEscaped()));
+    addMessageWidget(label);
+}
+
+void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& verdicts,
+                         int size) {
+    appendAiBubble(text, verdicts, size, reply_counter_);
+    ++reply_counter_;
 }
 
 void ChatPanel::clear() {
-    log_->clear();
+    stream_browser_ = nullptr;
     stream_buffer_.clear();
-    streaming_ = false;
-    feedbacks_.clear();
+    feedback_buttons_.clear();
     reply_counter_ = 0;
+    // 清空所有消息控件，只留末尾的 stretch。
+    while (messages_layout_->count() > 1) {
+        QLayoutItem* item = messages_layout_->takeAt(0);
+        if (QWidget* w = item->widget()) w->deleteLater();
+        delete item;
+    }
 }
 
 void ChatPanel::beginAiStream() {
     stream_buffer_.clear();
-    QTextCursor cursor(log_->document());
-    cursor.movePosition(QTextCursor::End);
-    QTextBlockFormat block;
-    block.setTopMargin(kMessageSpacing);
-    cursor.setBlockFormat(block);
+    stream_browser_ = makeAiBrowser();
+    QTextCursor cursor(stream_browser_->document());
     cursor.insertHtml(QStringLiteral("<b>AI：</b>"));
-    stream_content_pos_ = cursor.position();
-    streaming_ = true;
+    addMessageWidget(stream_browser_);
 }
 
 void ChatPanel::appendAiStream(const QString& text) {
-    if (!streaming_) beginAiStream();
+    if (!stream_browser_) beginAiStream();
     stream_buffer_ += text;
-    // Show raw text as it arrives; it is replaced with rendered markdown in endAiStream().
-    QTextCursor cursor(log_->document());
+    QTextCursor cursor(stream_browser_->document());
     cursor.movePosition(QTextCursor::End);
     cursor.insertText(text);
-    scrollToBottom(log_);
+    scrollToBottom();
 }
 
 void ChatPanel::endAiStream() {
-    if (!streaming_) return;
-    QTextCursor cursor(log_->document());
-    cursor.setPosition(stream_content_pos_);
-    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    if (!stream_browser_) return;
+    // 用渲染后的 markdown 替换逐字流式文本。
+    QTextCursor cursor(stream_browser_->document());
+    cursor.select(QTextCursor::Document);
     cursor.removeSelectedText();
+    cursor.insertHtml(QStringLiteral("<b>AI：</b>"));
     cursor.insertFragment(markdownFragment(stream_buffer_));
-    cursor.insertBlock();
-    streaming_ = false;
+    stream_browser_ = nullptr;
     stream_buffer_.clear();
-    scrollToBottom(log_);
+    scrollToBottom();
 }
 
 }  // namespace vgo
