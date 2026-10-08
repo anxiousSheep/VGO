@@ -8,6 +8,8 @@
 #include "../json.h"
 #include "../lifedeath.h"
 #include "../ownership.h"
+#include "../record.h"
+#include "../sgf.h"
 
 namespace vgo {
 
@@ -201,6 +203,64 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
             }
             ToolResult r;
             r.json = dumpJson(Json::makeObject(std::move(fields)));
+            return r;
+        };
+        r.registerTool(t);
+    }
+
+    {
+        // D1.7：把 L5 落地的 SGF 读写能力注册为工具——把当前局面的手顺（本局已下
+        // 着法序列，含让子摆子）以标准 SGF（FF[4]）文本 + 结构化着法列表两种形式
+        // 交给模型，供其核对「这盘棋走到这里是怎么下的」。坐标用 SGF 记法（左上角
+        // aa 为原点、列在前行在后、不跳字母），与 GTP 记法相区别。棋谱库位置索引
+        // （跨局查找）仍另行推进。
+        Tool t;
+        t.name = "sgf_lookup_position";
+        t.description =
+            "返回当前局面的手顺（本局已下的着法序列，含让子摆子），以标准 SGF（FF[4]）"
+            "文本与结构化着法列表两种形式给出。坐标为 SGF 记法：左上角 aa 为原点，"
+            "列在前行在后，不跳过字母（与 GTP 的 D4 记法不同）。";
+        t.json_schema = "{\"type\":\"object\",\"properties\":{},\"required\":[]}";
+        t.invoke = [c](const std::string&) -> ToolResult {
+            const GameRecord rec = recordFromGame(c->game);
+            std::vector<Json> moves;
+            moves.reserve(rec.moves.size());
+            int n = 0;
+            for (const MoveRecord& m : rec.moves) {
+                ++n;
+                moves.push_back(Json::makeObject({
+                    {"move", Json::makeNumber(n)},
+                    {"color", Json::makeString(m.color == Color::Black ? "B" : "W")},
+                    {"point", m.move.is_pass
+                                  ? Json::makeString("")
+                                  : Json::makeString(sgfPoint(m.move.p))},
+                    {"pass", Json::makeBool(m.move.is_pass)},
+                }));
+            }
+            std::vector<Json> setup;
+            setup.reserve(rec.setup_black.size() + rec.setup_white.size());
+            for (const Point& p : rec.setup_black)
+                setup.push_back(Json::makeObject({
+                    {"color", Json::makeString("B")},
+                    {"point", Json::makeString(sgfPoint(p))},
+                }));
+            for (const Point& p : rec.setup_white)
+                setup.push_back(Json::makeObject({
+                    {"color", Json::makeString("W")},
+                    {"point", Json::makeString(sgfPoint(p))},
+                }));
+
+            ToolResult r;
+            r.json = dumpJson(Json::makeObject({
+                {"size", Json::makeNumber(c->game.size())},
+                {"komi", Json::makeNumber(c->game.komi())},
+                {"move_count", Json::makeNumber(static_cast<double>(rec.moves.size()))},
+                {"to_move",
+                 Json::makeString(c->game.current() == Color::Black ? "black" : "white")},
+                {"setup_stones", Json::makeArray(std::move(setup))},
+                {"moves", Json::makeArray(std::move(moves))},
+                {"sgf", Json::makeString(serializeSgf(rec))},
+            }));
             return r;
         };
         r.registerTool(t);

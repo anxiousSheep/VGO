@@ -42,7 +42,7 @@ title: VGO-AI-Harness-2026-扩展路线
     - [ ] `ownership_map` → `ownership.h`
     - [ ] `variation_pv(n)` → `variation.h`
     - [ ] `count_territory` → `src/go` 数子
-    - [ ] `sgf_lookup_position`（依赖 L5 SGF 落地后接）
+    - [x] `sgf_lookup_position`（已落地：注册表，返回当前局面手顺 SGF + 结构化着法；棋谱库位置索引另行推进）
 - [ ] `ConversationService` 增加 tool-capable 分支（OpenAI 兼容 `tools` / `tool_calls`）；**端点不支持工具时回退现有 C++ dispatch 路径**，保住 fallback 引擎 + 模板解说可用性
 - [ ] 有界环路：建议 `max_steps = 4`、`max_wallclock_ms = 3000`、取消复用现有 `generation_` 语义
 - [ ] 环路 trace 落 `agent_trace.jsonl`（为 D5 评估留证据）

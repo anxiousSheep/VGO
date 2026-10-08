@@ -127,6 +127,63 @@ TEST(illegal_coord_refused) {
     CHECK(!res.ok);
 }
 
+TEST(sgf_lookup_position_returns_handseq) {
+    Game g(9);
+    g.play(3, 3);   // Black "dd"
+    g.play(6, 6);   // White "gg"
+    g.pass();       // Black pass
+    AgentToolContext ctx;
+    ctx.game = g;
+    ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("sgf_lookup_position");
+    CHECK(t != nullptr);
+
+    const Json j = resultOf(*t);
+    CHECK(j.isObject());
+    CHECK_EQ(j.get("move_count")->asNumber(), 3.0);
+    CHECK_EQ(j.get("size")->asNumber(), 9.0);
+    CHECK_EQ(j.get("to_move")->asString(), std::string("white"));
+
+    const Json* moves = j.get("moves");
+    CHECK(moves != nullptr && moves->isArray());
+    CHECK_EQ(moves->array.size(), 3u);
+    CHECK_EQ(moves->array[0].get("color")->asString(), std::string("B"));
+    CHECK_EQ(moves->array[0].get("point")->asString(), std::string("dd"));
+    CHECK(!moves->array[0].get("pass")->asBool());
+    CHECK_EQ(moves->array[1].get("color")->asString(), std::string("W"));
+    CHECK_EQ(moves->array[1].get("point")->asString(), std::string("gg"));
+    CHECK(moves->array[2].get("pass")->asBool());
+    CHECK_EQ(moves->array[2].get("point")->asString(), std::string(""));
+
+    const std::string sgf = j.get("sgf")->asString();
+    CHECK(sgf.find("GM[1]FF[4]") != std::string::npos);
+    CHECK(sgf.find("SZ[9]") != std::string::npos);
+    CHECK(sgf.find("B[dd]") != std::string::npos);
+    CHECK(sgf.find("W[gg]") != std::string::npos);
+}
+
+TEST(sgf_lookup_position_setup_stones) {
+    // 让子局：黑方预置一颗星位摆子，白方先行。
+    Game g(9, 7.5, {Point{2, 2}});
+    AgentToolContext ctx;
+    ctx.game = g;
+    ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("sgf_lookup_position");
+    CHECK(t != nullptr);
+
+    const Json j = resultOf(*t);
+    CHECK_EQ(j.get("to_move")->asString(), std::string("white"));
+    const Json* setup = j.get("setup_stones");
+    CHECK(setup != nullptr && setup->isArray());
+    CHECK_EQ(setup->array.size(), 1u);
+    CHECK_EQ(setup->array[0].get("color")->asString(), std::string("B"));
+    CHECK_EQ(setup->array[0].get("point")->asString(), std::string("cc"));
+    CHECK_EQ(j.get("move_count")->asNumber(), 0.0);
+    // 摆子不在着法列表里，但会进入 SGF 的 AB[] 属性。
+    const std::string sgf = j.get("sgf")->asString();
+    CHECK(sgf.find("AB[cc]") != std::string::npos);
+}
+
 TEST(loop_final_immediately) {
     AgentLoop loop;
     auto model = [](const std::vector<AgentLoop::Step>&, AgentAction& a) {

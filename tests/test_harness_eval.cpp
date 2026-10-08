@@ -35,8 +35,8 @@ TEST(harness_routing_golden_is_hermetic) {
 
 TEST(harness_sync_tools_expose_full_capability) {
     // D1 完成判据：sync 能力（count_territory / life_death_solve / ownership_map /
-    // dead_groups / analyze_position）全部注册为工具；async 的 evaluate_* 因
-    // Tool::invoke 同步契约而不得注册（改由 handleMoveQuality 异步注入）。
+    // dead_groups / analyze_position / sgf_lookup_position）全部注册为工具；async 的
+    // evaluate_* 因 Tool::invoke 同步契约而不得注册（改由 handleMoveQuality 异步注入）。
     AgentToolContext ctx;
     ctx.game = Game(9);
     const ToolRegistry r = buildAgentTools(ctx);
@@ -46,6 +46,7 @@ TEST(harness_sync_tools_expose_full_capability) {
     CHECK(r.find("ownership_map") != nullptr);
     CHECK(r.find("dead_groups") != nullptr);
     CHECK(r.find("analyze_position") != nullptr);
+    CHECK(r.find("sgf_lookup_position") != nullptr);
     CHECK(r.find("evaluate_move") == nullptr);
     CHECK(r.find("evaluate_last_move") == nullptr);
 }

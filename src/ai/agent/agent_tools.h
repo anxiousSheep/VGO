@@ -17,9 +17,9 @@ struct AgentToolContext {
 
 // Registers the existing deterministic capabilities as model-callable tools:
 //   count_territory / life_death_solve / ownership_map / dead_groups /
-//   analyze_position
+//   analyze_position / sgf_lookup_position
 // No new algorithms: each invoker calls straight into the existing pure code
-// (Game scoring, LifeDeathAnalyzer, ownership).
+// (Game scoring, LifeDeathAnalyzer, ownership, record.h + sgf.h).
 //
 // Note: `evaluate_move` / `evaluate_last_move` are intentionally NOT registered
 // here — they need an async engine query (MoveEvaluator), but Tool::invoke is

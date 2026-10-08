@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
+| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.7 `sgf_lookup_position`（手顺 SGF 快照工具，棋谱库位置索引另行推进）+ D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -144,7 +144,7 @@ struct Tool {
 | `ownership_map` | `ownership.h` | ✅ 已有 |
 | `variation_pv(n)` | `variation.h` | ✅ 已有 |
 | `count_territory` | 规则引擎计分（`go/game.h`） | 需确认暴露 API |
-| `sgf_lookup_position` | `record.h` + L5 SGF | ⬜ 依赖 L5 SGF 落地后接 |
+| `sgf_lookup_position` | `record.h` + L5 SGF | ✅ 已注册（返回当前局面手顺 SGF + 结构化着法；棋谱库位置索引另行推进） |
 
 **环路（`src/ai/agent/loop.h`）**
 
@@ -171,7 +171,7 @@ struct Tool {
 | D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ✅ |
 | D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch）——**仅单测，生产未接线**：实际环路由 `doChat` 的 depth 上限兜底 | `agent/loop.h` + 单测 | 🔄 |
 | D1.6 | 环路 trace 落 `agent_trace.jsonl` | `agent/loop.h` | 🔄 |
-| D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ⬜ |
+| D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ✅ |
 | D1.8 | 移除 `ask` 的阻塞式 `Interactive` 预取（MCP 回潮回归）；新增 `prewarmAnalysis`（`EnginePriority::Background`、与形势开关解耦）维护工具快照 + 抽 `groundFromAnalysis` 统一 `dead_groups`/`life_death` 口径 | `advisor.*` + 单测 | ⬜ |
 | D1.9 | 关键词分发降级为兜底（sync 能力主路径交工具环路，async 能力仍由 `handle*` 前置注入）；`buildUserPrompt` 收敛（Other 只注入无引擎基础事实，胜率/候选点/死棋清单改由工具按需取） | `advisor` + `conversation_http` + 单测 | ✅ |
 | D1.10 | `doChat` 补墙钟超时兜底（`max_loop_ms_` + depth 双界，环路有界）；`AgentLoop` 保留为纯逻辑参考 + 单测（生产环路由 `doChat` 承担） | `conversation_http` | ✅ |
