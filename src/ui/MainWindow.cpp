@@ -219,6 +219,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(chat_, &vgo::ChatPanel::messageSent, this, &MainWindow::onChatMessage);
     connect(chat_, &vgo::ChatPanel::newChatRequested, this, [this] {
         if (advisor_) advisor_->cancel();
+        replies_.clear();  // A4：清空反馈上下文（与 ChatPanel 日志同步归零）
     });
     // D2.4：点击证据 → 在棋盘上高亮引擎主变化（跳 PV）。
     connect(chat_, &vgo::ChatPanel::evidenceActivated, this, [this](int) {
@@ -227,17 +228,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             status_->setText(QStringLiteral("已高亮引擎主变化（PV），共 %1 手")
                                  .arg(static_cast<int>(last_pv_.size())));
     });
-    // A4：用户差评 → 把最近一条回复沉淀为坏样本（user_downvote），供人工复盘/改写。
-    connect(chat_, &vgo::ChatPanel::feedbackGiven, this, [this](bool up) {
+    // A4：用户差评 → 把被评的那条回复沉淀为坏样本（user_downvote），供人工复盘/改写。
+    connect(chat_, &vgo::ChatPanel::feedbackGiven, this, [this](int replyIndex, bool up) {
         if (up) return;  // 👍 暂不落盘（D4.6 无正反馈落点，本期不做）
+        if (replyIndex < 0 || replyIndex >= static_cast<int>(replies_.size())) return;
+        const vgo::ConversationReply& r = replies_[replyIndex];
         vgo::BadSample s;
         s.ts_ms = QDateTime::currentMSecsSinceEpoch();
-        s.position_hash = last_reply_.feedback_position_hash;
-        s.question = last_reply_.feedback_question;
-        s.reply_text = last_reply_.text;
+        s.position_hash = r.feedback_position_hash;
+        s.question = r.feedback_question;
+        s.reply_text = r.text;
         s.disposition = vgo::kDispositionUserDownvote;
-        s.truth_summary = last_reply_.feedback_truth_summary;
-        s.model = last_reply_.feedback_model;
+        s.truth_summary = r.feedback_truth_summary;
+        s.model = r.feedback_model;
         if (bad_sample_store_) bad_sample_store_->append(s);
     });
 
@@ -603,6 +606,7 @@ void MainWindow::startPlacement(int size) {
     game_ = new vgo::Game(size);
     resigned_ = false;
     chat_->clear();
+    replies_.clear();
     appendNote(QStringLiteral("摆棋模式：你可以自由摆放黑白棋子（用「虚着」切换行棋方），"
                             "并随时在右侧问我问题，比如「谁领先」「我该下哪」。"));
     refresh();
@@ -656,6 +660,7 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
     };
 
     chat_->clear();
+    replies_.clear();
     if (setup.handicap >= 2) {
         // 让子局（L6）：你执黑让 X 子，AI（白）先行。
         appendNote(QStringLiteral("让子局：你执黑让 %1 子，AI（白）先行。"
@@ -1160,14 +1165,12 @@ void MainWindow::onChatMessage(const QString& text) {
 }
 
 void MainWindow::handleReply(const vgo::ConversationReply& r) {
-    last_reply_ = r;  // A4：留存上一条回复的反馈上下文（👎 落盘用）
     const int size = currentGame() ? currentGame()->size() : 9;
+    replies_.push_back(r);  // A4：按序留存，供 👎 反馈按 replyIndex 回查上下文
     // D2.4：正文后追加证据行（hover 看来源、点击跳 PV）；记录主变化供跳 PV。
     chat_->appendAi(QString::fromStdString(r.text), r.verdicts, size);
     board_view_->setHighlight(r.highlight);
     last_pv_ = r.pv;
-    // A4：收到新回复后重新启用 👍/👎（发送新问题时已在 ChatPanel 内置灰）。
-    chat_->setFeedbackEnabled(!r.text.empty());
 }
 
 bool MainWindow::usingKata() const {
@@ -1719,6 +1722,7 @@ void MainWindow::enterDailyPuzzle() {
     daily_problem_ = vgo::ReviewItem{};
 
     chat_->clear();
+    replies_.clear();
     if (!learner_ || !learner_->enabled()) {
         appendNote(QStringLiteral("每日一题：学习记忆已关闭，暂无习题。可在「模型设置」里开启。"));
         refresh();

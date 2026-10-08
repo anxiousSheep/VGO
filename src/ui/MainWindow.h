@@ -222,5 +222,5 @@ private:
     std::unique_ptr<vgo::TraceStore> trace_store_;
     std::unique_ptr<vgo::BadSampleStore> bad_sample_store_;  // D2.5 坏样本集
     std::vector<vgo::Point> last_pv_;
-    vgo::ConversationReply last_reply_;  // A4：上一条回复的反馈上下文（👎 落盘用）
+    std::vector<vgo::ConversationReply> replies_;  // A4：逐条 AI 回复（按序，供 👎 落盘回查）
 };
