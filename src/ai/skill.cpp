@@ -83,6 +83,17 @@ std::vector<std::string> tokenize(const std::string& s) {
 
 }  // namespace
 
+SkillMeta Skill::frontmatter() const {
+    SkillMeta m;
+    m.id = id;
+    m.name = name;
+    m.description = description;
+    m.applies_to = applies_to;
+    m.version = version;
+    m.last_score = last_score;
+    return m;
+}
+
 SkillRegistry SkillRegistry::builtin() {
     SkillRegistry r;
     {
@@ -279,6 +290,13 @@ bool SkillRegistry::upsert(const Skill& s) {
     return true;
 }
 
+std::vector<SkillMeta> SkillRegistry::frontmatter() const {
+    std::vector<SkillMeta> out;
+    out.reserve(skills_.size());
+    for (const Skill& s : skills_) out.push_back(s.frontmatter());
+    return out;
+}
+
 bool SkillRegistry::setScore(const std::string& id, double score) {
     for (Skill& s : skills_) {
         if (s.id == id) {
@@ -296,6 +314,21 @@ bool SkillRegistry::addPending(const std::string& id, const std::string& candida
             s.pending.push_back(candidate);
             return true;
         }
+    }
+    return false;
+}
+
+bool SkillRegistry::proposeRewrite(const std::string& id, const std::string& candidate) {
+    const std::string c = trim(candidate);
+    if (c.empty()) return false;
+    for (Skill& s : skills_) {
+        if (s.id != id) continue;
+        // 采纳时会追加到现有正文，合并后不得超体积上限。
+        const std::size_t merged =
+            s.prompt.size() + (s.prompt.empty() ? 0 : 1) + c.size();
+        if (merged > kMaxSkillBodyChars) return false;
+        s.pending.push_back(c);
+        return true;
     }
     return false;
 }
@@ -388,6 +421,32 @@ bool validateSkill(const Skill& s, std::string* err) {
     if (s.prompt.size() > kMaxSkillBodyChars) return fail("正文超过体积上限");
     if (err) err->clear();
     return true;
+}
+
+std::string buildRewritePrompt(const Skill& s, const std::vector<std::string>& misses) {
+    std::ostringstream os;
+    os << "你是一名围棋教学知识包编辑。请改写技能「" << s.name << "」的知识正文，"
+       << "使其更好地覆盖下列曾经答错的题目：\n";
+    for (const std::string& m : misses) os << "- " << m << '\n';
+    os << "\n当前正文：\n"
+       << s.prompt << "\n\n"
+       << "要求：保持风格口语化、面向棋手，不编造数据。只输出改写后的正文，"
+       << "不要加任何解释或标题。";
+    return os.str();
+}
+
+std::string extractRewriteBody(const std::string& reply) {
+    const std::string fence = "```";
+    const std::size_t open = reply.find(fence);
+    if (open == std::string::npos) return trim(reply);
+    std::size_t start = open + fence.size();
+    // 跳过开围栏行（可带语言标注，如 ```markdown）到行尾。
+    const std::size_t nl = reply.find('\n', start);
+    if (nl != std::string::npos && nl < reply.find(fence, start)) start = nl + 1;
+    const std::size_t close = reply.find(fence, start);
+    const std::string body =
+        (close == std::string::npos) ? reply.substr(start) : reply.substr(start, close - start);
+    return trim(body);
 }
 
 }  // namespace vgo

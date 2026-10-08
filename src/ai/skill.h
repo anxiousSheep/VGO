@@ -10,6 +10,17 @@ namespace vgo {
 // D4.7 单文件体积上限：防止一个超大 skill 拖垮 system prompt。
 inline constexpr std::size_t kMaxSkillBodyChars = 8192;
 
+// Frontmatter-only view of a Skill (D4.2 渐进式披露)：常驻的元信息，不含正文。
+// 用于设置页 / 评估闭环廉价列出全部技能（含上次评分）而不触碰 body。
+struct SkillMeta {
+    std::string id;                       // stable key, e.g. "life-death"
+    std::string name;                     // display name
+    std::string description;              // one-line summary
+    std::vector<QuestionClass> applies_to;  // empty => applies to all
+    int version = 1;
+    double last_score = -1.0;             // -1 = never evaluated
+};
+
 // A domain-knowledge pack injected into the LLM system prompt (Skills 2.0, D4).
 // Frontmatter fields (id / name / description / applies_to / version /
 // last_score) are cheap to keep resident; `prompt` (the body) is loaded on
@@ -24,6 +35,9 @@ struct Skill {
     int version = 1;
     double last_score = -1.0;                // -1 = never evaluated
     std::vector<std::string> pending;        // D4.6 候选改进（待一键采纳）
+
+    // D4.2 渐进式披露：常驻的前言视图（不含正文）。
+    SkillMeta frontmatter() const;
 };
 
 // A retrieval hit with a score and a human-readable reason.
@@ -58,9 +72,16 @@ public:
     std::size_t size() const { return skills_.size(); }
     const std::vector<Skill>& all() const { return skills_; }
 
+    // D4.2 渐进式披露：常驻的前言（元信息）列表，不触碰正文。供设置页 / 评估闭环
+    // 廉价列出全部技能（含上次评分）而不加载 body。
+    std::vector<SkillMeta> frontmatter() const;
+
     // D4.5/D4.6 自进化：更新上次评分（评估闭环回写）、追加/采纳 pending 候选改进。
     bool setScore(const std::string& id, double score);
     bool addPending(const std::string& id, const std::string& candidate);
+    // D4.6 模型提议改写：把一个改写候选（LLM 产出）校验后沉淀进 pending 区，待一键
+    // 采纳。校验：候选非空、且与现有正文合并后不超体积上限。
+    bool proposeRewrite(const std::string& id, const std::string& candidate);
     bool adoptPending(const std::string& id);
 
     // Serialize a single skill to / from the YAML-frontmatter + body text form
@@ -76,5 +97,13 @@ private:
 // D4.7 热更加固：显式校验一个 skill（id 非空、正文非空、version >= 1、正文不超
 // 体积上限）。`err` 非空时写入失败原因。返回是否通过。
 bool validateSkill(const Skill& s, std::string* err);
+
+// D4.6 模型提议改写：构造「请改写技能正文」的 LLM 提示词（含技能名与失分题目）。
+// 纯字符串拼接，供设置页 / 评估闭环驱动轻/强模型产出改写候选。
+std::string buildRewritePrompt(const Skill& s, const std::vector<std::string>& misses);
+
+// D4.6 模型提议改写：从 LLM 回复中提取改写后的正文（剥离 ``` 代码围栏 / 可选语言
+// 标注，去首尾空白）。无法提取时返回空串。
+std::string extractRewriteBody(const std::string& reply);
 
 }  // namespace vgo

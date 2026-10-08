@@ -209,3 +209,83 @@ TEST(skill_pending_roundtrip) {
     CHECK_EQ(out.pending[0], std::string("补充A"));
     CHECK_EQ(out.pending[1], std::string("补充B"));
 }
+
+// --- D4.2 渐进式披露：frontmatter 常驻、body 按需加载 ---
+
+TEST(skill_frontmatter_lists_without_body) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const auto metas = r.frontmatter();
+    CHECK_EQ(metas.size(), 5u);
+    const SkillMeta* ko = nullptr;
+    for (const SkillMeta& m : metas) {
+        CHECK(!m.id.empty());
+        CHECK(!m.name.empty());
+        if (m.id == "ko") ko = &m;
+    }
+    CHECK(ko != nullptr);
+    CHECK_EQ(ko->name, std::string("打劫规则"));
+}
+
+TEST(skill_frontmatter_matches_skill) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const Skill* s = r.find("counting");
+    const SkillMeta m = s->frontmatter();
+    CHECK_EQ(m.id, std::string("counting"));
+    CHECK_EQ(m.name, s->name);
+    CHECK_EQ(m.description, s->description);
+    CHECK_EQ(m.version, s->version);
+    CHECK_EQ(m.last_score, s->last_score);
+    CHECK_EQ(m.applies_to.size(), s->applies_to.size());
+}
+
+// --- D4.6 模型提议改写：提示词 + 回复提取 + 校验沉淀 pending ---
+
+TEST(skill_rewrite_prompt_contains_context) {
+    SkillRegistry r = SkillRegistry::builtin();
+    const Skill* s = r.find("ko");
+    const std::string p = buildRewritePrompt(*s, {"什么是劫材", "打劫怎么找劫材"});
+    CHECK(p.find("打劫规则") != std::string::npos);
+    CHECK(p.find("什么是劫材") != std::string::npos);
+    CHECK(p.find("打劫怎么找劫材") != std::string::npos);
+    CHECK(p.find(s->prompt) != std::string::npos);
+}
+
+TEST(skill_extract_rewrite_body_fenced) {
+    const std::string reply = "以下是改写：\n```\n新的正文内容。\n```\n希望对你有帮助。";
+    CHECK_EQ(extractRewriteBody(reply), std::string("新的正文内容。"));
+}
+
+TEST(skill_extract_rewrite_body_lang_tag) {
+    const std::string reply = "```markdown\n打劫新正文。\n```";
+    CHECK_EQ(extractRewriteBody(reply), std::string("打劫新正文。"));
+}
+
+TEST(skill_extract_rewrite_body_plain) {
+    const std::string reply = "  直接给出的正文。  ";
+    CHECK_EQ(extractRewriteBody(reply), std::string("直接给出的正文。"));
+}
+
+TEST(skill_extract_rewrite_body_no_fence) {
+    // 没有围栏时的退化：整体去首尾空白（仍给一个可用候选）。
+    const std::string reply = " 打劫：一方提子后不能立即提回。 ";
+    CHECK(!extractRewriteBody(reply).empty());
+}
+
+TEST(skill_propose_rewrite_validates) {
+    SkillRegistry r = SkillRegistry::builtin();
+    CHECK(r.proposeRewrite("ko", " 补充：三劫循环属无胜负。 "));
+    const Skill* s = r.find("ko");
+    CHECK_EQ(s->pending.size(), 1u);
+    CHECK_EQ(s->pending[0], std::string("补充：三劫循环属无胜负。"));
+    // 空候选 / 超体积候选被拒。
+    CHECK(!r.proposeRewrite("ko", "   "));
+    CHECK(!r.proposeRewrite("ko", std::string(kMaxSkillBodyChars + 1, 'x')));
+    // 采纳后 pending 清空、正文含新内容。
+    CHECK(r.adoptPending("ko"));
+    CHECK(s->prompt.find("三劫循环") != std::string::npos);
+}
+
+TEST(skill_propose_rewrite_unknown_id) {
+    SkillRegistry r = SkillRegistry::builtin();
+    CHECK(!r.proposeRewrite("nonexistent", "正文"));
+}

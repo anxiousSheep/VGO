@@ -4,7 +4,7 @@
 |---|---|
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
-| 状态 | **进行中**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.7 `sgf_lookup_position`（手顺 SGF 快照工具，棋谱库位置索引另行推进）+ D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate） |
+| 状态 | **基本完成**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.7 `sgf_lookup_position`（手顺 SGF 快照工具，棋谱库位置索引另行推进）+ D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate）；**D4.2 渐进式披露（`frontmatter()`/`SkillMeta` 常驻前言 + `select` body 按需注入）与 D4.6 模型提议改写（`buildRewritePrompt`/`extractRewriteBody`/`proposeRewrite`）已落地**，唯一剩余：D4.7 版本回滚 UI 待 L15 |
 | 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
 | 上游文档 | `docs/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
@@ -169,7 +169,7 @@ struct Tool {
 | D1.2 | 注册 `evaluate_move` 与 `life_death_solve` 两个既有能力（最小第一步；`evaluate_move` 随后被 D1.3 移除） | 注册表 + 单测 | ✅ |
 | D1.3 | 注册其余既有能力（analyze / ownership / count_territory；`evaluate_*` 因引擎异步、`Tool::invoke` 同步而不注册为工具，改由 `handleMoveQuality` 异步求值注入 prompt） | 注册表 + 单测 | ✅ |
 | D1.4 | `HttpConversationService` 多工具声明 + 循环回填（OpenAI `tools`/`tool_calls`） | `conversation_http` | ✅ |
-| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch）——**仅单测，生产未接线**：实际环路由 `doChat` 的 depth 上限兜底 | `agent/loop.h` + 单测 | 🔄 |
+| D1.5 | `AgentLoop` 有界环路（max_steps / 超时 / 取消 / 不支持工具时回退 dispatch）——生产环路由 `doChat` 承担（D1.10 墙钟 + depth 双界），`AgentLoop` 保留为纯逻辑参考 | `agent/loop.h` + 单测 | ✅ |
 | D1.6 | 环路 trace 落 `agent_trace.jsonl`（生产已接：advisor 每答走 `trace_sink_` → `TraceStore` 落盘 + `TracePanel` 展示） | `agent/loop.h` + `advisor.*` + `ui/model/TraceStore` | ✅ |
 | D1.7 | `sgf_lookup_position`（依赖 L5 SGF 落地后接） | 注册表 | ✅ |
 | D1.8 | 移除 `ask` 的阻塞式 `Interactive` 预取（MCP 回潮回归）；新增 `prewarmAnalysis`（`EnginePriority::Background`、与形势开关解耦）维护工具快照 + 抽 `groundFromAnalysis` 统一 `dead_groups`/`life_death` 口径 | `advisor.*` + 单测 | ✅ |
@@ -385,11 +385,11 @@ last_score: 0.71
 | ID | 任务 | 产出 | 状态 |
 |---|---|---|---|
 | D4.1 | skill 文件格式升级（YAML frontmatter + version + last_score） | `skill.*` + 解析单测 | ✅ |
-| D4.2 | 渐进式披露：frontmatter 常驻、body 按需加载 | `skill.*` + 注入路径 | 🔄 |
+| D4.2 | 渐进式披露：frontmatter 常驻（`frontmatter()`/`SkillMeta`）、body 按需加载（`select` 仅注入命中正文） | `skill.*` + 注入路径 | ✅ |
 | D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ✅ |
 | D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | ✅ |
 | D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `skill_eval.*` + `tests/` | ✅ |
-| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` + 设置页 | ✅（pending/采纳/评分；模型提议改写未实现——L13 已完成，此能力仍待建） |
+| D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` | ✅（pending/采纳/评分 + 模型提议改写 `buildRewritePrompt`/`extractRewriteBody`/`proposeRewrite`） |
 | D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ✅（校验/体积上限；版本回滚 UI 待 L15） |
 
 ### 6.4 验收标准
