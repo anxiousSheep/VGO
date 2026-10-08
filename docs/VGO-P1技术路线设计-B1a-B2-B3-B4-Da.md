@@ -6,7 +6,7 @@
 | 范围 | Batch 2：B1a 几何着法 / B2 阶段+手顺 / B3 SSE 流式 / B4 质量评估（离线）/ D-a 画像侧重 |
 | 版本 | v0.1 |
 | 日期 | 2026-10-08 |
-| 状态 | 设计稿（待评审） |
+| 状态 | 设计稿（未实现，待评审） |
 | 前置 | P0 批（A1-A4）已落地；A2 的多轮记忆、A3 的分档契约在本批被复用 |
 
 **设计纪律**（同 P0 批）：① CTest 只进离线密闭纯逻辑；② 未配置 LLM 降级链不劣化；③ 无 Qt、无 I/O 进 `src/ai/`；④ B4 不进 CTest（见 §4）。
@@ -31,7 +31,7 @@
 
 ---
 
-## 1. B1a · 几何着法识别（`extractBoardFacts` 升级）
+## 1. B1a · 几何着法识别（`extractBoardFacts` 升级）⬜
 
 ### 1.1 范围与判定性
 
@@ -96,7 +96,7 @@ TigerMouth,  // 虎（虎口）
 
 ---
 
-## 2. B2 · 局面阶段 + 手顺进 prompt
+## 2. B2 · 局面阶段 + 手顺进 prompt ⬜
 
 ### 2.1 阶段判断（纯函数）
 
@@ -147,7 +147,7 @@ std::string move_sequence;  // "黑 H6、白 G5、…"，空 = 无历史
 
 ---
 
-## 3. B3 · SSE 流式（恢复 `answerStream`）
+## 3. B3 · SSE 流式（恢复 `answerStream`）⬜
 
 ### 3.1 传输层：`winHttpPostStream`
 
@@ -216,7 +216,7 @@ private:
 
 ---
 
-## 4. B4 · 讲解质量评估（离线 judge 工具，**不进 CTest**）
+## 4. B4 · 讲解质量评估（离线 judge 工具，**不进 CTest**）⬜
 
 ### 4.1 原则（评审报告 v1.1 决定①）
 
@@ -277,7 +277,7 @@ bool parseJudgeVerdict(const std::string& reply, JudgeVerdict* out);
 
 ---
 
-## 5. D-a · 画像 → 讲解侧重
+## 5. D-a · 画像 → 讲解侧重 ⬜
 
 ### 5.1 纯逻辑映射
 

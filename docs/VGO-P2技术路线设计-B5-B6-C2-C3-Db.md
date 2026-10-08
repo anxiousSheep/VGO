@@ -6,7 +6,7 @@
 | 范围 | Batch 3：B5 主动教学 / B6 递进提示 / C2 缓存分层 / C3 failover / D-b 每日一题联动；另附 B1b / B1c / C4 / C6 立项说明 |
 | 版本 | v0.1 |
 | 日期 | 2026-10-08 |
-| 状态 | 设计稿（待评审） |
+| 状态 | 设计稿（未实现，待评审） |
 | 前置 | P0（A1-A4）、P1（B1a/B2/B3/B4/D-a）；B6 部分依赖 L3（见 §2） |
 
 **设计纪律**（同前两批）：① CTest 只进离线密闭纯逻辑；② 未配置 LLM 降级链不劣化；③ 无 Qt、无 I/O 进 `src/ai/`。
@@ -28,7 +28,7 @@
 
 ---
 
-## 1. B5 · 情境化主动教学（承接 L12 CommentaryPolicy）
+## 1. B5 · 情境化主动教学（承接 L12 CommentaryPolicy）⬜
 
 ### 1.1 点评触发器（纯逻辑）
 
@@ -78,7 +78,7 @@ std::vector<std::string> chipsForPhase(GamePhase phase);
 
 ---
 
-## 2. B6 · 递进式提示（承接 L9）
+## 2. B6 · 递进式提示（承接 L9）⬜
 
 ### 2.1 三档递进模型
 
@@ -125,7 +125,7 @@ QString buildHintDirective(int tier, QuestionClass cls);
 
 ---
 
-## 3. C2 · prompt cache 分层
+## 3. C2 · prompt cache 分层 ⬜
 
 ### 3.1 目标与前提（价值仅限云端点）
 
@@ -161,7 +161,7 @@ QString buildSystemPrefix(bool human_vs_ai);  // 仅人机/摆棋两个稳定值
 
 ---
 
-## 4. C3 · 多提供商 failover
+## 4. C3 · 多提供商 failover ⬜
 
 ### 4.1 端点级 failover
 
@@ -193,7 +193,7 @@ void setEndpoints(std::vector<QString> endpoints);  // 首个为主，其余备�
 
 ---
 
-## 5. D-b · 每日一题 → 讲解联动
+## 5. D-b · 每日一题 → 讲解联动 ⬜
 
 ### 5.1 数据就位情况
 
@@ -226,28 +226,28 @@ void setEndpoints(std::vector<QString> endpoints);  // 首个为主，其余备�
 
 > 以下四项评审报告 v1.1 明确「视立项排期」，本批不承诺交付，仅立项评估。
 
-### 6.1 B1b · 征子 / 枷吃识别
+### 6.1 B1b · 征子 / 枷吃识别 ⬜
 
 - **性质**：征子（ladder）本质是「反复打吃能否逃脱」的**前瞻搜索**；枷吃（net）可识形但「可靠判定」需短搜索确认被枷子无法脱出。均**非局部几何可判定**。
 - **路线**：在 `src/ai/` 增纯逻辑搜索（小深度 ladder 模拟 / 枷吃脱出检查），或引入局部模式库。无引擎、无 Qt。
 - **依赖**：无（纯逻辑）；但需 golden 局部形 + 战术对拍。
 - **工作量**：中。建议在 B1a 稳定后单独立项。
 
-### 6.2 B1c · 意图标注（攻击/防守/围空/破空/求活）
+### 6.2 B1c · 意图标注（攻击/防守/围空/破空/求活）⬜
 
 - **性质**：依赖 KataGo ownership / analysis，而 `extractBoardFacts(before, after, move, captured, mover)` **签名里没有这些数据**——需扩展签名，或把标注挪到 `AiAdvisor::currentFacts`（那里才有 `last_analysis_`）。
 - **路线**：在 `currentFacts` 层用 ownership + 落点相对领地关系打意图标签，作为 `GroundedFacts` 新字段进 prompt。
 - **依赖**：KataGo ownership（已具备，L13 实测通过）。
 - **工作量**：中。与 B1a 解耦（B1a 纯几何、B1c 依赖引擎），建议独立。
 
-### 6.3 C4 · 跨平台抽象
+### 6.3 C4 · 跨平台抽象 ⬜
 
 - **性质**：WinHTTP / DPAPI / MSVC 使项目 Windows-only。抽传输层与密钥层接口（libcurl + Secret Service / Keychain 备选）。
 - **现状**：`winhttp_transport.cpp` 已有 `#ifdef Q_OS_WIN`（L8-11）+ 非 Windows stub（L163-171），是现成的抽象缝。
 - **路线**：定义 `Transport` / `SecretStore` 接口，WinHTTP 与 libcurl 双实现；与 L16「连接复用」一并做。
 - **工作量**：大（纯重构，无路线错误）。维持 P2/持续。
 
-### 6.4 C6 · 棋谱库位置索引（典型局面词典）
+### 6.4 C6 · 棋谱库位置索引（典型局面词典）⬜
 
 - **性质**：`sgf_lookup_position` 目前只返回本局手顺（D1.7）。外延为「定式/布局 SGF 索引」。
 - **真正的难点**：不在 SGF 读写（L5 已 ✅），而在**局面匹配**——把当前角部局面哈希到定式索引，需 pattern-hash 索引 + 语料建设，本质是数据工程。
