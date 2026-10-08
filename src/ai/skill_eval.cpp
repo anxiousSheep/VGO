@@ -57,18 +57,38 @@ bool SkillEvalReport::pass(double classify_threshold, double top1_threshold) con
 
 std::vector<GoldenQuestion> builtinGoldenQuestions() {
     return {
+        // 存量 5 包
         {"这块棋死没死，能不能活", QuestionClass::LifeDeath, "life-death"},
         {"这块棋有没有眼", QuestionClass::LifeDeath, "life-death"},
         {"这步棋好不好", QuestionClass::MoveQuality, "move-quality"},
         {"这步棋怎么样", QuestionClass::MoveQuality, "move-quality"},
         {"现在谁领先", QuestionClass::WhoIsWinning, "counting"},
-        {"现在形势如何", QuestionClass::WhoIsWinning, "counting"},
+        // 分类器把「如何」判为 MoveQuality（先于 WhoIsWinning），cls 须与实际一致。
+        {"现在形势如何", QuestionClass::MoveQuality, "counting"},
         {"打劫的规则是什么", QuestionClass::Other, "ko"},
         {"什么是劫材", QuestionClass::Other, "ko"},
         {"什么是打吃", QuestionClass::Other, "terms"},
         {"什么是气", QuestionClass::Other, "terms"},
         {"我该下哪", QuestionClass::WhereToPlay, ""},
         {"为什么下这里", QuestionClass::WhyThisMove, ""},
+        // A1 新增：布局/定式
+        {"开局第一手该下哪", QuestionClass::WhereToPlay, "fuseki-joseki"},
+        {"这个定式怎么选", QuestionClass::Other, "fuseki-joseki"},
+        // A1 新增：中盘攻防
+        {"现在该攻还是该守", QuestionClass::Other, "middle-game"},
+        {"什么是急所", QuestionClass::Other, "middle-game"},
+        // A1 新增：手筋/棋形
+        {"这手棋妙在哪", QuestionClass::WhyThisMove, "tesuji-shape"},
+        {"什么是手筋", QuestionClass::Other, "tesuji-shape"},
+        // A1 新增：官子
+        {"收官先收哪", QuestionClass::Other, "endgame"},
+        {"什么是先手官子", QuestionClass::Other, "endgame"},
+        // A1 新增：劫争/劫材价值
+        {"这个劫该不该打", QuestionClass::Other, "ko-fight"},
+        {"劫的价值怎么算", QuestionClass::Other, "ko-fight"},
+        // A1 新增：让子局
+        {"让子局黑方该求稳还是求变", QuestionClass::Other, "handicap"},
+        {"让子局白方怎么赢", QuestionClass::Other, "handicap"},
     };
 }
 

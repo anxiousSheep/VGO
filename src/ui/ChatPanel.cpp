@@ -126,6 +126,7 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
         if (t.isEmpty()) return;
         appendHuman(t);
         input_->clear();
+        setFeedbackEnabled(false);  // A4：发送新问题后置灰，防止反馈错绑到旧回复
         emit messageSent(t);
     });
     connect(input_, &QLineEdit::returnPressed, send, &QPushButton::click);
@@ -133,6 +134,7 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
     auto* newChat = new QPushButton(QStringLiteral("＋ 新对话"), this);
     connect(newChat, &QPushButton::clicked, this, [this]() {
         clear();
+        setFeedbackEnabled(false);
         emit newChatRequested();
     });
 
@@ -141,14 +143,33 @@ ChatPanel::ChatPanel(QWidget* parent) : QWidget(parent) {
         auto* b = new QPushButton(QString::fromUtf8(q), this);
         connect(b, &QPushButton::clicked, this, [this, q]() {
             appendHuman(QString::fromUtf8(q));
+            setFeedbackEnabled(false);
             emit messageSent(QString::fromUtf8(q));
         });
         quickRow->addWidget(b);
     }
 
+    // A4：「上一条回复反馈」——👍/👎 作用于最近一条 AI 回复（气泡化按钮迁 L15）。
+    upvote_ = new QPushButton(QStringLiteral("👍"), this);
+    upvote_->setToolTip(QStringLiteral("这条回答有帮助"));
+    downvote_ = new QPushButton(QStringLiteral("👎"), this);
+    downvote_->setToolTip(QStringLiteral("这条回答不好（会记入坏样本供改进）"));
+    upvote_->setEnabled(false);
+    downvote_->setEnabled(false);
+    connect(upvote_, &QPushButton::clicked, this, [this]() {
+        setFeedbackEnabled(false);
+        emit feedbackGiven(true);
+    });
+    connect(downvote_, &QPushButton::clicked, this, [this]() {
+        setFeedbackEnabled(false);
+        emit feedbackGiven(false);
+    });
+
     auto* sendRow = new QHBoxLayout;
     sendRow->addWidget(input_, 1);
     sendRow->addWidget(send);
+    sendRow->addWidget(upvote_);
+    sendRow->addWidget(downvote_);
 
     auto* topRow = new QHBoxLayout;
     topRow->addWidget(newChat);
@@ -220,6 +241,11 @@ void ChatPanel::clear() {
     log_->clear();
     stream_buffer_.clear();
     streaming_ = false;
+}
+
+void ChatPanel::setFeedbackEnabled(bool on) {
+    if (upvote_) upvote_->setEnabled(on);
+    if (downvote_) downvote_->setEnabled(on);
 }
 
 void ChatPanel::beginAiStream() {

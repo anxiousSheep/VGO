@@ -128,6 +128,11 @@ struct ConversationReply {
     std::vector<ClaimVerdict> verdicts;
     // D2.4 跳 PV：grounding 分析的最佳变化（逐点），点击证据时在棋盘上高亮。
     std::vector<Point> pv;
+    // A4：反馈上下文（👎 沉淀坏样本用；模板/离线回复可为空）。
+    std::string feedback_position_hash;
+    std::string feedback_truth_summary;
+    std::string feedback_model;
+    std::string feedback_question;
 };
 
 class ConversationService {
@@ -144,6 +149,9 @@ public:
         answer(req, [cb](const ConversationReply& r) { cb(r.text, true); });
     }
     virtual void cancel() {}
+
+    // A2：会话是否已有历史（多轮追问时投机缓存需旁路，避免串答）。模板/离线无记忆。
+    virtual bool hasHistory() const { return false; }
 
     // D1: inject a position-bound tool registry before answering. The model may
     // then call any of these tools (function-calling) instead of a keyword

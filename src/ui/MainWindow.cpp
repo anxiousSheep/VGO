@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDate>
+#include <QDateTime>
 #include <QDir>
 #include <QDockWidget>
 #include <QEventLoop>
@@ -225,6 +226,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (!last_pv_.empty())
             status_->setText(QStringLiteral("已高亮引擎主变化（PV），共 %1 手")
                                  .arg(static_cast<int>(last_pv_.size())));
+    });
+    // A4：用户差评 → 把最近一条回复沉淀为坏样本（user_downvote），供人工复盘/改写。
+    connect(chat_, &vgo::ChatPanel::feedbackGiven, this, [this](bool up) {
+        if (up) return;  // 👍 暂不落盘（D4.6 无正反馈落点，本期不做）
+        vgo::BadSample s;
+        s.ts_ms = QDateTime::currentMSecsSinceEpoch();
+        s.position_hash = last_reply_.feedback_position_hash;
+        s.question = last_reply_.feedback_question;
+        s.reply_text = last_reply_.text;
+        s.disposition = vgo::kDispositionUserDownvote;
+        s.truth_summary = last_reply_.feedback_truth_summary;
+        s.model = last_reply_.feedback_model;
+        if (bad_sample_store_) bad_sample_store_->append(s);
     });
 
     // Menu: 对局 (new game + in-game actions), 视图 (AI panel), 设置 (models).
@@ -580,6 +594,7 @@ void MainWindow::updateTierStatus() {
 
 void MainWindow::startPlacement(int size) {
     if (demo_active_) exitDemo();
+    clearConversationSession();  // A2：新摆棋对局 / 切回摆棋模式，清多轮记忆
     delete game_;
     game_ = nullptr;
     // AI 服务跨模式共享：仅首次创建；已有则沿用并重置语气档位。
@@ -727,6 +742,7 @@ void MainWindow::updateModelStatus() {
 
 void MainWindow::onModeChanged(int index) {
     if (demo_active_) exitDemo();
+    clearConversationSession();  // A2：切换模式（摆棋↔人机↔复盘↔每日一题）清多轮记忆
     switch (index) {
         case 0: app_mode_ = vgo::GameMode::Placement; break;
         case 1: app_mode_ = vgo::GameMode::HumanVsAi; break;
@@ -1144,17 +1160,26 @@ void MainWindow::onChatMessage(const QString& text) {
 }
 
 void MainWindow::handleReply(const vgo::ConversationReply& r) {
+    last_reply_ = r;  // A4：留存上一条回复的反馈上下文（👎 落盘用）
     const int size = currentGame() ? currentGame()->size() : 9;
     // D2.4：正文后追加证据行（hover 看来源、点击跳 PV）；记录主变化供跳 PV。
     chat_->appendAi(QString::fromStdString(r.text), r.verdicts, size);
     board_view_->setHighlight(r.highlight);
     last_pv_ = r.pv;
+    // A4：收到新回复后重新启用 👍/👎（发送新问题时已在 ChatPanel 内置灰）。
+    chat_->setFeedbackEnabled(!r.text.empty());
 }
 
 bool MainWindow::usingKata() const {
     // 形势显示依赖形势判断引擎（标准模型满血），而非落子引擎。
     // D5.4：分析引擎现为 EnginePool，用创建时记录的标志判断（避免 dynamic_cast 池）。
     return analysis_kata_;
+}
+
+void MainWindow::clearConversationSession() {
+    // A2：新对局 / 切换模式时清空多轮会话记忆（人机对弈经 startAi 重建服务，天然清零）。
+    if (auto* h = dynamic_cast<vgo::HttpConversationService*>(conversation_))
+        h->clearSession();
 }
 
 bool MainWindow::usingHttp() const {

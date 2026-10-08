@@ -8,6 +8,7 @@
 
 class QLineEdit;
 class QTextBrowser;
+class QPushButton;
 
 namespace vgo {
 
@@ -35,15 +36,22 @@ public:
     void appendAiStream(const QString& text);
     void endAiStream();
 
+    // A4：上一条回复的反馈按钮（👍/👎）。收到新回复后启用，发送新问题后置灰。
+    void setFeedbackEnabled(bool on);
+
 signals:
     void messageSent(const QString& text);
     void newChatRequested();
     // D2.4：用户点击某条证据（索引为 verdicts 的下标）。
     void evidenceActivated(int index);
+    // A4：用户对最近一条 AI 回复给出反馈（true=👍，false=👎）。
+    void feedbackGiven(bool up);
 
 private:
     QTextBrowser* log_ = nullptr;
     QLineEdit* input_ = nullptr;
+    QPushButton* upvote_ = nullptr;
+    QPushButton* downvote_ = nullptr;
     QString stream_buffer_;
     int stream_content_pos_ = 0;
     bool streaming_ = false;

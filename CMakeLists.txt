@@ -207,6 +207,7 @@ add_executable(vgo_ai_qt_tests
     tests/test_main_qt.cpp
     tests/test_kata_analyze.cpp
     tests/test_http_tools.cpp
+    tests/test_conversation_memory.cpp
 )
 target_link_libraries(vgo_ai_qt_tests PRIVATE vgo_ai_qt)
 add_test(NAME vgo_ai_qt_tests COMMAND vgo_ai_qt_tests)

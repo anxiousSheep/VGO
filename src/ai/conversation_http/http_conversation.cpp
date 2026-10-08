@@ -25,6 +25,49 @@ qint64 nowMs() {
         .count();
 }
 
+// A2：取一句的「结论首句」——截到第一个句末标点或换行，再截断到固定长度。
+QString firstSentence(const QString& text) {
+    QString out;
+    constexpr int kMaxLen = 60;
+    for (QChar c : text) {
+        if (out.size() >= kMaxLen) break;
+        if (c == '\n' || c == '\r') break;
+        out.append(c);
+        if (c == QLatin1Char('。') || c == QLatin1Char('！') || c == QLatin1Char('？') ||
+            c == QLatin1Char('；'))
+            break;
+    }
+    return out.trimmed();
+}
+
+}  // namespace
+
+QString buildStructureContract(int level) {
+    if (level <= 6) {
+        // 新手：一句话结论 → 类比/术语解释 → 一个最简变化（≤3 手）→ 一句鼓励。
+        return QStringLiteral(
+            "讲解结构（初学者档）：先用一句话给出明确结论；再用一个生活化的类比或术语解释"
+            "讲清为什么；再给出一个最简变化（不超过 3 手）说明后果；最后给一句鼓励。\n"
+            "语气耐心、温和，术语要解释清楚，多给一点思路引导。\n");
+    }
+    if (level >= 12) {
+        // 高手：要点式，直接给坐标与数据。
+        return QStringLiteral(
+            "讲解结构（高手档）：要点式作答，直接给出坐标与数据（胜率/目数），不铺垫、"
+            "不解释基础术语，简洁精炼。\n");
+    }
+    // 进阶：结论 → 数据依据（胜率/目数变化）→ 关键变化 → 练习建议。
+    return QStringLiteral(
+        "讲解结构（进阶档）：先给结论；再给数据依据（引用提供的胜率/目数变化）；"
+        "再说明关键变化；最后给练习建议。客观、清晰。\n");
+}
+
+int maxTokensForLevel(int level) {
+    if (level <= 6) return 512;   // 新手
+    if (level >= 12) return 768;  // 高手（要点式，更短）
+    return 1024;                  // 进阶
+}
+
 QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
                           const ConversationRequest& req) {
     QString s;
@@ -33,28 +76,17 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
         s = QStringLiteral(
             "你是一位耐心、友善的围棋老师，在陪一位棋手对弈。\n"
             "重要约束：你只能依据下面提供的事实（棋盘、目数、落点评估、死活结论）作答，"
-            "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n"
-            "回答要简短、口语化、面向棋手，用中文。");
-        // M3b.4：难度 ↔ 语气联动——级别越低讲解越细致，级别越高越简洁。
-        if (req.profile.level <= 6) {
-            s += QStringLiteral("对方是初学者，请把术语解释清楚、多给一点思路引导。\n");
-        } else if (req.profile.level >= 12) {
-            s += QStringLiteral("对方水平较高，直接、简洁地给出要点即可，不必解释基础术语。\n");
-        }
+            "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n");
     } else {
         // 摆棋模式：无立场，从用户提问角度 / 棋盘实际情况出发，以黑方/白方称呼双方。
         s = QStringLiteral(
             "你是一位客观的围棋分析师，协助用户分析棋局。\n"
             "重要约束：你只能依据下面提供的事实（棋盘、目数、落点评估、死活结论）作答，"
             "绝不能编造胜率、目数、坐标或棋手意图。如果不确定，就直说“这一点我还需要进一步分析”。\n"
-            "你没有立场：不要预设用户执黑或执白，一律从用户提问的角度、以黑方/白方称呼双方作答。\n"
-            "回答要简短、口语化、用中文。");
-        if (req.profile.level <= 6) {
-            s += QStringLiteral("用户可能是初学者，请把术语解释清楚、多给一点思路引导。\n");
-        } else if (req.profile.level >= 12) {
-            s += QStringLiteral("用户水平较高，直接、简洁地给出要点即可。\n");
-        }
+            "你没有立场：不要预设用户执黑或执白，一律从用户提问的角度、以黑方/白方称呼双方作答。\n");
     }
+    // A3：分级讲解结构契约（三档语气 + 结构 + 长度约定），替代原先「简短/口语化」一刀切。
+    s += buildStructureContract(req.profile.level);
     // D3.6：注入跨局教练记忆——让 LLM 知道用户最近的弱项（如「最近在打劫上吃亏」），
     // 仅在相关时自然提及，不要突兀复述。
     if (!req.coach_memory.empty()) {
@@ -78,7 +110,44 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     return s;
 }
 
-}  // namespace
+QJsonArray buildConversationMessages(const QJsonObject& system,
+                                     const QString& summary,
+                                     const std::vector<SessionTurn>& turns,
+                                     const QJsonObject& user) {
+    QJsonArray messages;
+    messages.append(system);
+    if (!summary.isEmpty()) {
+        QJsonObject s;
+        s["role"] = "system";
+        s["content"] = QStringLiteral("前情提要：") + summary;
+        messages.append(s);
+    }
+    for (const SessionTurn& t : turns) {
+        QJsonObject u;
+        u["role"] = "user";
+        u["content"] = t.user;
+        messages.append(u);
+        QJsonObject a;
+        a["role"] = "assistant";
+        a["content"] = t.assistant;
+        messages.append(a);
+    }
+    messages.append(user);
+    return messages;
+}
+
+void compressSession(std::vector<SessionTurn>* turns, QString* summary, int max_turns) {
+    if (!turns || !summary) return;
+    if (max_turns <= 0) max_turns = 1;
+    while (static_cast<int>(turns->size()) > max_turns) {
+        const SessionTurn t = turns->front();
+        turns->erase(turns->begin());
+        const QString line =
+            QStringLiteral("问：%1\n答：%2").arg(t.user, firstSentence(t.assistant));
+        if (!summary->isEmpty()) *summary += QStringLiteral("\n");
+        *summary += line;
+    }
+}
 
 QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
     QString s;
@@ -309,20 +378,42 @@ void HttpConversationService::answer(const ConversationRequest& req, Callback cb
         return;
     }
     const QuestionClass cls = classifyQuestion(req.question);
-    QJsonArray messages;
+    // A3：分档 max_tokens（0 = 按 level 自动；n>0 = 显式覆盖）。
+    const int mt = max_tokens_ > 0 ? max_tokens_ : maxTokensForLevel(req.profile.level);
+
     QJsonObject system;
     system["role"] = "system";
     system["content"] = buildSystemPrompt(skills_, cls, req);
-    messages.append(system);
     QJsonObject user;
     user["role"] = "user";
     user["content"] = buildUserPrompt(req, cls);
-    messages.append(user);
-    doChat(messages, 0, nowMs() + max_loop_ms_, std::move(cb));
+
+    // A2：只把「成功的最终回答」写入历史（工具环路中间态 / 失败 / 降级回答不入）。
+    // 包装后的回调在工具环路/路由回退中只被最终终点调用一次，故不会重复记历史。
+    const QString rawQuestion = QString::fromStdString(req.question);
+    auto wrapped = [this, rawQuestion, cb = std::move(cb)](ConversationReply r) mutable {
+        if (!r.unsure && !r.text.empty()) {
+            session_.push_back({rawQuestion, QString::fromStdString(r.text)});
+            compressSession(&session_, &session_summary_, kSessionWindowTurns);
+        }
+        cb(std::move(r));
+    };
+
+    QJsonArray messages = buildConversationMessages(system, session_summary_, session_, user);
+    doChat(messages, 0, nowMs() + max_loop_ms_, mt, std::move(wrapped));
+}
+
+void HttpConversationService::clearSession() {
+    session_.clear();
+    session_summary_.clear();
+}
+
+bool HttpConversationService::hasHistory() const {
+    return !session_.empty() || !session_summary_.isEmpty();
 }
 
 void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 deadline_ms,
-                                     Callback cb) {
+                                     int max_tokens, Callback cb) {
     QUrl url(baseUrl_);
     if (!url.path().endsWith("/chat/completions")) {
         QString path = url.path();
@@ -341,7 +432,7 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
     body["model"] = tr.model;
     body["messages"] = messages;
     if (tr.declare_tools) body["tools"] = buildTools(&tool_registry_);
-    body["max_tokens"] = max_tokens_;  // D5.5：单次回答 token 上限
+    body["max_tokens"] = max_tokens;  // A3：分档上限（贯穿工具选择与最终回合同 cap）
     body["stream"] = false;
 
     const std::string bodyJson =
@@ -356,12 +447,12 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
     // L16：WinHTTP 直连（后台线程阻塞执行），结果经 queued 回主线程处理。QPointer
     // 兜底：服务析构后（对局 teardown）在途请求直接丢弃，不触碰已释放的 this。
     QPointer<HttpConversationService> self(this);
-    std::thread([self, gen, urlStr, bodyJson, auth, timeout, depth, deadline_ms, messages,
-                 cb = std::move(cb)]() mutable {
+    std::thread([self, gen, urlStr, bodyJson, auth, timeout, depth, deadline_ms, max_tokens,
+                 messages, cb = std::move(cb)]() mutable {
         const WinHttpResult res = winHttpPost(urlStr, bodyJson, "application/json", auth, timeout);
         if (!self) return;  // 服务已析构，丢弃结果
-        QMetaObject::invokeMethod(self, [self, gen, res, depth, deadline_ms, messages,
-                                         cb = std::move(cb)]() mutable {
+        QMetaObject::invokeMethod(self, [self, gen, res, depth, deadline_ms, max_tokens,
+                                         messages, cb = std::move(cb)]() mutable {
             if (!self || gen != self->generation_) return;  // stale / cancelled / destructed
 
             ConversationReply r;
@@ -393,7 +484,7 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
                 // D5.3：轻模型在工具选择回合没挑工具 → 忽略其文本，改由强模型直接作答
                 // （强模型在本回合不声明工具，给出最终文本答案）。
                 if (!self->router_model_.isEmpty() && has_tools && depth == 0) {
-                    self->doChat(messages, depth + 1, deadline_ms, std::move(cb));
+                    self->doChat(messages, depth + 1, deadline_ms, max_tokens, std::move(cb));
                     return;
                 }
                 r.text = content.toStdString();
@@ -426,7 +517,7 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
             };
 
             const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
-            self->doChat(next, depth + 1, deadline_ms, std::move(cb));
+            self->doChat(next, depth + 1, deadline_ms, max_tokens, std::move(cb));
         }, Qt::QueuedConnection);
     }).detach();
 }

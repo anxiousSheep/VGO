@@ -1,6 +1,7 @@
 #include "test_framework.h"
 
 #include "ai/conversation_http/http_conversation.h"
+#include "ai/verify/bad_sample.h"
 
 using namespace vgo;
 
@@ -182,4 +183,64 @@ TEST(http_service_router_model_settable) {
     CHECK(svc.routerModel().isEmpty());
     svc.setRouterModel(QStringLiteral("qwen2.5:7b"));
     CHECK(svc.routerModel() == QStringLiteral("qwen2.5:7b"));
+}
+
+// --- A3：分级讲解输出契约 ---
+
+TEST(a3_structure_contract_three_tiers_differ) {
+    const QString novice = buildStructureContract(5);
+    const QString mid = buildStructureContract(9);
+    const QString expert = buildStructureContract(13);
+    CHECK(novice != mid);
+    CHECK(mid != expert);
+    CHECK(novice != expert);
+    // 三档各含关键结构词。
+    CHECK(novice.contains(QStringLiteral("初学者档")));
+    CHECK(novice.contains(QStringLiteral("结论")));
+    CHECK(novice.contains(QStringLiteral("鼓励")));
+    CHECK(mid.contains(QStringLiteral("进阶档")));
+    CHECK(mid.contains(QStringLiteral("数据依据")));
+    CHECK(mid.contains(QStringLiteral("练习建议")));
+    CHECK(expert.contains(QStringLiteral("高手档")));
+    CHECK(expert.contains(QStringLiteral("坐标")));
+}
+
+TEST(a3_max_tokens_for_level) {
+    CHECK_EQ(maxTokensForLevel(5), 512);
+    CHECK_EQ(maxTokensForLevel(9), 1024);
+    CHECK_EQ(maxTokensForLevel(13), 768);
+}
+
+TEST(a3_system_prompt_drops_one_size_fits_all) {
+    const SkillRegistry reg = SkillRegistry::builtin();
+    for (int level : {5, 9, 13}) {
+        ConversationRequest req;
+        req.question = "谁领先";
+        req.profile.level = level;
+        const QString s = buildSystemPrompt(reg, QuestionClass::WhoIsWinning, req);
+        CHECK(!s.contains(QStringLiteral("简短")));  // 已删除「回答要简短」一刀切
+    }
+}
+
+// --- A4：差评坏样本往返 ---
+
+TEST(a4_bad_sample_user_downvote_roundtrip) {
+    BadSample s;
+    s.ts_ms = 1234567890123LL;
+    s.position_hash = "abc";
+    s.question = "这个劫该不该打";
+    s.reply_text = "该打。";
+    s.disposition = kDispositionUserDownvote;
+    s.truth_summary = "黑领先 3 目";
+    s.model = "test-model";
+    const std::string line = badSampleToJsonl(s);
+
+    BadSample out;
+    CHECK(parseBadSample(line, &out));
+    CHECK_EQ(out.disposition, std::string("user_downvote"));
+    CHECK_EQ(out.question, std::string("这个劫该不该打"));
+    CHECK_EQ(out.reply_text, std::string("该打。"));
+    CHECK_EQ(out.model, std::string("test-model"));
+    CHECK_EQ(out.position_hash, std::string("abc"));
+    CHECK_EQ(out.truth_summary, std::string("黑领先 3 目"));
 }

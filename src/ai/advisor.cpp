@@ -99,7 +99,8 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
     const QuestionClass cls = classifyQuestion(question);
     // D5.2：命中投机预生成的「为什么下这里」缓存时直接返回，近乎零延迟。
-    if (cls == QuestionClass::WhyThisMove) {
+    // A2 守卫：会话已有历史时旁路缓存——「那白棋不应呢」这类追问必须带上下文重新生成。
+    if (cls == QuestionClass::WhyThisMove && !conversation_->hasHistory()) {
         const auto it = explain_cache_.find(positionHash(game.board()));
         if (it != explain_cache_.end()) {
             cb(it->second);
@@ -166,10 +167,13 @@ void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
 
 void AiAdvisor::explainLastMove(const Game& game, ReplyCb cb) {
     // D5.2：命中投机预生成缓存时直接返回（已过校验闸门，无需再校验）。
-    const auto it = explain_cache_.find(positionHash(game.board()));
-    if (it != explain_cache_.end()) {
-        cb(it->second);
-        return;
+    // A2 守卫：会话已有历史时旁路缓存，避免追问串到旧答。
+    if (!conversation_->hasHistory()) {
+        const auto it = explain_cache_.find(positionHash(game.board()));
+        if (it != explain_cache_.end()) {
+            cb(it->second);
+            return;
+        }
     }
     deliverAnswer(game, "为什么下这里", currentFacts(game), cb);
 }
@@ -391,9 +395,14 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
                 rec.verify = verifySummary(r.verdicts);
                 trace_sink_(rec);
             }
+            // A4：反馈上下文透出（👎 沉淀坏样本用；模板/离线回复可为空）。
+            const std::string truth = truthSummary(verify_facts, verify_score, verify_to_move);
+            r.feedback_position_hash = positionHash(verify_board);
+            r.feedback_truth_summary = truth;
+            r.feedback_model = trace_model_;
+            r.feedback_question = question;
             // D2.5：校验拦截到「修正/不可验证」时，逐条沉淀坏样本（反哺 D4 评估闭环）。
             if (bad_sample_sink_) {
-                const std::string truth = truthSummary(verify_facts, verify_score, verify_to_move);
                 for (const ClaimVerdict& v : r.verdicts) {
                     if (v.disposition != ClaimDisposition::Corrected &&
                         v.disposition != ClaimDisposition::Unverifiable)

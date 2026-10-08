@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "ai/conversation.h"
 #include "ai/game_setup.h"
 #include "ai/learner/learner_model.h"
 #include "ai/record.h"
@@ -31,7 +32,6 @@ class AIMatchController;
 class LearnerStore;
 class TraceStore;
 class BadSampleStore;
-struct ConversationReply;
 struct Analysis;
 struct MoveEvaluation;
 struct GroundedFacts;
@@ -110,6 +110,7 @@ private:
     void appendAi(const QString& text);
     void appendNote(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
+    void clearConversationSession();  // A2：新对局/切换模式时清多轮记忆
     void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);
     void showScoreResult(int black, int white, double komi, double black_lead);
@@ -221,4 +222,5 @@ private:
     std::unique_ptr<vgo::TraceStore> trace_store_;
     std::unique_ptr<vgo::BadSampleStore> bad_sample_store_;  // D2.5 坏样本集
     std::vector<vgo::Point> last_pv_;
+    vgo::ConversationReply last_reply_;  // A4：上一条回复的反馈上下文（👎 落盘用）
 };

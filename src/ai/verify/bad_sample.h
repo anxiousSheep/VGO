@@ -20,6 +20,9 @@ struct BadSample {
     std::string model;           // model id, when known
 };
 
+// A4：用户差评（👎）沉淀的坏样本处置，与 "corrected"/"unverifiable" 并列。
+inline constexpr const char* kDispositionUserDownvote = "user_downvote";
+
 // Serialize one sample as a single-line JSON object (no trailing newline).
 std::string badSampleToJsonl(const BadSample& s);
 

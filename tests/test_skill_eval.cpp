@@ -35,10 +35,13 @@ TEST(eval_avg_injected_bounded) {
 }
 
 TEST(eval_regression_is_detected) {
-    // 把 counting 技能的正文改得面目全非，评估应检测到命中率回退。
+    // 把 counting 技能彻底改成无关内容（含 name/description，避免残留「形势/领先」等词
+    // 让检索仍命中），评估应检测到命中率回退。
     SkillRegistry reg = SkillRegistry::builtin();
     Skill broken = *reg.find("counting");
-    broken.prompt = "与数子、形势、贴目、领先完全无关的无关内容。";
+    broken.name = "水果知识";
+    broken.description = "与围棋完全无关";
+    broken.prompt = "香蕉、苹果、橘子、西瓜。";
     reg.upsert(broken);
 
     const SkillEvalReport r = evaluateSkills(reg, builtinGoldenQuestions());

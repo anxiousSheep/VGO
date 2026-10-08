@@ -6,12 +6,19 @@
 #include <QString>
 
 #include <functional>
+#include <vector>
 
 #include "ai/agent/tool_registry.h"
 #include "ai/conversation.h"
 #include "ai/skill.h"
 
 namespace vgo {
+
+// A2：多轮会话的一个回合——只存最终 user/assistant 文本；工具环路中间消息绝不入历史。
+struct SessionTurn {
+    QString user;       // 原始自然语言提问（非 buildUserPrompt 全文）
+    QString assistant;  // 最终回答文本
+};
 
 // OpenAI-compatible chat-completions client (works with Ollama, llama.cpp
 // server, DeepSeek, Qwen, and other OpenAI-compatible endpoints). Supports
@@ -58,8 +65,14 @@ public:
     void setRouterModel(const QString& m) { router_model_ = m; }
     QString routerModel() const { return router_model_; }
 
+    // A2：清空多轮会话记忆（新对局 / 切换模式时由 UI 调用）。cancel() 不清会话。
+    void clearSession();
+    // A2：会话是否已有历史（多轮追问时投机缓存旁路，避免串答）。
+    bool hasHistory() const override;
+
 private:
-    void doChat(QJsonArray messages, int depth, qint64 deadline_ms, Callback cb);
+    void doChat(QJsonArray messages, int depth, qint64 deadline_ms, int max_tokens,
+                Callback cb);
 
     QString baseUrl_;
     QString apiKey_;
@@ -69,10 +82,15 @@ private:
     SkillRegistry skills_ = SkillRegistry::builtin();
     ToolHandler tool_handler_;
     ToolRegistry tool_registry_;  // D1：多工具（position-bound，advisor 注入）
-    int max_tokens_ = 1024;       // D5.5：单次回答 token 上限
+    int max_tokens_ = 0;          // A3：单次回答 token 上限；0 = 按 level 自动分档
     int timeout_ms_ = 120000;     // D5.5：HTTP 传输超时（熔断）；远端 LLM 慢，30s 过紧
     qint64 max_loop_ms_ = 60000;  // D1.10：工具环路墙钟预算
     int generation_ = 0;          // cancel() 递增，在途请求结果据此丢弃
+
+    // A2：多轮会话记忆（只存最终 user/assistant 回合；工具环路中间消息不入历史）。
+    std::vector<SessionTurn> session_;
+    QString session_summary_;          // 超窗压缩后的「前情提要」，可为空
+    static constexpr int kSessionWindowTurns = 6;  // 滑动窗口：最近 6 轮
 };
 
 // Builds the follow-up messages after the model issued tool calls: an
@@ -101,5 +119,27 @@ struct TurnRoute {
 };
 TurnRoute routeTurn(const QString& strong, const QString& router, int depth,
                     bool has_tools, bool before_deadline);
+
+// A2：组装 messages = [system] + (摘要非空 ? [前情提要] : []) + 窗口内每轮
+// [user, assistant] + [本轮 user]。纯逻辑（Qt-Core-only），供单测。
+QJsonArray buildConversationMessages(const QJsonObject& system,
+                                     const QString& summary,
+                                     const std::vector<SessionTurn>& turns,
+                                     const QJsonObject& user);
+
+// A2：滑动窗口裁剪 + 规则式摘要（不额外调 LLM）。返回时 *turns 已裁到最近 max_turns
+// 轮，*summary 累积了被裁轮次的「问题句 + 结论首句」。纯逻辑，供单测。
+void compressSession(std::vector<SessionTurn>* turns, QString* summary, int max_turns);
+
+// A3：按 level 分三档的结构契约文本（语气 + 结构 + 长度约定）。纯函数，供单测。
+QString buildStructureContract(int level);
+
+// A3：按 level 分档的 max_tokens。新手/进阶/高手 = 512/1024/768。
+int maxTokensForLevel(int level);
+
+// A3：组装 system prompt（人设 + 三档结构契约 + 教练记忆 + 断言契约 + 技能注入）。
+// 暴露供单测（不再含「简短」等一刀切措辞）。
+QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
+                          const ConversationRequest& req);
 
 }  // namespace vgo

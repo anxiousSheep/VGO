@@ -6,9 +6,10 @@
 
 using namespace vgo;
 
-TEST(skill_builtin_has_five) {
+TEST(skill_builtin_has_eleven) {
+    // A1：5 个存量包加厚 + 6 个新包（布局/中盘/手筋/官子/劫争/让子）。
     SkillRegistry r = SkillRegistry::builtin();
-    CHECK_EQ(r.size(), 5u);
+    CHECK_EQ(r.size(), 11u);
 }
 
 TEST(skill_for_question_matches) {
@@ -215,7 +216,7 @@ TEST(skill_pending_roundtrip) {
 TEST(skill_frontmatter_lists_without_body) {
     SkillRegistry r = SkillRegistry::builtin();
     const auto metas = r.frontmatter();
-    CHECK_EQ(metas.size(), 5u);
+    CHECK_EQ(metas.size(), 11u);
     const SkillMeta* ko = nullptr;
     for (const SkillMeta& m : metas) {
         CHECK(!m.id.empty());
