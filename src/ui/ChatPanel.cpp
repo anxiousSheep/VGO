@@ -69,6 +69,14 @@ QString claimLabel(const Claim& c, int size) {
     return {};
 }
 
+// 把纯文本转成可安全嵌入 QLabel 富文本的 HTML（转义 + 换行转 <br>），保持多行提示
+// 与迁移前的 QTextCursor::insertText 行为一致（\n 换行）。
+QString plainToRich(const QString& text) {
+    QString s = text.toHtmlEscaped();
+    s.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
+    return s;
+}
+
 // A4：剥离 <claims>…</claims> 机器断言块——正文与 JSON 原文分开，JSON 供淡化灰展示。
 void splitClaimsBlock(const QString& text, QString* body, QString* json) {
     const QString openTag = QStringLiteral("<claims>");
@@ -328,8 +336,9 @@ void ChatPanel::appendHuman(const QString& text) {
     auto* label = new QLabel(messages_);
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>你：</b></span>%2")
-                       .arg(kUserColor.name(), text.toHtmlEscaped()));
+    // 整条消息（标签 + 正文）都用用户蓝，与迁移前的 QTextBrowser 配色一致。
+    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>你：</b>%2</span>")
+                       .arg(kUserColor.name(), plainToRich(text)));
     addMessageWidget(label);
 }
 
@@ -341,8 +350,9 @@ void ChatPanel::appendNote(const QString& text) {
     auto* label = new QLabel(messages_);
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>AI：</b></span>%2")
-                       .arg(kNoteColor.name(), text.toHtmlEscaped()));
+    // 固定格式提示整条用淡灰，与迁移前的 QTextBrowser 配色一致。
+    label->setText(QStringLiteral("<span style=\"color:%1;\"><b>AI：</b>%2</span>")
+                       .arg(kNoteColor.name(), plainToRich(text)));
     addMessageWidget(label);
 }
 
