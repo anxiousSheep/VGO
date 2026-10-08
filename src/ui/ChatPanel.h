@@ -59,6 +59,8 @@ signals:
 private:
     void addMessageWidget(QWidget* w);
     void scrollToBottom();
+    // 正文统一字号：在默认字号基础上调大一号（AI 回复与用户提问共用）。
+    QFont messageFont() const;
     QTextBrowser* makeAiBrowser();
     void composeAi(QTextBrowser* b, const QString& body, const QString& json,
                    const std::vector<ClaimVerdict>& verdicts, int size);

@@ -166,8 +166,15 @@ void ChatPanel::scrollToBottom() {
     });
 }
 
+QFont ChatPanel::messageFont() const {
+    QFont f = font();
+    f.setPointSize(f.pointSize() + 1);  // 正文统一调大一号
+    return f;
+}
+
 QTextBrowser* ChatPanel::makeAiBrowser() {
     auto* b = new QTextBrowser(messages_);
+    b->setFont(messageFont());
     b->setReadOnly(true);
     b->setOpenLinks(false);
     b->setTextInteractionFlags(Qt::TextBrowserInteraction);
@@ -291,6 +298,7 @@ bool ChatPanel::shouldShowFeedback(const QString& body) const {
 
 void ChatPanel::appendHuman(const QString& text) {
     auto* label = new QLabel(messages_);
+    label->setFont(messageFont());
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // 整条消息（标签 + 正文）都用用户蓝，与迁移前的 QTextBrowser 配色一致。
@@ -305,6 +313,7 @@ void ChatPanel::appendAi(const QString& text) {
 
 void ChatPanel::appendNote(const QString& text) {
     auto* label = new QLabel(messages_);
+    label->setFont(messageFont());
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     // 固定格式提示整条用淡灰，与迁移前的 QTextBrowser 配色一致。
