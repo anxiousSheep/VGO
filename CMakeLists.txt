@@ -139,7 +139,7 @@ add_test(NAME vgo_ai_tests COMMAND vgo_ai_tests)
 # ---------------------------------------------------------------------------
 # Desktop application (Qt Widgets).
 # ---------------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg)
 
 # ---------------------------------------------------------------------------
 # AI Qt adapters: KataGo GTP client + HTTP conversation service.
@@ -234,6 +234,8 @@ add_executable(vgo_app WIN32
     src/ui/MainWindow.cpp
     src/ui/ChatPanel.h
     src/ui/ChatPanel.cpp
+    src/ui/FeedbackBar.h
+    src/ui/FeedbackBar.cpp
     src/ui/TracePanel.h
     src/ui/TracePanel.cpp
     src/ui/VariationPanel.h
@@ -246,7 +248,7 @@ add_executable(vgo_app WIN32
     src/ui/AppConfig.cpp
 )
 target_include_directories(vgo_app PRIVATE src)
-target_link_libraries(vgo_app PRIVATE vgo_core vgo_ai_qt vgo_model Qt6::Widgets)
+target_link_libraries(vgo_app PRIVATE vgo_core vgo_ai_qt vgo_model Qt6::Widgets Qt6::Svg)
 
 # ---------------------------------------------------------------------------
 # Deploy Qt runtime DLLs next to vgo_app on Windows, so the executable can be

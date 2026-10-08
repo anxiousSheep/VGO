@@ -47,6 +47,24 @@ std::vector<BadSample> BadSampleStore::loadRecent(int n) const {
     return out;
 }
 
+void BadSampleStore::removeByTimestamp(std::int64_t ts_ms) {
+    QFile f(path_);
+    if (!f.open(QIODevice::ReadOnly)) return;
+    const QList<QByteArray> lines = f.readAll().split('\n');
+    f.close();
+
+    QFile out(path_);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+    for (const QByteArray& raw : lines) {
+        const QByteArray line = raw.trimmed();
+        if (line.isEmpty()) continue;
+        BadSample s;
+        if (parseBadSample(line.toStdString(), &s) && s.ts_ms == ts_ms) continue;
+        out.write(line);
+        out.write("\n");
+    }
+}
+
 void BadSampleStore::clear() {
     QFile::remove(path_);
 }

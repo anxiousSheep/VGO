@@ -21,6 +21,7 @@
 #include <QVBoxLayout>
 
 #include "ai/gtp.h"
+#include "ui/FeedbackBar.h"
 
 namespace vgo {
 
@@ -37,10 +38,6 @@ const QColor kTraceLabelColor(0x82, 0x50, 0xdf);  // 紫 #8250df
 
 // A4：<claims> 机器断言 JSON 原文的淡化灰。
 const QColor kClaimsColor(0x8b, 0x94, 0x9e);  // 灰 #8b949e
-
-// A4：反馈按钮高亮色——👍 绿、👎 橙（与「证据」橙一致）。
-const char* const kFeedbackUpAccent = "#1a7f37";
-const char* const kFeedbackDownAccent = "#9a6700";
 
 // Render a markdown string (as produced by the LLM) into a document fragment.
 QTextDocumentFragment markdownFragment(const QString& markdown) {
@@ -96,25 +93,6 @@ void splitClaimsBlock(const QString& text, QString* body, QString* json) {
     *body = text.left(open);
     *json = text.mid(open + openTag.size(), close - open - openTag.size()).trimmed();
     *body += text.mid(close + closeTag.size());
-}
-
-// A4：反馈按钮样式——未选中透明+灰边，悬停/按下有浅灰动画；选中后高亮（👍 绿 / 👎 橙）。
-void applyFeedbackStyle(QPushButton* b, bool up, bool selected) {
-    const QString accent =
-        QString::fromLatin1(up ? kFeedbackUpAccent : kFeedbackDownAccent);
-    const QString bg = selected ? accent : QStringLiteral("transparent");
-    const QString border = selected ? accent : QStringLiteral("#d0d7de");
-    const QString hover = selected ? accent : QStringLiteral("#f3f4f6");
-    const QString pressed = selected ? accent : QStringLiteral("#e6ebf1");
-    b->setStyleSheet(QStringLiteral(
-                         "QPushButton {"
-                         "  background-color: %1;"
-                         "  border: 1px solid %2;"
-                         "  border-radius: 13px;"
-                         "}"
-                         "QPushButton:hover { background-color: %3; }"
-                         "QPushButton:pressed { background-color: %4; }")
-                         .arg(bg, border, hover, pressed));
 }
 
 }  // namespace
@@ -286,50 +264,29 @@ void ChatPanel::appendAiBubble(const QString& text, const std::vector<ClaimVerdi
     composeAi(browser, body, json, verdicts, size);
     v->addWidget(browser);
 
-    // A4：圆形 👍/👎 小按钮，仅在正文非空时显示。
-    if (!text.trimmed().isEmpty()) {
-        auto* up = new QPushButton(QStringLiteral("👍"), bubble);
-        up->setFixedSize(26, 26);
-        up->setCursor(Qt::PointingHandCursor);
-        up->setFocusPolicy(Qt::NoFocus);
-        up->setToolTip(QStringLiteral("这条回答有帮助"));
-        applyFeedbackStyle(up, /*up=*/true, /*selected=*/false);
-
-        auto* down = new QPushButton(QStringLiteral("👎"), bubble);
-        down->setFixedSize(26, 26);
-        down->setCursor(Qt::PointingHandCursor);
-        down->setFocusPolicy(Qt::NoFocus);
-        down->setToolTip(QStringLiteral("这条回答不好（会记入坏样本供改进）"));
-        applyFeedbackStyle(down, /*up=*/false, /*selected=*/false);
-
+    // A4：反馈条——仅当满足渲染条件（正文足够长等）时内嵌到正文下方、左对齐。
+    if (shouldShowFeedback(body)) {
+        auto* bar = new FeedbackBar(bubble);
         const int idx = replyIndex;
-        connect(up, &QPushButton::clicked, this, [this, idx]() { handleFeedback(idx, true); });
-        connect(down, &QPushButton::clicked, this, [this, idx]() { handleFeedback(idx, false); });
-        feedback_buttons_[idx] = {up, down};
-
-        auto* row = new QHBoxLayout;
-        row->setContentsMargins(0, 2, 0, 0);
-        row->setSpacing(6);
-        row->addWidget(up);
-        row->addWidget(down);
-        row->addStretch(1);
-        v->addLayout(row);
+        connect(bar, &FeedbackBar::feedbackGiven, this,
+                [this, idx](bool up, const QString& reason, const QString& detail) {
+                    emit feedbackGiven(idx, up, reason, detail);
+                });
+        connect(bar, &FeedbackBar::feedbackUndone, this, [this, idx] {
+            emit feedbackUndone(idx);
+        });
+        v->addWidget(bar);
     }
 
     addMessageWidget(bubble);
 }
 
-void ChatPanel::handleFeedback(int replyIndex, bool up) {
-    const auto it = feedback_buttons_.find(replyIndex);
-    if (it == feedback_buttons_.end()) return;
-    QPushButton* upBtn = it->second.first;
-    QPushButton* downBtn = it->second.second;
-    // 高亮被选项，另一项置为不可点击（禁用即不可再点，天然防重复投票）。
-    applyFeedbackStyle(upBtn, /*up=*/true, /*selected=*/up);
-    applyFeedbackStyle(downBtn, /*up=*/false, /*selected=*/!up);
-    upBtn->setEnabled(false);
-    downBtn->setEnabled(false);
-    emit feedbackGiven(replyIndex, up);
+bool ChatPanel::shouldShowFeedback(const QString& body) const {
+    if (FeedbackBar::debugForceShow()) return true;
+    // 渲染条件：消息已完结（appendAiBubble 仅完结回复调用）✓、是助手回复 ✓、
+    // 无报错（该路径无错误态）✓、未反馈过（新回复自带新组件）✓；
+    // 唯一需要判断的是正文长度 ≥ 20 字。
+    return body.trimmed().size() >= 20;
 }
 
 void ChatPanel::appendHuman(const QString& text) {
@@ -365,7 +322,6 @@ void ChatPanel::appendAi(const QString& text, const std::vector<ClaimVerdict>& v
 void ChatPanel::clear() {
     stream_browser_ = nullptr;
     stream_buffer_.clear();
-    feedback_buttons_.clear();
     reply_counter_ = 0;
     // 清空所有消息控件，只留末尾的 stretch。
     while (messages_layout_->count() > 1) {

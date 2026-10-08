@@ -13,6 +13,8 @@ std::string badSampleToJsonl(const BadSample& s) {
         {"disposition", Json::makeString(s.disposition)},
         {"truth_summary", Json::makeString(s.truth_summary)},
         {"model", Json::makeString(s.model)},
+        {"feedback_reason", Json::makeString(s.feedback_reason)},
+        {"feedback_detail", Json::makeString(s.feedback_detail)},
     }));
 }
 
@@ -35,6 +37,8 @@ bool parseBadSample(const std::string& text, BadSample* out) {
     out->disposition = str("disposition", "");
     out->truth_summary = str("truth_summary", "");
     out->model = str("model", "");
+    out->feedback_reason = str("feedback_reason", "");
+    out->feedback_detail = str("feedback_detail", "");
     return true;
 }
 

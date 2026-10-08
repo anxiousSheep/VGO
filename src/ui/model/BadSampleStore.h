@@ -20,6 +20,8 @@ public:
 
     void append(const BadSample& s);              // 追加一行 JSONL
     std::vector<BadSample> loadRecent(int n) const;  // 最近 n 条（时间升序）
+    // A4：撤销差评——按时间戳删除匹配样本（原地重写文件）。ts 由上层在 append 时生成。
+    void removeByTimestamp(std::int64_t ts_ms);
     void clear();                                 // 删除文件
 
     QString path() const { return path_; }

@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 
+#include <map>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -223,4 +224,6 @@ private:
     std::unique_ptr<vgo::BadSampleStore> bad_sample_store_;  // D2.5 坏样本集
     std::vector<vgo::Point> last_pv_;
     std::vector<vgo::ConversationReply> replies_;  // A4：逐条 AI 回复（按序，供 👎 落盘回查）
+    // A4：差评落盘时记录 replyIndex → 时间戳，供「撤销」按 ts 删除坏样本。
+    std::map<int, qint64> feedback_ts_;
 };

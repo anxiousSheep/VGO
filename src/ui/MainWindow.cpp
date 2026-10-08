@@ -220,6 +220,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(chat_, &vgo::ChatPanel::newChatRequested, this, [this] {
         if (advisor_) advisor_->cancel();
         replies_.clear();  // A4：清空反馈上下文（与 ChatPanel 日志同步归零）
+        feedback_ts_.clear();
     });
     // D2.4：点击证据 → 在棋盘上高亮引擎主变化（跳 PV）。
     connect(chat_, &vgo::ChatPanel::evidenceActivated, this, [this](int) {
@@ -228,8 +229,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             status_->setText(QStringLiteral("已高亮引擎主变化（PV），共 %1 手")
                                  .arg(static_cast<int>(last_pv_.size())));
     });
-    // A4：用户差评 → 把被评的那条回复沉淀为坏样本（user_downvote），供人工复盘/改写。
-    connect(chat_, &vgo::ChatPanel::feedbackGiven, this, [this](int replyIndex, bool up) {
+    // A4：用户差评 → 把被评的那条回复沉淀为坏样本（user_downvote，含原因），供人工复盘/改写。
+    connect(chat_, &vgo::ChatPanel::feedbackGiven, this,
+            [this](int replyIndex, bool up, const QString& reason, const QString& detail) {
         if (up) return;  // 👍 暂不落盘（D4.6 无正反馈落点，本期不做）
         if (replyIndex < 0 || replyIndex >= static_cast<int>(replies_.size())) return;
         const vgo::ConversationReply& r = replies_[replyIndex];
@@ -241,7 +243,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         s.disposition = vgo::kDispositionUserDownvote;
         s.truth_summary = r.feedback_truth_summary;
         s.model = r.feedback_model;
+        s.feedback_reason = reason.toStdString();
+        s.feedback_detail = detail.toStdString();
+        feedback_ts_[replyIndex] = s.ts_ms;  // 供「撤销」按 ts 删除
         if (bad_sample_store_) bad_sample_store_->append(s);
+    });
+    // A4：撤销差评 → 删除刚沉淀的坏样本。
+    connect(chat_, &vgo::ChatPanel::feedbackUndone, this, [this](int replyIndex) {
+        const auto it = feedback_ts_.find(replyIndex);
+        if (it == feedback_ts_.end()) return;
+        if (bad_sample_store_) bad_sample_store_->removeByTimestamp(it->second);
+        feedback_ts_.erase(it);
     });
 
     // Menu: 对局 (new game + in-game actions), 视图 (AI panel), 设置 (models).
@@ -607,6 +619,7 @@ void MainWindow::startPlacement(int size) {
     resigned_ = false;
     chat_->clear();
     replies_.clear();
+    feedback_ts_.clear();
     appendNote(QStringLiteral("摆棋模式：你可以自由摆放黑白棋子（用「虚着」切换行棋方），"
                             "并随时在右侧问我问题，比如「谁领先」「我该下哪」。"));
     refresh();
@@ -661,6 +674,7 @@ void MainWindow::startAi(const vgo::GameSetup& setup) {
 
     chat_->clear();
     replies_.clear();
+    feedback_ts_.clear();
     if (setup.handicap >= 2) {
         // 让子局（L6）：你执黑让 X 子，AI（白）先行。
         appendNote(QStringLiteral("让子局：你执黑让 %1 子，AI（白）先行。"
@@ -1723,6 +1737,7 @@ void MainWindow::enterDailyPuzzle() {
 
     chat_->clear();
     replies_.clear();
+    feedback_ts_.clear();
     if (!learner_ || !learner_->enabled()) {
         appendNote(QStringLiteral("每日一题：学习记忆已关闭，暂无习题。可在「模型设置」里开启。"));
         refresh();

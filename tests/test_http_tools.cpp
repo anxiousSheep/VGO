@@ -233,6 +233,8 @@ TEST(a4_bad_sample_user_downvote_roundtrip) {
     s.disposition = kDispositionUserDownvote;
     s.truth_summary = "黑领先 3 目";
     s.model = "test-model";
+    s.feedback_reason = "inaccurate";
+    s.feedback_detail = "这里其实不该打";
     const std::string line = badSampleToJsonl(s);
 
     BadSample out;
@@ -243,4 +245,6 @@ TEST(a4_bad_sample_user_downvote_roundtrip) {
     CHECK_EQ(out.model, std::string("test-model"));
     CHECK_EQ(out.position_hash, std::string("abc"));
     CHECK_EQ(out.truth_summary, std::string("黑领先 3 目"));
+    CHECK_EQ(out.feedback_reason, std::string("inaccurate"));
+    CHECK_EQ(out.feedback_detail, std::string("这里其实不该打"));
 }
