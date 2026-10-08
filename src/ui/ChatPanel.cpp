@@ -201,18 +201,6 @@ void ChatPanel::composeAi(QTextBrowser* b, const QString& body, const QString& j
     if (!body.isEmpty()) cursor.insertFragment(markdownFragment(body));
     cursor.insertBlock();
 
-    // <claims> JSON 原文淡化灰小字。
-    if (!json.isEmpty()) {
-        QTextBlockFormat block;
-        block.setTopMargin(2);
-        cursor.setBlockFormat(block);
-        QTextCharFormat fmt;
-        fmt.setForeground(kClaimsColor);
-        fmt.setFontPointSize(qMax(9.0, b->font().pointSizeF() - 1.0));
-        cursor.insertText(json, fmt);
-        cursor.insertBlock();
-    }
-
     // 证据行：每条断言一个可点击超链接，hover 看来源、点击跳 PV。
     if (!verdicts.empty()) {
         QTextBlockFormat block;
@@ -245,6 +233,18 @@ void ChatPanel::composeAi(QTextBrowser* b, const QString& body, const QString& j
                                         : QStringLiteral(" · ") + QString::fromStdString(v.note)));
             cursor.insertText(claimLabel(v.claim, size), link);
         }
+        cursor.insertBlock();
+    }
+
+    // <claims> JSON 原文淡化灰小字（置于证据行下方）。
+    if (!json.isEmpty()) {
+        QTextBlockFormat block;
+        block.setTopMargin(2);
+        cursor.setBlockFormat(block);
+        QTextCharFormat fmt;
+        fmt.setForeground(kClaimsColor);
+        fmt.setFontPointSize(qMax(9.0, b->font().pointSizeF() - 1.0));
+        cursor.insertText(json, fmt);
         cursor.insertBlock();
     }
 }

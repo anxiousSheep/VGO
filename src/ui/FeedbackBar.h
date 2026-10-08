@@ -11,7 +11,7 @@ class QButtonGroup;
 
 namespace vgo {
 
-// 单个反馈图标按钮：视觉 32×32 圆角线框 SVG（命中区 40×40），按下缩放到 0.92
+// 单个反馈图标按钮：视觉 28×28 圆角线框 SVG（命中区 40×40），按下缩放到 0.92
 // （120ms 过渡）。视觉态由 FeedbackBar 通过 selected/grayed 驱动，hover/press 自理。
 // 复用 QAbstractButton 的 clicked 信号，无需自增信号/属性。
 class FeedbackIconButton : public QAbstractButton {
@@ -81,6 +81,7 @@ private:
 
     FeedbackIconButton* up_btn_ = nullptr;
     FeedbackIconButton* down_btn_ = nullptr;
+    QLabel* prompt_ = nullptr;  // 按钮左侧的提示文字「对本次回答满意吗」
     QLabel* thanks_ = nullptr;
 
     // 差评原因面板（选择态）：单选 + 「其他」文本框 + 提交/取消。

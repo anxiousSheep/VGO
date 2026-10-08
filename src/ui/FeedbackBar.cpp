@@ -63,6 +63,12 @@ bool isDarkScheme() {
     return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
 }
 
+// 反馈按钮几何：命中区 40×40，视觉按钮 28×28（相对最初 32×32 缩小 4px），图标 20×20。
+constexpr int kHitArea = 40;
+constexpr int kButtonSize = 28;
+constexpr int kIconSize = 20;
+constexpr int kRadius = 8;
+
 const char* reasonSlug(int id) {
     switch (id) {
         case 0: return "inaccurate";
@@ -91,7 +97,7 @@ const char* reasonLabel(int id) {
 
 FeedbackIconButton::FeedbackIconButton(Kind kind, QWidget* parent)
     : QAbstractButton(parent), kind_(kind) {
-    setFixedSize(40, 40);
+    setFixedSize(kHitArea, kHitArea);
     setCursor(Qt::PointingHandCursor);
     setFocusPolicy(Qt::NoFocus);
     setAttribute(Qt::WA_Hover);
@@ -106,7 +112,7 @@ FeedbackIconButton::FeedbackIconButton(Kind kind, QWidget* parent)
 }
 
 QSize FeedbackIconButton::sizeHint() const {
-    return QSize(40, 40);
+    return QSize(kHitArea, kHitArea);
 }
 
 void FeedbackIconButton::setSelected(bool s) {
@@ -147,22 +153,22 @@ void FeedbackIconButton::paintEvent(QPaintEvent*) {
         p.translate(-width() / 2.0, -height() / 2.0);
     }
 
-    // 32×32 圆角背景，居中于 40×40 命中区（两侧各留 4px → 视觉 gap 8px）。
-    const qreal inset = (width() - 32) / 2.0;
-    const QRectF box(inset, inset, 32, 32);
+    // 视觉按钮（kButtonSize×kButtonSize 圆角盒）居中于 kHitArea 命中区。
+    const qreal inset = (width() - kButtonSize) / 2.0;
+    const QRectF box(inset, inset, kButtonSize, kButtonSize);
     if (bg.alpha() > 0) {
         p.setPen(Qt::NoPen);
         p.setBrush(bg);
-        p.drawRoundedRect(box, 8, 8);
+        p.drawRoundedRect(box, kRadius, kRadius);
     }
 
-    // 20×20 线框图标，居中于 32×32 盒内。
+    // 线框图标居中于按钮盒内。
     QString svg = QString::fromUtf8(kind_ == Kind::Up ? kThumbUpSvg : kThumbDownSvg);
     svg.replace(QStringLiteral("__COLOR__"), icon.name(QColor::HexRgb));
     QSvgRenderer renderer(svg.toUtf8());
     if (renderer.isValid()) {
-        const qreal iconInset = inset + 6.0;
-        renderer.render(&p, QRectF(iconInset, iconInset, 20, 20));
+        const qreal iconInset = inset + (kButtonSize - kIconSize) / 2.0;
+        renderer.render(&p, QRectF(iconInset, iconInset, kIconSize, kIconSize));
     }
 }
 
@@ -206,11 +212,15 @@ FeedbackBar::FeedbackBar(QWidget* parent) : QWidget(parent) {
     buildUi();
     setState(State::Idle);
 
-    // 系统明暗切换时刷新图标与「感谢反馈」配色。
+    // 系统明暗切换时刷新图标与提示/「感谢反馈」文字配色。
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
             [this](Qt::ColorScheme) {
                 up_btn_->update();
                 down_btn_->update();
+                prompt_->setStyleSheet(
+                    QStringLiteral("QLabel { color: %1; }")
+                        .arg(isDarkScheme() ? QStringLiteral("#9CA3AF")
+                                            : QStringLiteral("#6B7280")));
                 thanks_->setStyleSheet(
                     QStringLiteral("QLabel { color: %1; }")
                         .arg(isDarkScheme() ? QStringLiteral("#4ADE80")
@@ -223,10 +233,15 @@ void FeedbackBar::buildUi() {
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // 按钮行：margin-top 10px，与正文同 padding-left（0），宽度随内容收缩。
+    // 按钮行：margin-top 4px（贴近上方回复），与正文同 padding-left（0），宽度随内容收缩。
     auto* row = new QHBoxLayout;
-    row->setContentsMargins(0, 10, 0, 0);
-    row->setSpacing(0);  // 命中区 40×40 紧贴 → 视觉 32×32 之间自然 gap 8px
+    row->setContentsMargins(0, 4, 0, 0);
+    row->setSpacing(0);  // 命中区 40×40 紧贴 → 视觉 28×28 之间自然留白
+
+    prompt_ = new QLabel(QStringLiteral("对本次回答满意吗"), this);
+    prompt_->setStyleSheet(
+        QStringLiteral("QLabel { color: %1; padding-right: 6px; }")
+            .arg(isDarkScheme() ? QStringLiteral("#9CA3AF") : QStringLiteral("#6B7280")));
 
     up_btn_ = new FeedbackIconButton(FeedbackIconButton::Kind::Up, this);
     down_btn_ = new FeedbackIconButton(FeedbackIconButton::Kind::Down, this);
@@ -237,6 +252,7 @@ void FeedbackBar::buildUi() {
             .arg(isDarkScheme() ? QStringLiteral("#4ADE80") : QStringLiteral("#16A34A")));
     thanks_->hide();
 
+    row->addWidget(prompt_);
     row->addWidget(up_btn_);
     row->addWidget(down_btn_);
     row->addWidget(thanks_);
