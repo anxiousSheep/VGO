@@ -26,6 +26,10 @@ constexpr int kWeakAreaCount = 7;
 
 const char* weakAreaLabel(WeakArea a);
 
+// D-a：把 Top-N 弱项映射成「讲解侧重指令」（注入 system prompt），空 = 无侧重。
+// 每个弱项一条指令，多条以「；」连接。纯逻辑，供 AiAdvisor / 单测复用。
+std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>>& topWeak);
+
 // D3.2: heuristically map a blunder to a WeakArea from the move's structural
 // facts and the game phase. Pure and unit-testable (no engine, no Qt).
 WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,

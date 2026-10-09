@@ -189,3 +189,21 @@ TEST(learner_classify_blunder_area) {
     CHECK(classifyBlunderArea({}, 180, 19) == WeakArea::Fighting);
     CHECK(classifyBlunderArea({}, 300, 19) == WeakArea::Endgame);
 }
+
+TEST(learner_classify_blunder_area_new_shapes) {
+    // B1a 新 FactType 映射：断/扳→战斗，尖/小飞/大飞/跳→定式，虎→形势判断。
+    CHECK(classifyBlunderArea({StructuralFact{FactType::Cut, {}, -1}}, 100, 19) ==
+          WeakArea::Fighting);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::Hane, {}, -1}}, 100, 19) ==
+          WeakArea::Fighting);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::TigerMouth, {}, -1}}, 100, 19) ==
+          WeakArea::ShapeJudgment);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::Diagonal, {}, -1}}, 100, 19) ==
+          WeakArea::Joseki);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::SmallKnight, {}, -1}}, 100, 19) ==
+          WeakArea::Joseki);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::LargeKnight, {}, -1}}, 100, 19) ==
+          WeakArea::Joseki);
+    CHECK(classifyBlunderArea({StructuralFact{FactType::OneSpaceJump, {}, -1}}, 100, 19) ==
+          WeakArea::Joseki);
+}

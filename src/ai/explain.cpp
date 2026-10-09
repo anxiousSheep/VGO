@@ -30,6 +30,99 @@ int distinctOwnGroups(const Board& b, int x, int y, Color me) {
     return groups;
 }
 
+// Mirror of distinctOwnGroups, counting distinct `me` groups (B1a 断). The two
+// share the same logic; the separate name keeps call sites self-documenting.
+int distinctOppGroups(const Board& b, int x, int y, Color me) {
+    return distinctOwnGroups(b, x, y, me);
+}
+
+// Chebyshev distance between two offsets.
+int chebDist(int dx, int dy) {
+    return std::max(std::abs(dx), std::abs(dy));
+}
+
+// B1a 扳：own stone at (±1,±1), and one of the two orthogonal neighbors shared
+// with the落点 (x,y) — i.e. (x+dx,y) or (x,y+dy) — is an opponent stone.
+bool isHane(const Board& after, int x, int y, int dx, int dy, Color mover, Color opp) {
+    if (after.at(x + dx, y + dy) != mover) return false;
+    return after.at(x + dx, y) == opp || after.at(x, y + dy) == opp;
+}
+
+// Priority order for tie-breaking at equal Chebyshev distance: 扳 > 尖 > 小飞 >
+// 大飞 > 跳 (B1a §1.2). Lower value = higher priority.
+int shapePriority(FactType t) {
+    switch (t) {
+        case FactType::Hane:         return 0;
+        case FactType::Diagonal:     return 1;
+        case FactType::SmallKnight:  return 2;
+        case FactType::LargeKnight:  return 3;
+        case FactType::OneSpaceJump: return 4;
+        default:                     return 99;
+    }
+}
+
+// B1a 主形状：取 Chebyshev 距离最近的己方子确定形状；距离并列按优先级取先者；
+// 距离 > 3 无己方子则无主形状（返回 nullopt）。
+std::optional<FactType> mainShape(const Board& after, int x, int y, Color mover, Color opp) {
+    FactType best = FactType::Placement;
+    int bestDist = 4;
+    for (int dy = -3; dy <= 3; ++dy) {
+        for (int dx = -3; dx <= 3; ++dx) {
+            if (dx == 0 && dy == 0) continue;
+            const int d = chebDist(dx, dy);
+            if (d > 3 || after.at(x + dx, y + dy) != mover) continue;
+
+            std::optional<FactType> shape;
+            if (d == 1 && std::abs(dx) == 1 && std::abs(dy) == 1) {
+                shape = isHane(after, x, y, dx, dy, mover, opp) ? FactType::Hane
+                                                                : FactType::Diagonal;
+            } else if ((std::abs(dx) == 1 && std::abs(dy) == 2) ||
+                       (std::abs(dx) == 2 && std::abs(dy) == 1)) {
+                shape = FactType::SmallKnight;
+            } else if ((std::abs(dx) == 2 && std::abs(dy) == 3) ||
+                       (std::abs(dx) == 3 && std::abs(dy) == 2)) {
+                shape = FactType::LargeKnight;
+            } else if ((std::abs(dx) == 2 && dy == 0) || (dx == 0 && std::abs(dy) == 2)) {
+                shape = FactType::OneSpaceJump;
+            }
+            if (!shape) continue;
+
+            if (d < bestDist) {
+                bestDist = d;
+                best = *shape;
+            } else if (d == bestDist && shapePriority(*shape) < shapePriority(best)) {
+                best = *shape;
+            }
+        }
+    }
+    if (bestDist > 3) return std::nullopt;
+    return best;
+}
+
+// B1a 虎口：存在一个方向 d，使落点 + 两个与落点、彼此皆对角相邻的己方子，且二者
+// 之间的正交点（虎口）为空。四个方向分别判：西/东（口在 (x±1,y)）、北/南（口在
+// (x,y±1)）。
+bool isTigerMouth(const Board& after, int x, int y, Color mover) {
+    // 每方向：(口偏移, 两个对角己方子偏移)。
+    const std::array<std::pair<int, int>, 4> mouths = {{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}};
+    const std::array<std::array<std::pair<int, int>, 2>, 4> stones = {{
+        {{{-1, -1}, {-1, 1}}},  // 西
+        {{{1, -1}, {1, 1}}},    // 东
+        {{{-1, -1}, {1, -1}}},  // 北
+        {{{-1, 1}, {1, 1}}},    // 南
+    }};
+    for (int d = 0; d < 4; ++d) {
+        const auto [mx, my] = mouths[d];
+        if (!after.in_bounds(x + mx, y + my) || after.at(x + mx, y + my) != Color::Empty)
+            continue;
+        const auto [s1, s2] = stones[d];
+        if (after.at(x + s1.first, y + s1.second) == mover &&
+            after.at(x + s2.first, y + s2.second) == mover)
+            return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 std::vector<StructuralFact> extractBoardFacts(const Board& before, const Board& after,
@@ -84,6 +177,27 @@ std::vector<StructuralFact> extractBoardFacts(const Board& before, const Board& 
         facts.push_back(std::move(f));
     }
 
+    // B1a 断：落点 4 个正交邻点上属于不同对方组的数量 >= 2（把对方两块棋切开）。
+    if (distinctOppGroups(after, x, y, opp) >= 2) {
+        StructuralFact f;
+        f.type = FactType::Cut;
+        facts.push_back(std::move(f));
+    }
+
+    // B1a 虎口：两对角己方子 + 空口 + 落点。
+    if (isTigerMouth(after, x, y, mover)) {
+        StructuralFact f;
+        f.type = FactType::TigerMouth;
+        facts.push_back(std::move(f));
+    }
+
+    // B1a 主形状（扳/尖/小飞/大飞/跳）：按最近己方子的几何相对位置判定。
+    if (auto shape = mainShape(after, x, y, mover, opp)) {
+        StructuralFact f;
+        f.type = *shape;
+        facts.push_back(std::move(f));
+    }
+
     // Connection / extension / placement.
     const int beforeGroups = distinctOwnGroups(before, x, y, mover);
     if (beforeGroups >= 2) {
@@ -116,6 +230,9 @@ std::string renderExplanation(const std::vector<StructuralFact>& facts, Color mo
     bool extend = false;
     bool self = false;
     bool placement = false;
+    bool cut = false;
+    bool tiger = false;
+    std::string shape;  // 主形状短语（扳/尖/小飞/大飞/跳，至多一个）
     for (const auto& f : facts) {
         switch (f.type) {
             case FactType::Captures: captured += static_cast<int>(f.stones.size()); break;
@@ -124,6 +241,13 @@ std::string renderExplanation(const std::vector<StructuralFact>& facts, Color mo
             case FactType::Extends: extend = true; break;
             case FactType::SelfAtari: self = true; break;
             case FactType::Placement: placement = true; break;
+            case FactType::Cut: cut = true; break;
+            case FactType::Hane: shape = "扳（贴住对方拐头）"; break;
+            case FactType::Diagonal: shape = "尖（小尖）"; break;
+            case FactType::SmallKnight: shape = "小飞"; break;
+            case FactType::LargeKnight: shape = "大飞"; break;
+            case FactType::OneSpaceJump: shape = "跳（一间跳）"; break;
+            case FactType::TigerMouth: tiger = true; break;
         }
     }
     if (captured > 0)
@@ -131,6 +255,9 @@ std::string renderExplanation(const std::vector<StructuralFact>& facts, Color mo
     if (atari) parts.push_back("把对方的一块棋打成只剩一口气（打吃）");
     if (connect) parts.push_back("把己方分开的两块棋连成了一块");
     if (extend) parts.push_back("延展并加强了己方的一块棋");
+    if (cut) parts.push_back("切断对方两块棋");
+    if (!shape.empty()) parts.push_back(shape);
+    if (tiger) parts.push_back("虎（虎口）");
     if (self) parts.push_back("（提示）这手棋自己的气较紧，只剩一口气");
     if (parts.empty() && placement) parts.push_back("这是一手普通落子");
 

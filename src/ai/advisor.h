@@ -29,6 +29,10 @@ public:
     // Answer `question` about the current position of `game`.
     void ask(const Game& game, const std::string& question, ReplyCb cb);
 
+    // B3：流式问答——与 ask 同源（接地 / 工具注入 / 校验闸门），但最终回合逐字送达。
+    void askStream(const Game& game, const std::string& question,
+                   ConversationService::DeltaCallback cb);
+
     // Explain the last move of `game`, grounding on the most recently noted
     // analysis (see noteAnalysis; invalid when no engine analysis exists).
     void explainLastMove(const Game& game, ReplyCb cb);
@@ -93,6 +97,11 @@ public:
         coach_memory_fn_ = std::move(fn);
     }
 
+    // D-a：讲解侧重来源（UI 注入 buildWeaknessDirective(topWeakAreas)；可为空）。
+    void setWeaknessProvider(std::function<std::string()> fn) {
+        weakness_fn_ = std::move(fn);
+    }
+
     // D5.6 可观测：每次问答完成后，把一条 trace 记录交给 UI 落盘（纯逻辑层不碰 I/O）。
     void setTraceSink(std::function<void(const AgentTraceRecord&)> fn) {
         trace_sink_ = std::move(fn);
@@ -113,6 +122,8 @@ private:
     GroundedFacts currentFacts(const Game& game) const;
     void deliverAnswer(const Game& game, const std::string& question,
                        GroundedFacts facts, ReplyCb cb);
+    void deliverAnswerStream(const Game& game, const std::string& question,
+                             GroundedFacts facts, ConversationService::DeltaCallback cb);
     void handleMoveQuality(const Game& game, const std::string& question, ReplyCb cb);
     void handleLifeDeath(const Game& game, const std::string& question, ReplyCb cb);
     // D1.8：由同一份归属分析统一派生死棋清单与死活结论（工具/硬事实/校验同源）。
@@ -133,6 +144,7 @@ private:
     bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6
+    std::function<std::string()> weakness_fn_;      // D-a 讲解侧重
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5
     std::string trace_route_ = "template";

@@ -38,6 +38,8 @@ public:
     bool available() const { return available_; }
 
     void answer(const ConversationRequest& req, Callback cb) override;
+    void answerStream(const ConversationRequest& req, DeltaCallback cb) override;
+    bool supportsStreaming() const override { return true; }
     void cancel() override;
 
     // Replace the built-in skill set (e.g. loaded from hot-reloadable files).
@@ -73,6 +75,12 @@ public:
 private:
     void doChat(QJsonArray messages, int depth, qint64 deadline_ms, int max_tokens,
                 Callback cb);
+    // B3 流式版 doChat：逐轮流式，工具回合丢弃 content（必要时通知 UI abort）、
+    // 最终回合把 content 增量送 deltaCb；stream+tools 遇 4xx 时降级为非流式重试。
+    void doChatStream(QJsonArray messages, int depth, qint64 deadline_ms, int max_tokens,
+                      DeltaCallback cb);
+    // 执行单个工具调用（function-calling）并返回结果串；doChat 与 doChatStream 共用。
+    std::string execToolCall(const QJsonObject& call) const;
 
     QString baseUrl_;
     QString apiKey_;
@@ -103,6 +111,11 @@ private:
 QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
                              const QJsonArray& toolCalls,
                              const std::function<std::string(const QJsonObject&)>& exec);
+
+// B3：把流式 tool_calls 增量（SseParser::drainToolCallDeltas 的原始 QJsonObject 列表）
+// 按 index 聚合成完整的 tool_calls 数组（id/type/name 只取一次，arguments 串接）。
+// 纯逻辑（Qt-Core-only），供单测与 answerStream 复用。
+QJsonArray buildToolCallsFromDeltas(const std::vector<QJsonObject>& deltas);
 
 // Builds the user prompt. For `Other` questions the engine facts (winrate /
 // candidates / dead groups) are omitted so the model fetches them via tools (D1.9).

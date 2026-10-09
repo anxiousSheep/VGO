@@ -559,6 +559,11 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
         if (!learner_ || !learner_->enabled()) return {};
         return learner_->model().coachMemory();
     });
+    // D-a：把 Top-3 弱项映射成「教学侧重指令」注入 system prompt（无数据/关闭时为空）。
+    advisor_->setWeaknessProvider([this]() -> std::string {
+        if (!learner_ || !learner_->enabled()) return {};
+        return vgo::buildWeaknessDirective(learner_->model().topWeakAreas(3));
+    });
 
     const bool usingKata = analysis_kata_;
     const bool usingHttp =
@@ -1155,12 +1160,26 @@ void MainWindow::onChatMessage(const QString& text) {
         requestAnalysis(/*sayInChat=*/true);
         return;
     }
+    // 流式问答（B3）：HTTP 服务支持流式时逐字送达，否则回退非流式。
+    const bool streaming = conversation_ && conversation_->supportsStreaming();
+    auto askAdvisor = [this, streaming](const vgo::Game& g, const std::string& question) {
+        if (streaming) {
+            advisor_->askStream(g, question,
+                                [this](const vgo::ConversationService::StreamEvent& e) {
+                                    handleStreamEvent(e);
+                                });
+        } else {
+            advisor_->ask(g, question,
+                          [this](const vgo::ConversationReply& r) { handleReply(r); });
+        }
+    };
+
     // 试下模式下，聊天问答针对变化图当前局面（而非真实对局），并告知 LLM 已有演示。
     if (demo_active_) {
         vgo::Game dg = demoGame();
         if (advisor_) {
             advisor_->setDemoState(true, demoMovesDescription());
-            advisor_->ask(dg, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
+            askAdvisor(dg, q);
         } else {
             appendNote(QStringLiteral("当前没有可用的 AI 助手。"));
         }
@@ -1172,7 +1191,7 @@ void MainWindow::onChatMessage(const QString& text) {
     } else if (advisor_ && currentGame()) {
         vgo::Game* g = currentGame();
         advisor_->setUserColor(vgo::Color::Empty);  // 摆棋/复盘无立场
-        advisor_->ask(*g, q, [this](const vgo::ConversationReply& r) { handleReply(r); });
+        askAdvisor(*g, q);
     } else {
         appendNote(QStringLiteral("当前没有可用的 AI 助手。"));
     }
@@ -1185,6 +1204,21 @@ void MainWindow::handleReply(const vgo::ConversationReply& r) {
     chat_->appendAi(QString::fromStdString(r.text), r.verdicts, size);
     board_view_->setHighlight(r.highlight);
     last_pv_ = r.pv;
+}
+
+void MainWindow::handleStreamEvent(const vgo::ConversationService::StreamEvent& e) {
+    using Kind = vgo::ConversationService::StreamEvent::Kind;
+    switch (e.kind) {
+        case Kind::Delta:
+            chat_->appendAiStream(QString::fromStdString(e.text));
+            break;
+        case Kind::Abort:
+            chat_->abortAiStream();  // B3：工具回合 / 轻模型兜底已流式过中间内容 → 丢弃
+            break;
+        case Kind::Done:
+            chat_->endAiStream();
+            break;
+    }
 }
 
 bool MainWindow::usingKata() const {

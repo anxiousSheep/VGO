@@ -118,6 +118,9 @@ struct ConversationRequest {
     std::string demo_moves;     // 如 "白 H6、黑 G5、白 F6"
     PlayerProfile profile;
     std::string coach_memory;   // D3.6 跨局教练记忆（如「最近在打劫上吃亏」），可为空
+    std::string phase;          // B2 局面阶段："布局"/"中盘"/"官子"
+    std::string move_sequence;  // B2 最近手顺："黑 H6、白 G5、…"，空 = 无历史
+    std::string weakness_directive;  // D-a 教学侧重指令（注入 system prompt），可为空
 };
 
 struct ConversationReply {
@@ -139,14 +142,26 @@ class ConversationService {
 public:
     virtual ~ConversationService() = default;
     using Callback = std::function<void(ConversationReply)>;
-    // Streaming: `delta` is incremental text; `done=true` signals completion.
-    using DeltaCallback = std::function<void(const std::string& delta, bool done)>;
+    // Streaming update (B3): `Delta` carries incremental text; `Done` signals the
+    // final round completed; `Abort` tells the caller to discard everything streamed
+    // for the current round (a tool round emitted content before revealing
+    // tool_calls, or a router fallback re-asks the strong model). Exactly one kind
+    // is meaningful per event.
+    struct StreamEvent {
+        enum class Kind { Delta, Done, Abort };
+        Kind kind = Kind::Delta;
+        std::string text;  // only for Kind::Delta
+    };
+    using DeltaCallback = std::function<void(const StreamEvent&)>;
     virtual void answer(const ConversationRequest& req, Callback cb) = 0;
     virtual bool supportsStreaming() const { return false; }
     // Default: synthesize a single delta from a non-streaming answer, so the
     // template conversation works for the demo flow too (N3 fallback).
     virtual void answerStream(const ConversationRequest& req, DeltaCallback cb) {
-        answer(req, [cb](const ConversationReply& r) { cb(r.text, true); });
+        answer(req, [cb](const ConversationReply& r) {
+            cb(StreamEvent{StreamEvent::Kind::Delta, r.text});
+            cb(StreamEvent{StreamEvent::Kind::Done, {}});
+        });
     }
     virtual void cancel() {}
 

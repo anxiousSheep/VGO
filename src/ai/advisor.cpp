@@ -8,6 +8,7 @@
 #include "engine_pool.h"
 #include "lifedeath.h"
 #include "ownership.h"
+#include "phase.h"
 #include "strength.h"
 #include "verify/claim_extractor.h"
 #include "verify/claim_verifier.h"
@@ -358,6 +359,12 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.profile = PlayerProfile{level_, true};
     // D3.6：注入跨局教练记忆（如「最近在打劫上吃亏」），供 LLM 系统提示词引用。
     req.coach_memory = coach_memory_fn_ ? coach_memory_fn_() : std::string{};
+    // B2：局面阶段 + 最近手顺进 prompt，让讲解获得「前文」。
+    req.phase =
+        phaseLabel(classifyPhase(game.move_number(), game.size(), req.facts.analysis.ownership));
+    req.move_sequence = buildMoveSequence(game.moves(), game.size(), 10);
+    // D-a：讲解侧重指令（弱项 → 教学策略），注入 system prompt。
+    req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;
@@ -422,6 +429,178 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
             }
             cb(std::move(r));
         });
+}
+
+void AiAdvisor::askStream(const Game& game, const std::string& question,
+                          ConversationService::DeltaCallback cb) {
+    if (!conversation_) return;
+    using Ev = ConversationService::StreamEvent;
+    const QuestionClass cls = classifyQuestion(question);
+    // D5.2 投机缓存命中（WhyThisMove + 无历史）：单 delta 直达。
+    if (cls == QuestionClass::WhyThisMove && !conversation_->hasHistory()) {
+        const auto it = explain_cache_.find(positionHash(game.board()));
+        if (it != explain_cache_.end()) {
+            cb(Ev{Ev::Kind::Delta, it->second.text});
+            cb(Ev{Ev::Kind::Done, {}});
+            return;
+        }
+    }
+    // 落点质量 / 死活仍走异步 what-if / 死活，结果以单 delta 送达（非逐字）。
+    if (cls == QuestionClass::MoveQuality) {
+        handleMoveQuality(game, question, [cb](const ConversationReply& r) {
+            cb(Ev{Ev::Kind::Delta, r.text});
+            cb(Ev{Ev::Kind::Done, {}});
+        });
+        return;
+    }
+    if (cls == QuestionClass::LifeDeath) {
+        handleLifeDeath(game, question, [cb](const ConversationReply& r) {
+            cb(Ev{Ev::Kind::Delta, r.text});
+            cb(Ev{Ev::Kind::Done, {}});
+        });
+        return;
+    }
+    const bool needEngine = (cls == QuestionClass::WhereToPlay || cls == QuestionClass::WhoIsWinning);
+    if (needEngine && !game.is_over() && engine_) {
+        const Color to_move = (user_color_ != Color::Empty && cls == QuestionClass::WhereToPlay)
+                                  ? user_color_
+                                  : game.current();
+        const int gen = ++generation_;
+        const Game snapshot = game;
+
+        if (cls == QuestionClass::WhoIsWinning) {
+            EngineInterface* eng = analysis_engine_ ? analysis_engine_ : engine_;
+            analyzePrioritized(eng, snapshot.board(), to_move,
+                               strengthForLevel(analysis_level_), EnginePriority::Interactive,
+                               [this, gen, question, snapshot, cb](const Analysis& a) {
+                                   if (gen != generation_) return;
+                                   GroundedFacts f = currentFacts(snapshot);
+                                   f.analysis = a;
+                                   deliverAnswerStream(snapshot, question, std::move(f), cb);
+                               });
+            return;
+        }
+
+        engine_->requestMove(game.board(), to_move, strengthForLevel(level_, kyu_hint_),
+                             [this, gen, question, snapshot, cb](EngineResult r) {
+                                 if (gen != generation_) return;
+                                 GroundedFacts f = currentFacts(snapshot);
+                                 if (r.analysis.valid) {
+                                     f.analysis = r.analysis;
+                                 } else if (!r.move.is_pass) {
+                                     MoveCandidate c;
+                                     c.p = r.move.p;
+                                     f.analysis.valid = true;
+                                     f.analysis.best = c;
+                                     f.analysis.candidates.push_back(c);
+                                 }
+                                 deliverAnswerStream(snapshot, question, std::move(f), cb);
+                             });
+        return;
+    }
+    deliverAnswerStream(game, question, currentFacts(game), cb);
+}
+
+void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& question,
+                                    GroundedFacts facts, ConversationService::DeltaCallback cb) {
+    using Ev = ConversationService::StreamEvent;
+    ConversationRequest req;
+    req.question = question;
+    req.facts = std::move(facts);
+    req.board_context = boardToAscii(game.board());
+    req.score_black = game.score_black();
+    req.move_number = game.move_number();
+    req.size = game.size();
+    req.to_move = game.current();
+    req.last_mover = opponent(game.current());
+    req.user_color = user_color_;
+    req.last_move = game.last_move();
+    req.has_last_move = game.has_last_move();
+    req.hint = isHintRequest(question);
+    req.in_demo = demo_active_ctx_;
+    req.demo_moves = demo_moves_;
+    req.profile = PlayerProfile{level_, true};
+    req.coach_memory = coach_memory_fn_ ? coach_memory_fn_() : std::string{};
+    req.phase =
+        phaseLabel(classifyPhase(game.move_number(), game.size(), req.facts.analysis.ownership));
+    req.move_sequence = buildMoveSequence(game.moves(), game.size(), 10);
+    // D-a：讲解侧重指令（弱项 → 教学策略），注入 system prompt。
+    req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
+    {
+        AgentToolContext tool_ctx;
+        tool_ctx.game = game;
+        tool_ctx.ownership = req.facts.analysis.ownership;
+        tool_ctx.analysis = req.facts.analysis;
+        conversation_->setTools(buildAgentTools(tool_ctx));
+    }
+    const GroundedFacts verify_facts = req.facts;
+    const Board verify_board = game.board();
+    const double verify_score = req.score_black;
+    const Color verify_to_move = req.to_move;
+    const int verify_size = req.size;
+    const int gen = ++generation_;
+    const std::int64_t start_ms = nowEpochMs();
+
+    auto text = std::make_shared<std::string>();
+    conversation_->answerStream(req, [this, gen, cb, verify_facts, verify_board, verify_score,
+                                      verify_to_move, verify_size, start_ms, question,
+                                      text](Ev e) mutable {
+        if (gen != generation_) return;
+        switch (e.kind) {
+            case Ev::Kind::Delta:
+                *text += e.text;
+                cb(std::move(e));
+                break;
+            case Ev::Kind::Abort:
+                text->clear();
+                cb(std::move(e));
+                break;
+            case Ev::Kind::Done: {
+                ConversationReply r;
+                r.text = *text;
+                const std::string raw_text = r.text;
+                verifyAndAnnotate(r, verify_board, verify_facts, verify_score, verify_to_move,
+                                  verify_size);
+                // 校验追加的修正注记作为最终 delta 送达。
+                if (r.text.size() > raw_text.size()) {
+                    cb(Ev{Ev::Kind::Delta, r.text.substr(raw_text.size())});
+                }
+                // D5.6 trace / D2.5 坏样本（与 deliverAnswer 同源，保证流式不劣化）。
+                if (trace_sink_) {
+                    AgentTraceRecord rec;
+                    rec.ts_ms = nowEpochMs();
+                    rec.position_hash = positionHash(verify_board);
+                    rec.route = trace_route_;
+                    rec.model = trace_model_;
+                    rec.latency_ms = static_cast<int>(nowEpochMs() - start_ms);
+                    rec.verify = verifySummary(r.verdicts);
+                    trace_sink_(rec);
+                }
+                if (bad_sample_sink_) {
+                    const std::string truth =
+                        truthSummary(verify_facts, verify_score, verify_to_move);
+                    for (const ClaimVerdict& v : r.verdicts) {
+                        if (v.disposition != ClaimDisposition::Corrected &&
+                            v.disposition != ClaimDisposition::Unverifiable)
+                            continue;
+                        BadSample s;
+                        s.ts_ms = nowEpochMs();
+                        s.position_hash = positionHash(verify_board);
+                        s.question = question;
+                        s.reply_text = raw_text;
+                        s.disposition = (v.disposition == ClaimDisposition::Corrected)
+                                            ? "corrected"
+                                            : "unverifiable";
+                        s.truth_summary = truth;
+                        s.model = trace_model_;
+                        bad_sample_sink_(s);
+                    }
+                }
+                cb(Ev{Ev::Kind::Done, {}});
+                break;
+            }
+        }
+    });
 }
 
 }  // namespace vgo

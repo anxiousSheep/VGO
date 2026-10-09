@@ -370,4 +370,13 @@ void ChatPanel::endAiStream() {
     scrollToBottom();
 }
 
+void ChatPanel::abortAiStream() {
+    if (!stream_browser_) return;
+    // B3：丢弃当前流式部分（工具回合 / 轻模型兜底已流式过中间内容时），复位流式状态。
+    messages_layout_->removeWidget(stream_browser_);
+    stream_browser_->deleteLater();
+    stream_browser_ = nullptr;
+    stream_buffer_.clear();
+}
+
 }  // namespace vgo

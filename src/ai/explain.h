@@ -16,6 +16,13 @@ enum class FactType {
     Extends,       // 延展/加强己方已有的一块棋
     Placement,     // 普通落子
     SelfAtari,     // 自己气紧（只剩一口气，警示）
+    Cut,           // 断：把对方两块棋切开（B1a）
+    Hane,          // 扳：贴住对方拐头（B1a）
+    Diagonal,      // 尖（B1a）
+    SmallKnight,   // 小飞（B1a）
+    LargeKnight,   // 大飞（B1a）
+    OneSpaceJump,  // 跳（一间跳，B1a）
+    TigerMouth,    // 虎（虎口，B1a）
 };
 
 struct StructuralFact {

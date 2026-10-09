@@ -39,6 +39,10 @@ add_library(vgo_ai STATIC
     src/ai/fallback_engine.cpp
     src/ai/explain.h
     src/ai/explain.cpp
+    src/ai/phase.h
+    src/ai/phase.cpp
+    src/ai/quality_judge.h
+    src/ai/quality_judge.cpp
     src/ai/conversation.h
     src/ai/template_conversation.h
     src/ai/template_conversation.cpp
@@ -113,6 +117,9 @@ add_executable(vgo_ai_tests
     tests/test_gtp.cpp
     tests/test_strength.cpp
     tests/test_explain.cpp
+    tests/test_phase.cpp
+    tests/test_quality_judge.cpp
+    tests/test_weakness.cpp
     tests/test_template.cpp
     tests/test_session.cpp
     tests/test_advisor.cpp
@@ -149,6 +156,8 @@ add_library(vgo_ai_qt STATIC
     src/ai/engine_kata/kata_engine.cpp
     src/ai/conversation_http/http_conversation.h
     src/ai/conversation_http/http_conversation.cpp
+    src/ai/conversation_http/sse_parser.h
+    src/ai/conversation_http/sse_parser.cpp
     src/ai/conversation_http/winhttp_transport.h
     src/ai/conversation_http/winhttp_transport.cpp
 )
@@ -208,6 +217,7 @@ add_executable(vgo_ai_qt_tests
     tests/test_kata_analyze.cpp
     tests/test_http_tools.cpp
     tests/test_conversation_memory.cpp
+    tests/test_sse.cpp
 )
 target_link_libraries(vgo_ai_qt_tests PRIVATE vgo_ai_qt)
 add_test(NAME vgo_ai_qt_tests COMMAND vgo_ai_qt_tests)
@@ -225,6 +235,13 @@ add_executable(vgo_integration_check
 )
 target_include_directories(vgo_integration_check PRIVATE src)
 target_link_libraries(vgo_integration_check PRIVATE vgo_ai_qt vgo_model Qt6::Core)
+
+# B4 讲解质量评估（离线 judge 工具，手动触发，不进 CTest）。
+add_executable(vgo_quality_eval
+    tools/quality_eval.cpp
+)
+target_include_directories(vgo_quality_eval PRIVATE src)
+target_link_libraries(vgo_quality_eval PRIVATE vgo_ai_qt vgo_model Qt6::Core)
 
 add_executable(vgo_app WIN32
     src/ui/main.cpp

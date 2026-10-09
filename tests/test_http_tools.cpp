@@ -134,6 +134,38 @@ TEST(http_user_prompt_winning_keeps_engine_facts) {
     CHECK(!s.contains(QStringLiteral("规则计分")));  // 有真值时走 KataGo 行
 }
 
+// --- B2：局面阶段 + 最近手顺进 prompt ---
+
+TEST(http_user_prompt_includes_phase_and_sequence) {
+    ConversationRequest req;
+    req.question = "为什么下这里";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 10;
+    req.board_context = "X O .";
+    req.phase = "中盘";
+    req.move_sequence = "黑 C7、白 D6";
+
+    const QString s = buildUserPrompt(req, QuestionClass::WhyThisMove);
+    CHECK(s.contains(QStringLiteral("局面阶段：中盘")));
+    CHECK(s.contains(QStringLiteral("最近手顺：黑 C7、白 D6")));
+}
+
+TEST(http_user_prompt_omits_empty_phase) {
+    ConversationRequest req;
+    req.question = "谁领先";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 10;
+    req.board_context = "X O .";
+
+    const QString s = buildUserPrompt(req, QuestionClass::WhoIsWinning);
+    CHECK(!s.contains(QStringLiteral("局面阶段")));
+    CHECK(!s.contains(QStringLiteral("最近手顺")));
+}
+
 // L16：HttpConversationService 构造时改为直连（NoProxy，绕过系统代理检测的网卡枚举），
 // 并据此判定 available。冒烟测试：构造不崩溃，且配置完整时 available=true、缺配置时 false。
 TEST(http_service_constructs_available_and_direct) {
@@ -220,6 +252,28 @@ TEST(a3_system_prompt_drops_one_size_fits_all) {
         const QString s = buildSystemPrompt(reg, QuestionClass::WhoIsWinning, req);
         CHECK(!s.contains(QStringLiteral("简短")));  // 已删除「回答要简短」一刀切
     }
+}
+
+// --- D-a：教学侧重注入 system prompt ---
+
+TEST(http_system_prompt_includes_weakness_directive) {
+    const SkillRegistry reg = SkillRegistry::builtin();
+    ConversationRequest req;
+    req.question = "谁领先";
+    req.profile.level = 5;
+    req.weakness_directive = "用户战斗判断偏弱";
+    const QString s = buildSystemPrompt(reg, QuestionClass::WhoIsWinning, req);
+    CHECK(s.contains(QStringLiteral("教学侧重")));
+    CHECK(s.contains(QStringLiteral("用户战斗判断偏弱")));
+}
+
+TEST(http_system_prompt_omits_empty_weakness) {
+    const SkillRegistry reg = SkillRegistry::builtin();
+    ConversationRequest req;
+    req.question = "谁领先";
+    req.profile.level = 5;
+    const QString s = buildSystemPrompt(reg, QuestionClass::WhoIsWinning, req);
+    CHECK(!s.contains(QStringLiteral("教学侧重")));
 }
 
 // --- A4：差评坏样本往返 ---

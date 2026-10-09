@@ -69,6 +69,13 @@ std::wstring toWide(const std::string& s) {
 WinHttpResult winHttpPost(const std::string& url, const std::string& body,
                           const std::string& contentType, const std::string& authHeader,
                           int timeoutMs) {
+    // 非流式 = 流式 + 空回调（结果体在流式实现里已组装）。
+    return winHttpPostStream(url, body, contentType, authHeader, timeoutMs, ChunkCallback{});
+}
+
+WinHttpResult winHttpPostStream(const std::string& url, const std::string& body,
+                                const std::string& contentType, const std::string& authHeader,
+                                int timeoutMs, const ChunkCallback& onChunk) {
     WinHttpResult result;
     const UrlParts p = parseUrl(url);
     if (!p.valid) {
@@ -150,6 +157,7 @@ WinHttpResult winHttpPost(const std::string& url, const std::string& body,
             break;
         }
         bodyOut.append(buf.data(), bytesRead);
+        if (onChunk) onChunk(std::string(buf.data(), bytesRead));  // B3：增量回调
     }
     result.body = std::move(bodyOut);
     result.ok = result.status > 0 && result.error.empty();
@@ -165,6 +173,13 @@ WinHttpResult winHttpPost(const std::string& url, const std::string& body,
 // 非 Windows：WinHTTP 不可用（本项目面向 Windows）。返回传输错误，调用方降级为模板解说。
 WinHttpResult winHttpPost(const std::string&, const std::string&, const std::string&,
                           const std::string&, int) {
+    WinHttpResult result;
+    result.error = "WinHTTP unavailable on this platform";
+    return result;
+}
+
+WinHttpResult winHttpPostStream(const std::string&, const std::string&, const std::string&,
+                                const std::string&, int, const ChunkCallback&) {
     WinHttpResult result;
     result.error = "WinHTTP unavailable on this platform";
     return result;

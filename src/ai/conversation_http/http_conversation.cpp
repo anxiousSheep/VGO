@@ -1,6 +1,8 @@
 #include "http_conversation.h"
 
 #include <chrono>
+#include <map>
+#include <memory>
 #include <thread>
 #include <utility>
 
@@ -12,6 +14,7 @@
 
 #include "ai/explain.h"
 #include "ai/gtp.h"
+#include "sse_parser.h"
 #include "winhttp_transport.h"
 
 namespace vgo {
@@ -92,6 +95,11 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     if (!req.coach_memory.empty()) {
         s += QStringLiteral("教练记忆（跨局观察，仅在相关时自然提及，不要突兀复述）：%1\n")
                  .arg(QString::fromStdString(req.coach_memory));
+    }
+    // D-a：注入教学侧重指令（行为导向，与 coach_memory 的事实摘要并列、语义分离）。
+    if (!req.weakness_directive.empty()) {
+        s += QStringLiteral("教学侧重（仅自然融入，不突兀）：%1\n")
+                 .arg(QString::fromStdString(req.weakness_directive));
     }
     // D2：要求模型在回答末尾附上可机读的断言块，供校验闸门对照引擎真值。
     s += QStringLiteral(
@@ -179,6 +187,13 @@ QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
     }
     s += QStringLiteral("当前轮到%1方落子。\n")
              .arg(req.to_move == Color::Black ? QStringLiteral("黑") : QStringLiteral("白"));
+    // B2：局面阶段 + 最近手顺（让讲解获得「前文」：接上一步挂角，这手拆二生根）。
+    if (!req.phase.empty()) {
+        s += QStringLiteral("局面阶段：%1\n").arg(QString::fromStdString(req.phase));
+    }
+    if (!req.move_sequence.empty()) {
+        s += QStringLiteral("最近手顺：%1\n").arg(QString::fromStdString(req.move_sequence));
+    }
     if (req.facts.analysis.valid && !req.hint && !stripEngine) {
         int shown = 0;
         for (const auto& c : req.facts.analysis.candidates) {
@@ -344,6 +359,43 @@ QJsonArray buildToolFollowup(const QJsonArray& messages, const QString& content,
     return next;
 }
 
+QJsonArray buildToolCallsFromDeltas(const std::vector<QJsonObject>& deltas) {
+    // 按 index 聚合流式 tool_calls 增量：id/type/name 只取首个非空值，arguments 串接。
+    struct Acc {
+        int index = 0;
+        QString id;
+        QString type;
+        QString name;
+        QString arguments;
+    };
+    std::map<int, Acc> acc;
+    for (const QJsonObject& d : deltas) {
+        const int index = d["index"].toInt(-1);
+        if (index < 0) continue;
+        Acc& a = acc[index];
+        a.index = index;
+        if (!d["id"].toString().isEmpty()) a.id = d["id"].toString();
+        if (!d["type"].toString().isEmpty()) a.type = d["type"].toString();
+        const QJsonObject fn = d["function"].toObject();
+        if (!fn["name"].toString().isEmpty()) a.name = fn["name"].toString();
+        a.arguments += fn["arguments"].toString();
+    }
+
+    QJsonArray out;
+    for (const auto& [index, a] : acc) {
+        QJsonObject fn;
+        fn["name"] = a.name;
+        fn["arguments"] = a.arguments;
+        QJsonObject call;
+        call["index"] = index;
+        call["id"] = a.id;
+        call["type"] = a.type.isEmpty() ? QStringLiteral("function") : a.type;
+        call["function"] = fn;
+        out.append(call);
+    }
+    return out;
+}
+
 TurnRoute routeTurn(const QString& strong, const QString& router, int depth,
                     bool has_tools, bool before_deadline) {
     TurnRoute r;
@@ -496,27 +548,9 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
             // model for the final natural-language answer. Every tool_call must be
             // answered by a matching `tool` message (same tool_call_id), or the endpoint
             // rejects the follow-up request.
-            auto exec = [self](const QJsonObject& call) -> std::string {
-                const QString fnName = call["function"].toObject()["name"].toString();
-                const QJsonValue av = call["function"].toObject()["arguments"];
-                QJsonObject args;
-                if (av.isString())
-                    args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
-                else if (av.isObject())
-                    args = av.toObject();
-
-                // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
-                if (const Tool* t = self->tool_registry_.find(fnName.toStdString())) {
-                    const std::string argsJson =
-                        QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
-                    const ToolResult tr = t->invoke(argsJson);
-                    return tr.ok ? tr.json : ("工具执行失败：" + tr.error);
-                }
-                if (self->tool_handler_) return self->tool_handler_(fnName, args);
-                return "未知工具";
-            };
-
-            const QJsonArray next = buildToolFollowup(messages, content, toolCalls, exec);
+            const QJsonArray next = buildToolFollowup(
+                messages, content, toolCalls,
+                [self](const QJsonObject& call) { return self->execToolCall(call); });
             self->doChat(next, depth + 1, deadline_ms, max_tokens, std::move(cb));
         }, Qt::QueuedConnection);
     }).detach();
@@ -524,6 +558,224 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
 
 void HttpConversationService::cancel() {
     ++generation_;  // 在途请求的结果回到主线程后被丢弃
+}
+
+std::string HttpConversationService::execToolCall(const QJsonObject& call) const {
+    const QString fnName = call["function"].toObject()["name"].toString();
+    const QJsonValue av = call["function"].toObject()["arguments"];
+    QJsonObject args;
+    if (av.isString())
+        args = QJsonDocument::fromJson(av.toString().toUtf8()).object();
+    else if (av.isObject())
+        args = av.toObject();
+
+    // D1：先查注入的工具注册表（确定性能力），再回退到 UI 的演示工具。
+    if (const Tool* t = tool_registry_.find(fnName.toStdString())) {
+        const std::string argsJson =
+            QJsonDocument(args).toJson(QJsonDocument::Compact).toStdString();
+        const ToolResult tr = t->invoke(argsJson);
+        return tr.ok ? tr.json : ("工具执行失败：" + tr.error);
+    }
+    if (tool_handler_) return tool_handler_(fnName, args);
+    return "未知工具";
+}
+
+void HttpConversationService::answerStream(const ConversationRequest& req, DeltaCallback cb) {
+    if (!available_) {
+        cb(StreamEvent{StreamEvent::Kind::Done, {}});
+        return;
+    }
+    const QuestionClass cls = classifyQuestion(req.question);
+    const int mt = max_tokens_ > 0 ? max_tokens_ : maxTokensForLevel(req.profile.level);
+
+    QJsonObject system;
+    system["role"] = "system";
+    system["content"] = buildSystemPrompt(skills_, cls, req);
+    QJsonObject user;
+    user["role"] = "user";
+    user["content"] = buildUserPrompt(req, cls);
+
+    // A2：只把「最终回合的成功回答」写入历史。累积 final 回合的 delta，Abort 时清空
+    // （丢弃工具回合 / 轻模型兜底回合的内容），Done 时落历史。
+    const QString rawQuestion = QString::fromStdString(req.question);
+    auto accum = std::make_shared<std::string>();
+    auto wrapped = [this, rawQuestion, accum, cb = std::move(cb)](StreamEvent e) mutable {
+        switch (e.kind) {
+            case StreamEvent::Kind::Delta: *accum += e.text; break;
+            case StreamEvent::Kind::Abort: accum->clear(); break;
+            case StreamEvent::Kind::Done:
+                if (!accum->empty()) {
+                    session_.push_back({rawQuestion, QString::fromStdString(*accum)});
+                    compressSession(&session_, &session_summary_, kSessionWindowTurns);
+                }
+                accum->clear();
+                break;
+        }
+        cb(std::move(e));
+    };
+
+    QJsonArray messages = buildConversationMessages(system, session_summary_, session_, user);
+    doChatStream(messages, 0, nowMs() + max_loop_ms_, mt, std::move(wrapped));
+}
+
+namespace {
+// B3 流式一个回合的跨线程累积状态（worker 经 queued 回调回主线程时共享）。
+struct StreamRound {
+    bool content_streamed = false;        // 本回合是否已向 UI 流式过 content（供 Abort 兜底）
+    std::vector<QJsonObject> tool_deltas;  // 本回合累积的 tool_calls 增量
+};
+}  // namespace
+
+void HttpConversationService::doChatStream(QJsonArray messages, int depth, qint64 deadline_ms,
+                                           int max_tokens, DeltaCallback cb) {
+    QUrl url(baseUrl_);
+    if (!url.path().endsWith("/chat/completions")) {
+        QString path = url.path();
+        if (!path.endsWith('/')) path += '/';
+        path += "chat/completions";
+        url.setPath(path);
+    }
+
+    const bool has_tools = (tool_handler_ || !tool_registry_.all().empty());
+    const TurnRoute tr = routeTurn(model_, router_model_, depth, has_tools,
+                                   nowMs() < deadline_ms);
+
+    QJsonObject body;
+    body["model"] = tr.model;
+    body["messages"] = messages;
+    if (tr.declare_tools) body["tools"] = buildTools(&tool_registry_);
+    body["max_tokens"] = max_tokens;
+    body["stream"] = true;
+
+    const std::string bodyJson =
+        QJsonDocument(body).toJson(QJsonDocument::Compact).toStdString();
+    const std::string auth =
+        apiKey_.isEmpty() ? std::string{} : ("Authorization: Bearer " + apiKey_.toStdString());
+    const std::string urlStr = url.toString().toStdString();
+    const int timeout = timeout_ms_;
+    const int gen = ++generation_;
+    const bool declared_tools = tr.declare_tools;
+
+    auto cbPtr = std::make_shared<DeltaCallback>(std::move(cb));
+    auto round = std::make_shared<StreamRound>();
+    QPointer<HttpConversationService> self(this);
+
+    std::thread([self, gen, urlStr, bodyJson, auth, timeout, depth, deadline_ms, max_tokens,
+                 messages = std::move(messages), cbPtr, round, declared_tools]() mutable {
+        SseParser parser;
+        std::vector<std::string> content_batch;
+        std::vector<QJsonObject> tool_batch;
+        auto lastFlush = std::chrono::steady_clock::now();
+
+        // 把累积的增量批量回主线程（每 ~40ms 或收尾时），避免逐 delta 跨线程开销。
+        auto flush = [&](bool force) {
+            if (content_batch.empty() && tool_batch.empty()) return;
+            const auto now = std::chrono::steady_clock::now();
+            if (!force &&
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFlush).count() <
+                    40)
+                return;
+            lastFlush = now;
+            auto cd = std::move(content_batch);
+            content_batch.clear();
+            auto td = std::move(tool_batch);
+            tool_batch.clear();
+            QMetaObject::invokeMethod(
+                self, [self, gen, round, cbPtr, cd = std::move(cd), td = std::move(td)]() mutable {
+                    if (!self || gen != self->generation_) return;  // stale / cancelled
+                    for (const std::string& d : cd) {
+                        round->content_streamed = true;
+                        (*cbPtr)(StreamEvent{StreamEvent::Kind::Delta, d});
+                    }
+                    for (const QJsonObject& t : td) round->tool_deltas.push_back(t);
+                },
+                Qt::QueuedConnection);
+        };
+
+        WinHttpResult res = winHttpPostStream(
+            urlStr, bodyJson, "application/json", auth, timeout, [&](const std::string& chunk) {
+                parser.feed(chunk);
+                auto cd = parser.drainContentDeltas();
+                auto td = parser.drainToolCallDeltas();
+                content_batch.insert(content_batch.end(), cd.begin(), cd.end());
+                tool_batch.insert(tool_batch.end(), td.begin(), td.end());
+                flush(false);
+            });
+
+        // 收尾：把剩余增量全部回主线程，然后以结束回调结束本回合。
+        {
+            auto cd = parser.drainContentDeltas();
+            auto td = parser.drainToolCallDeltas();
+            content_batch.insert(content_batch.end(), cd.begin(), cd.end());
+            tool_batch.insert(tool_batch.end(), td.begin(), td.end());
+        }
+        flush(true);
+
+        if (!self) return;
+        QMetaObject::invokeMethod(
+            self,
+            [self, gen, res, depth, deadline_ms, max_tokens, messages = std::move(messages),
+             cbPtr, round, declared_tools]() mutable {
+                if (!self || gen != self->generation_) return;  // stale / cancelled
+
+                auto fail = [&](const std::string& text) {
+                    (*cbPtr)(StreamEvent{StreamEvent::Kind::Delta, text});
+                    (*cbPtr)(StreamEvent{StreamEvent::Kind::Done, {}});
+                };
+
+                // 传输失败 / 5xx：报错并结束（4xx 走降级，见下）。
+                if (!res.ok || res.status == 0 || res.status >= 500) {
+                    fail("（语言服务暂时不可用：" + res.error + "）");
+                    return;
+                }
+                if (res.status >= 400) {
+                    // B3：已声明 tools 且流式返回 4xx（弱端点不支持 stream+tools）→
+                    // 该回合降级为非流式 doChat 重试，其余回合仍流式。
+                    if (declared_tools) {
+                        self->doChat(messages, depth, deadline_ms, max_tokens,
+                                     [cbPtr](const ConversationReply& r) {
+                                         (*cbPtr)(StreamEvent{StreamEvent::Kind::Delta, r.text});
+                                         (*cbPtr)(StreamEvent{StreamEvent::Kind::Done, {}});
+                                     });
+                        return;
+                    }
+                    fail("（语言服务暂时不可用：" +
+                         httpErrorDetail(res.status, res.body).toStdString() + "）");
+                    return;
+                }
+
+                const QJsonArray toolCalls = buildToolCallsFromDeltas(round->tool_deltas);
+                const bool round_has_tools = (self->tool_handler_ ||
+                                              !self->tool_registry_.all().empty());
+
+                if (!toolCalls.isEmpty()) {
+                    // 工具回合：丢弃 content（若已流式则通知 UI abort），执行工具，
+                    // 回填后流式进入下一轮。
+                    if (round->content_streamed)
+                        (*cbPtr)(StreamEvent{StreamEvent::Kind::Abort, {}});
+                    const QJsonArray next = buildToolFollowup(
+                        messages, QString(), toolCalls,
+                        [self](const QJsonObject& call) { return self->execToolCall(call); });
+                    self->doChatStream(next, depth + 1, deadline_ms, max_tokens,
+                                       std::move(*cbPtr));
+                    return;
+                }
+
+                // 无工具调用：若为轻模型未挑工具的兜底（router 且 depth 0），丢弃其
+                // 文本并交给强模型作答（与 answer() 的非流式逻辑一致）。
+                if (!self->router_model_.isEmpty() && round_has_tools && depth == 0) {
+                    if (round->content_streamed)
+                        (*cbPtr)(StreamEvent{StreamEvent::Kind::Abort, {}});
+                    self->doChatStream(messages, depth + 1, deadline_ms, max_tokens,
+                                       std::move(*cbPtr));
+                    return;
+                }
+
+                // 最终回合：收尾。
+                (*cbPtr)(StreamEvent{StreamEvent::Kind::Done, {}});
+            },
+            Qt::QueuedConnection);
+    }).detach();
 }
 
 }  // namespace vgo

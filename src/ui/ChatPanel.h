@@ -44,6 +44,8 @@ public:
     void beginAiStream();
     void appendAiStream(const QString& text);
     void endAiStream();
+    // B3：丢弃当前流式部分并复位流式状态（工具回合 / 轻模型兜底已流式过中间内容时）。
+    void abortAiStream();
 
 signals:
     void messageSent(const QString& text);
@@ -73,7 +75,7 @@ private:
     QVBoxLayout* messages_layout_ = nullptr;
     QLineEdit* input_ = nullptr;
 
-    // Streaming state（N3；当前 answerStream 回退到 answer，非流式路径未启用）。
+    // Streaming state（N3/B3：answerStream 逐字送达；abortAiStream 丢弃工具回合中间态）。
     QTextBrowser* stream_browser_ = nullptr;
     QString stream_buffer_;
 

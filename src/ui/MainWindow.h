@@ -111,6 +111,7 @@ private:
     void appendAi(const QString& text);
     void appendNote(const QString& text);
     void handleReply(const vgo::ConversationReply& r);
+    void handleStreamEvent(const vgo::ConversationService::StreamEvent& e);  // B3
     void clearConversationSession();  // A2：新对局/切换模式时清多轮记忆
     void requestAnalysis(bool sayInChat);
     void applyAnalysis(const vgo::Analysis& a, vgo::Color to_move, bool sayInChat);

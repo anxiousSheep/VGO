@@ -43,14 +43,67 @@ const char* weakAreaLabel(WeakArea a) {
     return "其他";
 }
 
+std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>>& topWeak) {
+    std::string out;
+    for (const auto& p : topWeak) {
+        if (!out.empty()) out += "；";
+        switch (p.first) {
+            case WeakArea::LifeDeath:
+                out += "用户最近死活偏弱，涉及攻杀/做活的讲解务必带气数与眼位提醒";
+                break;
+            case WeakArea::Ko:
+                out += "用户最近在打劫上吃亏，涉及劫争的讲解务必说明劫材与得失";
+                break;
+            case WeakArea::Counting:
+                out += "用户数目偏弱，涉及形势的讲解务必逐块说明归属";
+                break;
+            case WeakArea::Fighting:
+                out += "用户战斗判断偏弱，讲解攻防时点明方向与厚薄";
+                break;
+            case WeakArea::Endgame:
+                out += "用户收官偏弱，涉及官子的讲解务必说明目数大小与先后手";
+                break;
+            case WeakArea::Joseki:
+                out += "用户定式掌握不足，涉及定式的讲解务必说明后续变化与选择理由";
+                break;
+            case WeakArea::ShapeJudgment:
+                out += "用户形势判断偏弱，讲解时务必点明各块棋的厚薄与潜力";
+                break;
+        }
+    }
+    return out;
+}
+
 WeakArea classifyBlunderArea(const std::vector<StructuralFact>& facts,
                              int move_number, int size) {
-    // 结构信号优先：自紧气（气紧/眼形）归入死活；提子/打吃上下文归入战斗。
+    // 结构信号优先（按信号强度分档，与 facts 的向量顺序无关）：
+    // 自紧气（气紧/眼形）→死活；提子/打吃→战斗；断/扳→战斗；虎口→形势判断；
+    // 尖/飞/跳等几何着法→定式。
+    bool self_atari = false;
+    bool capture_fight = false;
+    bool cut_hane = false;
+    bool tiger_mouth = false;
+    bool joseki_shape = false;
     for (const StructuralFact& f : facts) {
-        if (f.type == FactType::SelfAtari) return WeakArea::LifeDeath;
-        if (f.type == FactType::Captures || f.type == FactType::PutsInAtari)
-            return WeakArea::Fighting;
+        switch (f.type) {
+            case FactType::SelfAtari: self_atari = true; break;
+            case FactType::Captures:
+            case FactType::PutsInAtari: capture_fight = true; break;
+            case FactType::Cut:
+            case FactType::Hane: cut_hane = true; break;
+            case FactType::TigerMouth: tiger_mouth = true; break;
+            case FactType::Diagonal:
+            case FactType::SmallKnight:
+            case FactType::LargeKnight:
+            case FactType::OneSpaceJump: joseki_shape = true; break;
+            default: break;
+        }
     }
+    if (self_atari) return WeakArea::LifeDeath;
+    if (capture_fight || cut_hane) return WeakArea::Fighting;
+    if (tiger_mouth) return WeakArea::ShapeJudgment;
+    if (joseki_shape) return WeakArea::Joseki;
+
     // 无明确结构信号时按棋局阶段兜底：布局→定式，中盘→战斗，收官→官子。
     const int area = size * size;
     if (area <= 0) return WeakArea::Fighting;
