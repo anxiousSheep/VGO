@@ -154,6 +154,9 @@ public:
         enum class Kind { Delta, Done, Abort };
         Kind kind = Kind::Delta;
         std::string text;  // only for Kind::Delta
+        // For Done: the fully-assembled, verified reply (verdicts / pv / feedback
+        // context), so the UI can render evidence rows + the A4 feedback bar.
+        ConversationReply reply;
     };
     using DeltaCallback = std::function<void(const StreamEvent&)>;
     virtual void answer(const ConversationRequest& req, Callback cb) = 0;

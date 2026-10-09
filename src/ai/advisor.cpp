@@ -443,7 +443,7 @@ void AiAdvisor::askStream(const Game& game, const std::string& question,
         const auto it = explain_cache_.find(positionHash(game.board()));
         if (it != explain_cache_.end()) {
             cb(Ev{Ev::Kind::Delta, it->second.text});
-            cb(Ev{Ev::Kind::Done, {}});
+            cb(Ev{Ev::Kind::Done, {}, it->second});
             return;
         }
     }
@@ -451,14 +451,14 @@ void AiAdvisor::askStream(const Game& game, const std::string& question,
     if (cls == QuestionClass::MoveQuality) {
         handleMoveQuality(game, question, [cb](const ConversationReply& r) {
             cb(Ev{Ev::Kind::Delta, r.text});
-            cb(Ev{Ev::Kind::Done, {}});
+            cb(Ev{Ev::Kind::Done, {}, r});
         });
         return;
     }
     if (cls == QuestionClass::LifeDeath) {
         handleLifeDeath(game, question, [cb](const ConversationReply& r) {
             cb(Ev{Ev::Kind::Delta, r.text});
-            cb(Ev{Ev::Kind::Done, {}});
+            cb(Ev{Ev::Kind::Done, {}, r});
         });
         return;
     }
@@ -565,10 +565,14 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
                 const std::string raw_text = r.text;
                 verifyAndAnnotate(r, verify_board, verify_facts, verify_score, verify_to_move,
                                   verify_size);
-                // 校验追加的修正注记作为最终 delta 送达。
-                if (r.text.size() > raw_text.size()) {
-                    cb(Ev{Ev::Kind::Delta, r.text.substr(raw_text.size())});
-                }
+                // D2.4：挂 PV 供证据点击跳变；A4：反馈上下文（与 deliverAnswer 同源）。
+                if (verify_facts.analysis.valid && !verify_facts.analysis.best.pv.empty())
+                    r.pv = verify_facts.analysis.best.pv;
+                r.feedback_position_hash = positionHash(verify_board);
+                r.feedback_truth_summary =
+                    truthSummary(verify_facts, verify_score, verify_to_move);
+                r.feedback_model = trace_model_;
+                r.feedback_question = question;
                 // D5.6 trace / D2.5 坏样本（与 deliverAnswer 同源，保证流式不劣化）。
                 if (trace_sink_) {
                     AgentTraceRecord rec;
@@ -600,7 +604,8 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
                         bad_sample_sink_(s);
                     }
                 }
-                cb(Ev{Ev::Kind::Done, {}});
+                // 最终回合：把完整回复（含 verdicts / 反馈上下文）交给 UI 渲染。
+                cb(Ev{Ev::Kind::Done, {}, std::move(r)});
                 break;
             }
         }

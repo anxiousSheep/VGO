@@ -1221,7 +1221,9 @@ void MainWindow::handleStreamEvent(const vgo::ConversationService::StreamEvent& 
             chat_->abortAiStream();  // B3：工具回合 / 轻模型兜底已流式过中间内容 → 丢弃
             break;
         case Kind::Done:
-            chat_->endAiStream();
+            // 丢弃逐字流式的裸文本，改由 handleReply 渲染完整回复（证据行 + A4 反馈条）。
+            chat_->abortAiStream();
+            handleReply(e.reply);
             break;
     }
 }
