@@ -276,6 +276,82 @@ TEST(http_system_prompt_omits_empty_weakness) {
     CHECK(!s.contains(QStringLiteral("教学侧重")));
 }
 
+// --- 程序确定性输出（恶手预警）进 prompt ---
+
+TEST(http_user_prompt_includes_blunder_warning) {
+    ConversationRequest req;
+    req.question = "这步怎么样";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 12;
+    req.board_context = "X O .";
+    MoveEvaluation e;
+    e.valid = true;
+    e.legal = true;
+    e.winrate_before = 0.6;
+    e.winrate_after = 0.4;  // -20pp → 恶手
+    e.mover = Color::Black;
+    req.facts.move_eval = e;
+
+    const QString s = buildUserPrompt(req, QuestionClass::MoveQuality);
+    CHECK(s.contains(QStringLiteral("恶手预警")));
+    CHECK(s.contains(QStringLiteral("胜率下降")));
+}
+
+TEST(http_user_prompt_omits_blunder_warning_when_not_blunder) {
+    ConversationRequest req;
+    req.question = "这步怎么样";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 12;
+    req.board_context = "X O .";
+    MoveEvaluation e;
+    e.valid = true;
+    e.legal = true;
+    e.winrate_before = 0.6;
+    e.winrate_after = 0.58;  // 仅 -2pp，非恶手
+    e.mover = Color::Black;
+    req.facts.move_eval = e;
+
+    const QString s = buildUserPrompt(req, QuestionClass::MoveQuality);
+    CHECK(!s.contains(QStringLiteral("恶手预警")));
+}
+
+TEST(http_user_prompt_includes_blunder_notes) {
+    ConversationRequest req;
+    req.question = "为什么下这里";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 12;
+    req.board_context = "X O .";
+    BlunderNote b;
+    b.move = 12;
+    b.point = {2, 6};  // C3（9 路）
+    b.text = "胜率下降约 15 个百分点";
+    req.blunder_notes.push_back(b);
+
+    const QString s = buildUserPrompt(req, QuestionClass::WhyThisMove);
+    CHECK(s.contains(QStringLiteral("本局已提示的恶手")));
+    CHECK(s.contains(QStringLiteral("第 12 手（C3）")));
+    CHECK(s.contains(QStringLiteral("胜率下降约 15 个百分点")));
+}
+
+TEST(http_user_prompt_omits_empty_blunder_notes) {
+    ConversationRequest req;
+    req.question = "为什么下这里";
+    req.size = 9;
+    req.to_move = Color::Black;
+    req.score_black = 3.5;
+    req.move_number = 12;
+    req.board_context = "X O .";
+
+    const QString s = buildUserPrompt(req, QuestionClass::WhyThisMove);
+    CHECK(!s.contains(QStringLiteral("本局已提示的恶手")));
+}
+
 // --- A4：差评坏样本往返 ---
 
 TEST(a4_bad_sample_user_downvote_roundtrip) {

@@ -365,6 +365,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.move_sequence = buildMoveSequence(game.moves(), game.size(), 10);
     // D-a：讲解侧重指令（弱项 → 教学策略），注入 system prompt。
     req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
+    // 程序确定性输出：本局已提示的恶手预警，让 LLM 讲解与 UI 已提示内容一致。
+    req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;
@@ -526,6 +528,8 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
     req.move_sequence = buildMoveSequence(game.moves(), game.size(), 10);
     // D-a：讲解侧重指令（弱项 → 教学策略），注入 system prompt。
     req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
+    // 程序确定性输出：本局已提示的恶手预警，让 LLM 讲解与 UI 已提示内容一致。
+    req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
     {
         AgentToolContext tool_ctx;
         tool_ctx.game = game;

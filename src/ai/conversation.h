@@ -9,6 +9,7 @@
 #include "agent/tool_registry.h"
 #include "explain.h"
 #include "go/go_types.h"
+#include "record.h"
 #include "verify/claim.h"
 
 namespace vgo {
@@ -121,6 +122,8 @@ struct ConversationRequest {
     std::string phase;          // B2 局面阶段："布局"/"中盘"/"官子"
     std::string move_sequence;  // B2 最近手顺："黑 H6、白 G5、…"，空 = 无历史
     std::string weakness_directive;  // D-a 教学侧重指令（注入 system prompt），可为空
+    // 程序已给出的确定性输出（如局中恶手预警），让 LLM 的讲解与 UI 已提示内容一致。
+    std::vector<BlunderNote> blunder_notes;
 };
 
 struct ConversationReply {

@@ -102,6 +102,11 @@ public:
         weakness_fn_ = std::move(fn);
     }
 
+    // 程序确定性输出来源：本局已提示的恶手预警（UI 注入，供 LLM 讲解上下文对齐）。
+    void setBlunderNotesProvider(std::function<std::vector<BlunderNote>()> fn) {
+        blunder_notes_fn_ = std::move(fn);
+    }
+
     // D5.6 可观测：每次问答完成后，把一条 trace 记录交给 UI 落盘（纯逻辑层不碰 I/O）。
     void setTraceSink(std::function<void(const AgentTraceRecord&)> fn) {
         trace_sink_ = std::move(fn);
@@ -145,6 +150,7 @@ private:
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6
     std::function<std::string()> weakness_fn_;      // D-a 讲解侧重
+    std::function<std::vector<BlunderNote>()> blunder_notes_fn_;  // 本局恶手预警
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5
     std::string trace_route_ = "template";

@@ -564,6 +564,11 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
         if (!learner_ || !learner_->enabled()) return {};
         return vgo::buildWeaknessDirective(learner_->model().topWeakAreas(3));
     });
+    // 程序确定性输出：本局已提示的恶手预警（复盘模式用棋谱恶手，其余用本局恶手）。
+    advisor_->setBlunderNotesProvider([this]() -> std::vector<vgo::BlunderNote> {
+        if (app_mode_ == vgo::GameMode::Review) return review_blunders_;
+        return blunders_;
+    });
 
     const bool usingKata = analysis_kata_;
     const bool usingHttp =

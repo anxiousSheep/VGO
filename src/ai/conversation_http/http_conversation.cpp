@@ -12,6 +12,7 @@
 #include <QPointer>
 #include <QUrl>
 
+#include "ai/evaluate.h"
 #include "ai/explain.h"
 #include "ai/gtp.h"
 #include "sse_parser.h"
@@ -227,6 +228,24 @@ QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
     if (req.facts.move_eval) {
         s += QStringLiteral("落点评估（硬事实）：%1\n")
                  .arg(QString::fromStdString(renderMoveEvaluation(*req.facts.move_eval, req.size)));
+        // 程序已判定的恶手预警（与 UI 提示一致，供 LLM 引用而非重新发明）。
+        const std::string warn = blunderWarning(*req.facts.move_eval);
+        if (!warn.empty()) {
+            s += QStringLiteral("恶手预警（程序判定，供参考）：%1\n")
+                     .arg(QString::fromStdString(warn));
+        }
+    }
+    // 程序确定性输出：本局已提示的恶手历史（与 UI 已提示内容对齐，供 LLM 引述）。
+    if (!req.blunder_notes.empty()) {
+        s += QStringLiteral("本局已提示的恶手（程序判定，供参考）：\n");
+        for (const BlunderNote& b : req.blunder_notes) {
+            s += QStringLiteral("  第 %1 手（%2）：%3\n")
+                     .arg(b.move)
+                     .arg(b.point.x >= 0
+                              ? QString::fromStdString(gtpPoint(b.point, req.size))
+                              : QStringLiteral("—"))
+                     .arg(QString::fromStdString(b.text));
+        }
     }
     if (req.facts.life_death) {
         s += QStringLiteral("死活结论（硬事实）：%1\n")
