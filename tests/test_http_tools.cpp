@@ -238,9 +238,9 @@ TEST(a3_structure_contract_three_tiers_differ) {
 }
 
 TEST(a3_max_tokens_for_level) {
-    CHECK_EQ(maxTokensForLevel(5), 512);
-    CHECK_EQ(maxTokensForLevel(9), 1024);
-    CHECK_EQ(maxTokensForLevel(13), 768);
+    CHECK_EQ(maxTokensForLevel(5), 1024);
+    CHECK_EQ(maxTokensForLevel(9), 2048);
+    CHECK_EQ(maxTokensForLevel(13), 1024);
 }
 
 TEST(a3_system_prompt_drops_one_size_fits_all) {

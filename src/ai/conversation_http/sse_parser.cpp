@@ -31,7 +31,12 @@ void SseParser::feed(const std::string& bytes) {
         if (!doc.isObject()) continue;
         const QJsonArray choices = doc.object().value("choices").toArray();
         if (choices.isEmpty()) continue;
-        const QJsonObject delta = choices.first().toObject().value("delta").toObject();
+        const QJsonObject choice = choices.first().toObject();
+        const QJsonObject delta = choice.value("delta").toObject();
+
+        const QJsonValue fr = choice.value("finish_reason");
+        if (fr.isString() && !fr.toString().isEmpty())
+            finish_reason_ = fr.toString().toStdString();
 
         const QJsonValue c = delta.value("content");
         if (c.isString() && !c.toString().isEmpty())

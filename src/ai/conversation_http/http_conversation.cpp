@@ -22,6 +22,10 @@ namespace vgo {
 
 namespace {
 
+// A3 防截断：max_tokens 兜底重试上限。输出被 finish_reason=length 截断时，以该上限
+// 重试一次，避免讲解被生硬截断（正常 stop 结束不受影响，不会更啰嗦）。
+constexpr int kLengthRetryTokens = 4096;
+
 // Wall-clock ms since epoch, for the tool-loop deadline (D1.10). Monotonic (steady).
 qint64 nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -67,9 +71,12 @@ QString buildStructureContract(int level) {
 }
 
 int maxTokensForLevel(int level) {
-    if (level <= 6) return 512;   // 新手
-    if (level >= 12) return 768;  // 高手（要点式，更短）
-    return 1024;                  // 进阶
+    // 初值 512/1024/768 过紧：讲解正文 + 注入的 Skills + <claims> JSON 常超出，
+    // 触发 finish_reason=length 被生硬截断。这里调大上限（只是上限，模型仍按
+    // stop 自然结束，不会更啰嗦），真正的兜底见 doChat/doChatStream 的 length 重试。
+    if (level <= 6) return 1024;  // 新手（结论 + 类比 + 变化 + 鼓励 + claims）
+    if (level >= 12) return 1024; // 高手（要点式 + 数据 + 多条 claims）
+    return 2048;                  // 进阶（数据依据 + 关键变化 + 练习建议，最详尽）
 }
 
 QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
@@ -542,13 +549,11 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
             }
 
             const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(res.body));
-            const QJsonObject msg = doc.object()["choices"]
-                                        .toArray()
-                                        .first()
-                                        .toObject()["message"]
-                                        .toObject();
+            const QJsonObject choice = doc.object()["choices"].toArray().first().toObject();
+            const QJsonObject msg = choice["message"].toObject();
             const QJsonArray toolCalls = msg["tool_calls"].toArray();
             const QString content = msg["content"].toString();
+            const QString finish = choice["finish_reason"].toString();
 
             const bool has_tools = (self->tool_handler_ || !self->tool_registry_.all().empty());
             if (toolCalls.isEmpty()) {
@@ -556,6 +561,11 @@ void HttpConversationService::doChat(QJsonArray messages, int depth, qint64 dead
                 // （强模型在本回合不声明工具，给出最终文本答案）。
                 if (!self->router_model_.isEmpty() && has_tools && depth == 0) {
                     self->doChat(messages, depth + 1, deadline_ms, max_tokens, std::move(cb));
+                    return;
+                }
+                // 输出被 max_tokens 截断（finish_reason=length）：以足额上限重试一次。
+                if (finish == QLatin1String("length") && max_tokens < kLengthRetryTokens) {
+                    self->doChat(messages, depth, deadline_ms, kLengthRetryTokens, std::move(cb));
                     return;
                 }
                 r.text = content.toStdString();
@@ -729,12 +739,13 @@ void HttpConversationService::doChatStream(QJsonArray messages, int depth, qint6
             tool_batch.insert(tool_batch.end(), td.begin(), td.end());
         }
         flush(true);
+        const std::string finish_reason = parser.finishReason();
 
         if (!self) return;
         QMetaObject::invokeMethod(
             self,
             [self, gen, res, depth, deadline_ms, max_tokens, messages = std::move(messages),
-             cbPtr, round, declared_tools]() mutable {
+             cbPtr, round, declared_tools, finish_reason]() mutable {
                 if (!self || gen != self->generation_) return;  // stale / cancelled
 
                 auto fail = [&](const std::string& text) {
@@ -786,6 +797,16 @@ void HttpConversationService::doChatStream(QJsonArray messages, int depth, qint6
                     if (round->content_streamed)
                         (*cbPtr)(StreamEvent{StreamEvent::Kind::Abort, {}});
                     self->doChatStream(messages, depth + 1, deadline_ms, max_tokens,
+                                       std::move(*cbPtr));
+                    return;
+                }
+
+                // 输出被 max_tokens 截断（finish_reason=length）：丢弃已流式的截断文本，
+                // 以足额上限重试一次。
+                if (finish_reason == "length" && max_tokens < kLengthRetryTokens) {
+                    if (round->content_streamed)
+                        (*cbPtr)(StreamEvent{StreamEvent::Kind::Abort, {}});
+                    self->doChatStream(messages, depth, deadline_ms, kLengthRetryTokens,
                                        std::move(*cbPtr));
                     return;
                 }

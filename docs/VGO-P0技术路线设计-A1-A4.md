@@ -257,6 +257,7 @@ int maxTokensForLevel(int level);
 
 - `max_tokens_` 默认值 1024 → **0（=自动）**；`setMaxTokens(0)` = 自动，`setMaxTokens(n>0)` = 显式覆盖。已核实 `setMaxTokens` 目前无调用方，改默认安全。
 - `answer()` 解析 `const int mt = max_tokens_ > 0 ? max_tokens_ : maxTokensForLevel(req.profile.level);`，作为新形参传入 `doChat`，贯穿递归（工具选择回合与最终回合同 cap）。
+- **修订（2026-10-09）**：初值 512/1024/768 过紧，讲解正文 + 注入 Skills + `<claims>` JSON 常超限触发 `finish_reason=length` 被截断。已上调为 **1024/2048/1024**，并在 `doChat`/`doChatStream` 增 `finish_reason=length` 检测：命中且未达 4096 上限时以足额上限重试一次（`kLengthRetryTokens=4096`）。`max_tokens` 只是上限，模型仍按 `stop` 自然结束，不会更啰嗦。
 
 ### 3.3 双锚定
 

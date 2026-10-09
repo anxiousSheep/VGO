@@ -69,6 +69,24 @@ TEST(sse_parse_done_marker) {
     CHECK(p.done());
 }
 
+TEST(sse_parse_finish_reason) {
+    SseParser p;
+    QJsonObject delta;
+    QJsonObject choice;
+    choice["delta"] = delta;
+    choice["finish_reason"] = "length";
+    choice["index"] = 0;
+    QJsonObject obj;
+    obj["choices"] = QJsonArray{choice};
+    p.feed(sseLine(obj));
+    CHECK_EQ(p.finishReason(), std::string("length"));
+
+    // 未出现 finish_reason 时为空。
+    SseParser q;
+    q.feed(sseLine(contentDeltaObj("ok")));
+    CHECK(q.finishReason().empty());
+}
+
 TEST(sse_parse_tool_call_deltas) {
     SseParser p;
     {

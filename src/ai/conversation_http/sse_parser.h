@@ -24,11 +24,16 @@ public:
     // 是否已看到 data: [DONE]。
     bool done() const { return done_; }
 
+    // 最近一个非空 choices[0].finish_reason（"stop"/"length"/…），空 = 尚未出现。
+    // 供调用方识别「输出因 max_tokens 被截断（length）」而重试。
+    std::string finishReason() const { return finish_reason_; }
+
 private:
     std::string buffer_;  // 未完整事件的行缓存（跨 WinHttpReadData 块）
     std::vector<std::string> content_deltas_;
     std::vector<QJsonObject> tool_call_deltas_;
     bool done_ = false;
+    std::string finish_reason_;
 };
 
 }  // namespace vgo

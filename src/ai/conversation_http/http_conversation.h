@@ -147,7 +147,7 @@ void compressSession(std::vector<SessionTurn>* turns, QString* summary, int max_
 // A3：按 level 分三档的结构契约文本（语气 + 结构 + 长度约定）。纯函数，供单测。
 QString buildStructureContract(int level);
 
-// A3：按 level 分档的 max_tokens。新手/进阶/高手 = 512/1024/768。
+// A3：按 level 分档的 max_tokens。新手/进阶/高手 = 1024/2048/1024（仅上限，防截断）。
 int maxTokensForLevel(int level);
 
 // A3：组装 system prompt（人设 + 三档结构契约 + 教练记忆 + 断言契约 + 技能注入）。
