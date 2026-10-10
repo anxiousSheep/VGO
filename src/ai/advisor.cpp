@@ -420,6 +420,7 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
         tool_ctx.ownership = req.facts.analysis.ownership;
         tool_ctx.analysis = req.facts.analysis;
         tool_ctx.joseki = joseki_;
+        tool_ctx.joseki_verdicts = joseki_verdicts_;
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     // D2：校验闸门需要真值与棋盘快照（facts 已 move 进 req，先复制一份）。
@@ -585,6 +586,7 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
         tool_ctx.ownership = req.facts.analysis.ownership;
         tool_ctx.analysis = req.facts.analysis;
         tool_ctx.joseki = joseki_;
+        tool_ctx.joseki_verdicts = joseki_verdicts_;
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     const GroundedFacts verify_facts = req.facts;

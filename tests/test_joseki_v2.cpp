@@ -6,8 +6,9 @@
 
 #include "ai/agent/agent_tools.h"
 #include "ai/gtp.h"
-#include "ai/json.h"
 #include "ai/joseki.h"
+#include "ai/joseki_apply.h"
+#include "ai/json.h"
 
 using namespace vgo;
 
@@ -250,4 +251,51 @@ TEST(joseki_v2_tool_unknown_name_and_no_library_honest) {
     const Tool* t2 = r2.find("joseki_lookup");
     const ToolResult res2 = t2->invoke(R"({"name":"点三三"})");
     CHECK(!res2.ok);
+}
+
+// §4.4.1 预仲裁注入：joseki_lookup 从共享 verdict 存储读取 engine_verdict。
+TEST(joseki_v2_tool_engine_verdict_from_store) {
+    Game g(19);
+    CHECK(g.play(P("Q16").x, P("Q16").y));  // 黑下 4-4 星位
+    auto store = std::make_shared<JosekiVerdictStore>();
+    JosekiVerdict v;
+    v.computed = true;
+    v.favorable = true;
+    v.w_joseki = 0.55;
+    v.w_best = 0.57;
+    v.note = "定式成立（引擎验证）";
+    store->put(g.board(), v);
+
+    AgentToolContext ctx;
+    ctx.game = g;
+    ctx.joseki = std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin());
+    ctx.joseki_verdicts = store;
+    const ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("joseki_lookup");
+    const ToolResult res = t->invoke(R"({"name":"点三三"})");
+    CHECK(res.ok);
+    Json j;
+    CHECK(parseJson(res.json, &j));
+    const Json* ev = j.get("engine_verdict");
+    CHECK(ev != nullptr && !ev->isNull());
+    if (ev && !ev->isNull()) {
+        CHECK_EQ(ev->get("favorable")->asBool(), true);
+        CHECK_EQ(ev->get("computed")->asBool(), true);
+    }
+}
+
+// 无 verdict 存储时 engine_verdict 为 null（apply 由 decideJosekiDemo 安全降级）。
+TEST(joseki_v2_tool_engine_verdict_null_without_store) {
+    Game g(19);
+    CHECK(g.play(P("Q16").x, P("Q16").y));
+    AgentToolContext ctx;
+    ctx.game = g;
+    ctx.joseki = std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin());
+    const ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("joseki_lookup");
+    const ToolResult res = t->invoke(R"({"name":"点三三"})");
+    CHECK(res.ok);
+    Json j;
+    CHECK(parseJson(res.json, &j));
+    CHECK(j.get("engine_verdict")->isNull());
 }

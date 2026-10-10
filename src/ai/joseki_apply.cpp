@@ -29,6 +29,21 @@ const JosekiVariant* firstDemonstrable(const JosekiEntry& e, Corner c, Color inv
 
 }  // namespace
 
+void JosekiVerdictStore::put(const Board& board, const JosekiVerdict& v) {
+    map_[board.snapshot()] = v;
+}
+
+bool JosekiVerdictStore::get(const Board& board, JosekiVerdict* out) const {
+    const auto it = map_.find(board.snapshot());
+    if (it == map_.end()) return false;
+    if (out) *out = it->second;
+    return true;
+}
+
+void JosekiVerdictStore::clear() {
+    map_.clear();
+}
+
 DemoDecision decideJosekiDemo(const Board& b, const JosekiEntry& e, Corner c, Color invader,
                               const std::string& mode, const JosekiVerdict* verdict) {
     const PrecondReport pre = checkPreconditions(b, e, c);

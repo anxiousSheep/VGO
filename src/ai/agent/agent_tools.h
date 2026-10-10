@@ -10,6 +10,8 @@
 
 namespace vgo {
 
+class JosekiVerdictStore;
+
 // The position snapshot a tool invocation reads from. Captured by value so the
 // tools are self-contained and deterministic (no engine re-entry).
 struct AgentToolContext {
@@ -18,6 +20,9 @@ struct AgentToolContext {
     Analysis analysis;      // may be invalid (fallback engine)
     // 定式词典（可空；由 UI 注入的 library 共享指针，工具据此查定式）。
     std::shared_ptr<const JosekiLibrary> joseki;
+    // 预仲裁 verdict 存储（可空；§4.4.1 方案 A）。advisor 异步路径仲裁后按局面快照写入，
+    // joseki_lookup 据此填充 engine_verdict；无 KataGo 时为空 → apply 安全降级 textbook。
+    std::shared_ptr<const JosekiVerdictStore> joseki_verdicts;
 };
 
 // Registers the existing deterministic capabilities as model-callable tools:

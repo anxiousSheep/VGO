@@ -16,6 +16,7 @@
 namespace vgo {
 
 class JosekiLibrary;
+class JosekiVerdictStore;
 class LifeDeathVerifier;
 
 // Combines an Engine (analysis / candidate moves) with a ConversationService
@@ -109,6 +110,13 @@ public:
     // A.5：注入定式词典（热更后共享指针），供 joseki_lookup 工具 + 目录注入。
     void setJosekiLibrary(std::shared_ptr<const JosekiLibrary> lib) { joseki_ = std::move(lib); }
 
+    // §4.4.1 预仲裁注入：注入共享 verdict 存储。advisor 异步路径仲裁后按局面快照写入，
+    // 工具环路（joseki_lookup / handleDemoTool）据此读取；无 KataGo 时保持为空 → apply 安全
+    // 降级 textbook（P5）。
+    void setJosekiVerdictStore(std::shared_ptr<JosekiVerdictStore> s) {
+        joseki_verdicts_ = std::move(s);
+    }
+
     // 程序确定性输出来源：本局已提示的恶手预警（UI 注入，供 LLM 讲解上下文对齐）。
     void setBlunderNotesProvider(std::function<std::vector<BlunderNote>()> fn) {
         blunder_notes_fn_ = std::move(fn);
@@ -160,6 +168,7 @@ private:
     std::function<std::string()> coach_memory_fn_;  // D3.6
     std::function<std::string()> weakness_fn_;      // D-a 讲解侧重
     std::shared_ptr<const JosekiLibrary> joseki_;   // A.5 定式词典（可空）
+    std::shared_ptr<JosekiVerdictStore> joseki_verdicts_;  // §4.4.1 预仲裁注入（可空）
     std::function<std::vector<BlunderNote>()> blunder_notes_fn_;  // 本局恶手预警
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5

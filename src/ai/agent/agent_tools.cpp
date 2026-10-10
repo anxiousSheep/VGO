@@ -6,6 +6,7 @@
 
 #include "../board_predicates.h"
 #include "../gtp.h"
+#include "../joseki_apply.h"
 #include "../json.h"
 #include "../lifedeath.h"
 #include "../lifedeath_shape.h"
@@ -251,6 +252,21 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
             for (const Point& p : pre.occupied_path)
                 occ.push_back(Json::makeString(gtpPoint(p, e->size)));
 
+            // engine_verdict：预仲裁结果（§4.4.1）。无 verdict 时保持 null → apply 降级 textbook。
+            Json engine_verdict = Json::makeNull();
+            if (c->joseki_verdicts) {
+                JosekiVerdict v;
+                if (c->joseki_verdicts->get(board, &v) && v.computed) {
+                    engine_verdict = Json::makeObject({
+                        {"computed", Json::makeBool(true)},
+                        {"favorable", Json::makeBool(v.favorable)},
+                        {"w_joseki", Json::makeNumber(v.w_joseki)},
+                        {"w_best", Json::makeNumber(v.w_best)},
+                        {"note", Json::makeString(v.note)},
+                    });
+                }
+            }
+
             r.json = dumpJson(Json::makeObject({
                 {"id", Json::makeString(e->id)},
                 {"name", Json::makeString(e->name)},
@@ -271,7 +287,7 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
                  })},
                 {"applicable_variants", Json::makeArray(std::move(vars))},
                 {"modes_available", Json::makeArray(std::move(modes))},
-                {"engine_verdict", Json::makeNull()},
+                {"engine_verdict", std::move(engine_verdict)},
             }));
             return r;
         };

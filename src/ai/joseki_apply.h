@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,20 @@ struct JosekiVerdict {
     double w_joseki = 0.0;    // 入侵方视角：摆完定式线后的胜率
     double w_best = 0.0;      // 入侵方视角：引擎自选最优一手的胜率
     std::string note;         // 人读："定式成立（引擎验证，胜率差 1.2pp）"
+};
+
+// 共享 verdict 存储（§4.4.1 方案 A 的「等价共享 verdict 存储」）：advisor 异步路径仲裁后
+// 按局面快照缓存 verdict；同步工具环路（joseki_lookup / handleDemoTool）据此读取，形成
+// 「预仲裁注入」的数据通路。无 KataGo 时保持为空 → apply 安全降级 textbook（P5）。
+class JosekiVerdictStore {
+public:
+    void put(const Board& board, const JosekiVerdict& v);
+    bool get(const Board& board, JosekiVerdict* out) const;
+    void clear();
+    std::size_t size() const { return map_.size(); }
+
+private:
+    std::map<std::string, JosekiVerdict> map_;
 };
 
 // L5 三模式执行决策。
