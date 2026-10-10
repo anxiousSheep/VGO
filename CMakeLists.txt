@@ -76,6 +76,8 @@ add_library(vgo_ai STATIC
     src/ai/board_predicates.cpp
     src/ai/joseki.h
     src/ai/joseki.cpp
+    src/ai/joseki_apply.h
+    src/ai/joseki_apply.cpp
     src/ai/lifedeath_shape.h
     src/ai/lifedeath_shape.cpp
     src/ai/lifedeath_verify.h
@@ -148,6 +150,7 @@ add_executable(vgo_ai_tests
     tests/test_symmetry.cpp
     tests/test_board_predicates.cpp
     tests/test_joseki_v2.cpp
+    tests/test_demo_modes.cpp
     tests/test_lifedeath_shape.cpp
     tests/test_lifedeath_verify.cpp
     tests/test_probe.cpp

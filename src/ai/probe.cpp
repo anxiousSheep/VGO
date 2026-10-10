@@ -42,6 +42,26 @@ void Probe::probe(const Board& board, Color to_move, const Point& probe_move, Ca
                        });
 }
 
+void Probe::analyzePosition(const Board& board, Color to_move, Callback cb) {
+    const int gen = ++generation_;
+    if (!engine_) {
+        ProbeResult r;
+        r.ok = false;
+        cb(std::move(r));
+        return;
+    }
+    analyzePrioritized(engine_, board, to_move, sp_, EnginePriority::Interactive,
+                       [gen, this, board, to_move, cb = std::move(cb)](const Analysis& a) {
+                           if (gen != generation_) return;
+                           ProbeResult r;
+                           r.ok = true;
+                           r.after = board;
+                           r.analysis = a;
+                           r.winrate = a.valid ? a.winrate : 0.0;
+                           cb(std::move(r));
+                       });
+}
+
 void Probe::cancel() {
     ++generation_;
 }

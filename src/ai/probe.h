@@ -34,6 +34,10 @@ public:
     // 无引擎 / 落子非法：立即 cb(ok=false)。
     void probe(const Board& board, Color to_move, const Point& probe_move, Callback cb);
 
+    // 只分析一个局面（不落子）。供定式仲裁「摆完变体线后」直接读胜率、以及「同局面引擎
+    // 最优」读 analysis.best 使用。无引擎：立即 cb(ok=false)。
+    void analyzePosition(const Board& board, Color to_move, Callback cb);
+
     // 是否接了引擎（供消费者在发起 probe 前决定降级路径）。
     bool hasEngine() const { return engine_ != nullptr; }
 
