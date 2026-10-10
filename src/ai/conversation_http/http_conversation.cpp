@@ -99,10 +99,15 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     // A3：分级讲解结构契约（三档语气 + 结构 + 长度约定），替代原先「简短/口语化」一刀切。
     s += buildStructureContract(req.profile.level);
     // A.5 定式能力声明：有词典先查词典，词典外诚实说「还没收录」，不要硬编（治根因 3）。
+    // v2：joseki_lookup 返回「适用性判定书」（前提是否满足 + 可用变体 + 模式），适用性由
+    // 程序判定，你只负责解释判定结果，不得自行认定定式成立。
     s += QStringLiteral(
         "你有一个定式词典（joseki_lookup 工具）。遇到定式、点三三、小飞挂、托退、双飞燕等"
-        "提问，先调用 joseki_lookup 取走法序列，再用 demonstrate_go_moves 的 sequence 参数逐手"
-        "演示。词典里没有的定式，诚实说「这个定式我还没收录」，绝不硬编走法。\n");
+        "提问，先调用 joseki_lookup 取「适用性判定书」：preconditions.satisfied 为 false 说明"
+        "当前局面前提不满足（如实转述 missing/occupied_path 的原因并给替代），"
+        "modes_available 含 apply 才可实战演示，否则只走 textbook 教学模式或诚实拒绝。"
+        "applicable_variants 里的 sequence 可用 demonstrate_go_moves 逐手演示。"
+        "词典里没有的定式，诚实说「这个定式我还没收录」，绝不硬编走法。\n");
     // D3.6：注入跨局教练记忆——让 LLM 知道用户最近的弱项（如「最近在打劫上吃亏」），
     // 仅在相关时自然提及，不要突兀复述。
     if (!req.coach_memory.empty()) {
@@ -301,7 +306,8 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     fn["description"] = QStringLiteral(
         "在棋盘上演示走法：进入试下模式，可回退若干步、落一手假设手，并用权威 AI 续下若干手。"
         "当用户要求演示、展示变化、模拟对局、询问后续应对、局部变化或「后面几步怎么下」时调用。"
-        "当用户点名定式/具体变化时，先用 joseki_lookup 取序列，再用 sequence 逐手演示。");
+        "当用户点名定式/具体变化时，先用 joseki_lookup 取判定书（applicable_variants 的 "
+        "sequence），再用 sequence 逐手演示。");
 
     QJsonObject pPoint;
     pPoint["type"] = "string";

@@ -2,18 +2,49 @@
   "id": "hoshi-sansan-invasion",
   "name": "点三三",
   "aliases": ["三三入侵", "点33", "点三·三"],
-  "corner": "UR",
   "size": 19,
-  "trigger": "对方星位占角，己方直接点三三夺角",
-  "sequence": [
-    {"move": "R17", "by": "white", "note": "直接点入三三，意图夺角"},
-    {"move": "Q17", "by": "black", "note": "挡，必然"},
-    {"move": "Q18", "by": "white", "note": "爬，求活的关键"},
-    {"move": "P17", "by": "black", "note": "长"},
-    {"move": "S17", "by": "white", "note": "再爬"},
-    {"move": "S16", "by": "black", "note": "扳，封锁"},
-    {"move": "R18", "by": "white", "note": "扳活角，黑得外势"}
+  "applies_to_formation": "对方星位占角",
+  "preconditions": {
+    "required_stones": [
+      {"point": "Q16", "color": "black", "role": "corner_anchor", "label": "对方星位子"}
+    ],
+    "required_empty": ["R17", "Q17", "S17", "Q18", "S18"],
+    "forbidden": [],
+    "zones": {
+      "left_flank":  {"points": ["Q14","Q13","Q12","R14","R13","R12"], "meaning": "左侧翼"},
+      "right_flank": {"points": ["S14","S13","S12","T14","T13","T12"], "meaning": "右侧翼"}
+    }
+  },
+  "variants": [
+    {
+      "id": "main",
+      "name": "挡后长（常型）",
+      "when": "default",
+      "direction_rule": "block_toward_friendly_side",
+      "sequence": [
+        {"move": "R17", "by": "white", "note": "点三三，夺角"},
+        {"move": "Q17", "by": "black", "note": "挡（方向由 direction_rule 镜像决定）"},
+        {"move": "Q18", "by": "white", "note": "爬，求活关键"}
+      ]
+    },
+    {
+      "id": "reverse-block",
+      "name": "反向挡（右侧有己方接应时取势）",
+      "when": {"zone_friendly_majority": "right_flank"},
+      "sequence": []
+    },
+    {
+      "id": "ladder-variant",
+      "name": "含征子变化",
+      "when": {"ladder_favorable": true},
+      "ladder_check": true,
+      "sequence": []
+    }
   ],
-  "choices": "黑外围有配合时可选连扳强封；白需注意点三三时机过早会亏损",
+  "alternatives_if_rejected": ["approach-knight", "approach-high"],
+  "teaching": {
+    "idea": "星位角空虚时直接点三三夺实地，对方得外势",
+    "caution": "点三三过早让外势朝向对方接应方向时亏损；征子关系不利时部分变化不成立"
+  },
   "source": "json"
 }

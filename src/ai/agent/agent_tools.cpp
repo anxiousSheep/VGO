@@ -4,6 +4,7 @@
 #include <utility>
 #include <vector>
 
+#include "../board_predicates.h"
 #include "../gtp.h"
 #include "../json.h"
 #include "../lifedeath.h"
@@ -156,12 +157,15 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
     }
 
     {
-        // A.3：定式词典查询。返回定式的完整走法序列（已投影到目标角）。
+        // A.3 定式词典查询（v2）：返回「适用性判定书」而非单条线。
+        // {preconditions, context, applicable_variants, modes_available, engine_verdict}
+        // 适用性由程序（谓词引擎）判定，LLM 只负责翻译判定结果（P1 前提即代码）。
         Tool t;
         t.name = "joseki_lookup";
         t.description =
-            "查询定式词典：按名称/别名匹配一条定式（点三三、小飞挂、托退等），返回其完整走法"
-            "序列（可投影到指定角）。当用户点名定式/具体变化时先调用它。";
+            "查询定式词典并按当前局面判定适用性：返回前提是否满足、侧翼接应计数、可用变体"
+            "（含投影到目标角的走法序列）与可用模式（apply/textbook）。适用性由程序判定，"
+            "你只负责解释判定结果；词典未收录的名字一律回答『这个定式我还没收录』。";
         t.json_schema =
             "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":"
             "\"定式名称或别名\"},\"corner\":{\"type\":\"string\",\"description\":\"目标角 "
@@ -197,27 +201,77 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
                           std::to_string(c->game.size()) + " 路）";
                 return r;
             }
-            const Json* corner = j.get("corner");
-            const std::string cornerStr =
-                (corner && corner->isString()) ? corner->string : "UR";
-            const std::vector<JosekiMove> seq = projectToCorner(e->sequence, e->size, cornerStr);
-            std::vector<Json> seqArr;
-            seqArr.reserve(seq.size());
-            for (const JosekiMove& m : seq) {
-                seqArr.push_back(Json::makeObject({
-                    {"move", Json::makeString(gtpPoint(m.p, e->size))},
-                    {"by", Json::makeString(m.by == Color::Black ? "black" : "white")},
-                    {"note", Json::makeString(m.note)},
+            Corner corner = Corner::UR;
+            const Json* cornerJson = j.get("corner");
+            if (cornerJson && cornerJson->isString() && !cornerJson->string.empty()) {
+                if (!parseCorner(cornerJson->string, &corner)) {
+                    r.ok = false;
+                    r.error = "非法 corner（须为 UR/UL/BL/BR）";
+                    return r;
+                }
+            }
+            const Board& board = c->game.board();
+            const Color invader = josekiInvader(*e);
+            const PrecondReport pre = checkPreconditions(board, *e, corner);
+            const CornerContext ctx = classifyContext(board, *e, corner, invader);
+            const std::vector<int> sel = selectVariants(board, *e, corner, invader);
+
+            // applicable_variants：投影到目标角的可用变体（含方向镜像）。
+            std::vector<Json> vars;
+            bool any_demonstrable = false;
+            for (int idx : sel) {
+                const JosekiVariant& v = e->variants[static_cast<std::size_t>(idx)];
+                const std::vector<JosekiMove> seq = projectVariant(v, e->size, corner, ctx);
+                std::vector<Json> seqArr;
+                for (const JosekiMove& m : seq)
+                    seqArr.push_back(Json::makeObject({
+                        {"move", Json::makeString(gtpPoint(m.p, e->size))},
+                        {"by", Json::makeString(m.by == Color::Black ? "black" : "white")},
+                        {"note", Json::makeString(m.note)},
+                    }));
+                if (!seq.empty()) any_demonstrable = true;
+                vars.push_back(Json::makeObject({
+                    {"id", Json::makeString(v.id)},
+                    {"name", Json::makeString(v.name)},
+                    {"direction_rule", Json::makeString(v.direction_rule)},
+                    {"ladder_check", Json::makeBool(v.ladder_check)},
+                    {"strategy_only", Json::makeBool(seq.empty())},
+                    {"sequence", Json::makeArray(std::move(seqArr))},
                 }));
             }
+
+            // modes_available：textbook 恒可用；apply 需前提满足 + 有可摆线变体。
+            std::vector<Json> modes;
+            modes.push_back(Json::makeString("textbook"));
+            if (pre.satisfied && any_demonstrable) modes.push_back(Json::makeString("apply"));
+
+            std::vector<Json> missing;
+            for (const std::string& m : pre.missing) missing.push_back(Json::makeString(m));
+            std::vector<Json> occ;
+            for (const Point& p : pre.occupied_path)
+                occ.push_back(Json::makeString(gtpPoint(p, e->size)));
+
             r.json = dumpJson(Json::makeObject({
                 {"id", Json::makeString(e->id)},
                 {"name", Json::makeString(e->name)},
-                {"trigger", Json::makeString(e->trigger)},
-                {"corner", Json::makeString(cornerStr)},
+                {"applies_to_formation", Json::makeString(e->applies_to_formation)},
+                {"corner", Json::makeString(cornerName(corner))},
                 {"size", Json::makeNumber(static_cast<double>(e->size))},
-                {"sequence", Json::makeArray(std::move(seqArr))},
-                {"choices", Json::makeString(e->choices)},
+                {"preconditions", Json::makeObject({
+                     {"satisfied", Json::makeBool(pre.satisfied)},
+                     {"missing", Json::makeArray(std::move(missing))},
+                     {"occupied_path", Json::makeArray(std::move(occ))},
+                 })},
+                {"context", Json::makeObject({
+                     {"left_friendly", Json::makeNumber(ctx.left_friendly)},
+                     {"left_enemy", Json::makeNumber(ctx.left_enemy)},
+                     {"right_friendly", Json::makeNumber(ctx.right_friendly)},
+                     {"right_enemy", Json::makeNumber(ctx.right_enemy)},
+                     {"path_clear", Json::makeBool(ctx.path_clear)},
+                 })},
+                {"applicable_variants", Json::makeArray(std::move(vars))},
+                {"modes_available", Json::makeArray(std::move(modes))},
+                {"engine_verdict", Json::makeNull()},
             }));
             return r;
         };
