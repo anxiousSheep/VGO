@@ -6,7 +6,7 @@
 |---|---|---|
 | 2026-10-08 | A1 扩容：5 存量包（counting/ko/life-death/move-quality/terms）加厚并补 `【示例】` few-shot；新增 6 包（fuseki-joseki / middle-game / tesuji-shape / endgame / ko-fight / handicap），双源（`resources/skills/*.md` 与 `SkillRegistry::builtin()`）同步 11 包。golden 集 12→24 条。 | 分类命中率 100%（24/24）、Top-1 检索命中率 100%（22/22）、`avg_injected≈5.2` |
 
-## 设计约定（承 `docs/VGO-P0技术路线设计-A1-A4.md` §1）
+## 设计约定（承 `archive/v0.2.1` §1）
 
 - 文件格式：frontmatter 无前导 `---`，字段 `id/name/description/applies/version` 在前，随后一行 `---` 分隔正文；`fromText` 以首个 `---` 为 header/body 分隔符。
 - few-shot 是正文的一部分，用 `【示例】` 标记分隔，格式与 A3 三档结构契约（新手/进阶/高手）措辞一致，避免 system prompt 里「契约说 A、示例说 B」打架。

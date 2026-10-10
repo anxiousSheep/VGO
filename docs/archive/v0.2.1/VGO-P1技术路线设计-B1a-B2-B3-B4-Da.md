@@ -2,14 +2,14 @@
 
 | 项 | 内容 |
 |---|---|
-| 依据 | `docs/VGO-设计优化评审报告.md` v1.1（§2 P1、§3 Batch 2、§5.2 决定②） |
+| 依据 | `../../VGO-设计优化评审报告.md` v1.1（§2 P1、§3 Batch 2、§5.2 决定②） |
 | 范围 | Batch 2：B1a 几何着法 / B2 阶段+手顺 / B3 SSE 流式 / B4 质量评估（离线）/ D-a 画像侧重 |
 | 版本 | v0.1 |
 | 日期 | 2026-10-08 |
 | 状态 | 已实现（Batch 2 落地，CTest 全量通过） |
 | 前置 | P0 批（A1-A4）已落地；A2 的多轮记忆、A3 的分档契约在本批被复用 |
 
-**设计纪律**（同 P0 批）：① CTest 只进离线密闭纯逻辑；② 未配置 LLM 降级链不劣化；③ 无 Qt、无 I/O 进 `src/ai/`；④ B4 不进 CTest（见 §4）。
+**设计纪律**（同 P0 批）：① CTest 只进离线密闭纯逻辑；② 未配置 LLM 降级链不劣化；③ 无 Qt、无 I/O 进 `../../../src/ai`；④ B4 不进 CTest（见 §4）。
 
 ---
 
@@ -17,17 +17,17 @@
 
 | 变更 | 位置 | 性质 |
 |---|---|---|
-| `FactType` 增 7 个着法/形状枚举 | `src/ai/explain.h` | 追加枚举值（无破坏） |
-| `extractBoardFacts` 增发 Cut + 形状事实（签名不变） | `src/ai/explain.cpp` | 行为扩展 |
+| `FactType` 增 7 个着法/形状枚举 | `../../../src/ai/explain.h` | 追加枚举值（无破坏） |
+| `extractBoardFacts` 增发 Cut + 形状事实（签名不变） | `../../../src/ai/explain.cpp` | 行为扩展 |
 | 新增 `GamePhase`/`classifyPhase` | `src/ai/phase.h/.cpp`（新） | 纯函数 |
-| `ConversationRequest` 增 `phase` / `move_sequence` 字段 | `src/ai/conversation.h` | 追加字段 |
+| `ConversationRequest` 增 `phase` / `move_sequence` 字段 | `../../../src/ai/conversation.h` | 追加字段 |
 | `HttpConversationService` 覆写 `answerStream`/`supportsStreaming` | `conversation_http/` | 新增实现 |
 | 新增 `winHttpPostStream`（增量回调） | `winhttp_transport.h/.cpp` | 新增函数 |
-| 新增 `SseParser`（纯逻辑） | `conversation_http/` 或 `src/ai/` | 新增 |
+| 新增 `SseParser`（纯逻辑） | `conversation_http/` 或 `../../../src/ai` | 新增 |
 | `ChatPanel` 增 `abortAiStream()` | `src/ui/ChatPanel.h/.cpp` | 新增方法 |
-| 新增 `quality_judge.h/.cpp`（纯逻辑）+ `tools/quality_eval.cpp`（离线） | `src/ai/` + `tools/` | 新增 |
+| 新增 `quality_judge.h/.cpp`（纯逻辑）+ `../../../tools/quality_eval.cpp`（离线） | `../../../src/ai` + `tools/` | 新增 |
 | `ConversationRequest` 增 `weakness_directive`；`AiAdvisor` 增 `setWeaknessProvider` | `conversation.h` / `advisor.h` | 追加字段/方法 |
-| `buildWeaknessDirective`（纯逻辑） | `src/ai/learner/` 或新文件 | 新增 |
+| `buildWeaknessDirective`（纯逻辑） | `../../../src/ai/learner` 或新文件 | 新增 |
 
 ---
 
@@ -85,10 +85,10 @@ TigerMouth,  // 虎（虎口）
 
 | 文件 | 改动 |
 |---|---|
-| `src/ai/explain.h` | `FactType` 增 7 值 |
-| `src/ai/explain.cpp` | `distinctOppGroups` 助手 + `extractBoardFacts` 形状/断/虎判定 + `renderExplanation` 短语 |
-| `src/ai/learner/learner_model.cpp` | `classifyBlunderArea` 新枚举映射 |
-| `tests/test_explain.cpp`（扩） | 见下 |
+| `../../../src/ai/explain.h` | `FactType` 增 7 值 |
+| `../../../src/ai/explain.cpp` | `distinctOppGroups` 助手 + `extractBoardFacts` 形状/断/虎判定 + `renderExplanation` 短语 |
+| `../../../src/ai/learner/learner_model.cpp` | `classifyBlunderArea` 新枚举映射 |
+| `../../../tests/test_explain.cpp`（扩） | 见下 |
 
 **单测（纯逻辑，核心）**：每个形状一个「经典局部形」断言 `extractBoardFacts` 输出对应 FactType——例如：① 扳：`(2,2)黑` + `(3,2)白` + 落 `(3,3)黑` → Hane；② 断：两白组对角相邻、落点夹中间 → Cut；③ 小飞：`(2,2)` + 落 `(4,3)` → SmallKnight；④ 跳：`(2,2)` + 落 `(4,2)` → OneSpaceJump；⑤ 虎：两对角己方子 + 空口 + 落点 → TigerMouth；⑥ 负例：无己方子 → 无形状。用手摆局部板（`Board` + `set`）而非真实对局，保证 hermetic。
 
@@ -139,8 +139,8 @@ std::string move_sequence;  // "黑 H6、白 G5、…"，空 = 无历史
 | 文件 | 改动 |
 |---|---|
 | `src/ai/phase.h/.cpp`（新） | `GamePhase`/`classifyPhase`/`phaseLabel` |
-| `src/ai/conversation.h` | `ConversationRequest` 增 `phase`/`move_sequence` |
-| `src/ai/advisor.cpp` | `deliverAnswer` 填 phase + 手顺 |
+| `../../../src/ai/conversation.h` | `ConversationRequest` 增 `phase`/`move_sequence` |
+| `../../../src/ai/advisor.cpp` | `deliverAnswer` 填 phase + 手顺 |
 | `conversation_http/http_conversation.cpp` | `buildUserPrompt` 渲染阶段/手顺 |
 
 **单测（纯逻辑）**：`classifyPhase` 手数阈值（0/30/300 手 × 9/19 路）、ownership 固化度阈值、ownership 为空回退；`deliverAnswer` 手顺串格式与截断（>10 手只取最近 10）。`buildUserPrompt` 含「局面阶段」「最近手顺」字段。
@@ -165,7 +165,7 @@ WinHttpResult winHttpPostStream(const std::string& url, const std::string& body,
 
 ### 3.2 SSE 解析（纯逻辑，可单测）
 
-新增 `SseParser`（放 `src/ai/` 或 `conversation_http/`，无 Qt、无 I/O）：
+新增 `SseParser`（放 `../../../src/ai` 或 `conversation_http/`，无 Qt、无 I/O）：
 
 ```cpp
 // OpenAI 兼容 SSE：累积原始字节，析出 content 增量、tool_calls 增量、[DONE]。
@@ -207,10 +207,10 @@ private:
 | 文件 | 改动 |
 |---|---|
 | `winhttp_transport.h/.cpp` | 新增 `winHttpPostStream` |
-| `conversation_http/` 或 `src/ai/` | 新增 `SseParser`（纯逻辑） |
+| `conversation_http/` 或 `../../../src/ai` | 新增 `SseParser`（纯逻辑） |
 | `conversation_http/http_conversation.h/.cpp` | 覆写 `answerStream`/`supportsStreaming` |
 | `src/ui/ChatPanel.h/.cpp` | 增 `abortAiStream()` |
-| `src/ui/MainWindow.cpp` | 接线 `answerStream` |
+| `../../../src/ui/MainWindow.cpp` | 接线 `answerStream` |
 
 **单测（纯逻辑）**：`SseParser` 跨块半行、多 delta 顺序、`[DONE]`、`tool_calls` 增量解析、畸形 JSON 容错。**离线冒烟**（对齐 L16 曾用的本地 HTTP 服务）：本地 endpoint 起一个固定 SSE 响应，验证 `answerStream` 端到端（增量回调顺序 + done）。**手测**：真实远端 LLM 下「为什么下这里」逐字渲染、工具问题不闪中间态。
 
@@ -221,8 +221,8 @@ private:
 ### 4.1 原则（评审报告 v1.1 决定①）
 
 - LLM-as-judge 依赖真实强模型调用，**违反 §10「CTest 离线密闭」纪律**，不进 release gate。
-- CTest 只守 `src/ai/` 的**确定性部分**：judge prompt 构造、rubric 结构、打分结果解析器。
-- 实际打分走离线工具 `tools/quality_eval`（对齐 `tools/integration_check.cpp` 形态，手动触发）。
+- CTest 只守 `../../../src/ai` 的 **确定性部分**：judge prompt 构造、rubric 结构、打分结果解析器。
+- 实际打分走离线工具 `tools/quality_eval`（对齐 `../../../tools/integration_check.cpp` 形态，手动触发）。
 
 ### 4.2 纯逻辑层：`src/ai/quality_judge.h/.cpp`
 
@@ -254,7 +254,7 @@ std::string buildJudgePrompt(const QualityCase& c);
 bool parseJudgeVerdict(const std::string& reply, JudgeVerdict* out);
 ```
 
-### 4.3 离线工具：`tools/quality_eval.cpp`
+### 4.3 离线工具：`../../../tools/quality_eval.cpp`
 
 流程（对齐 integration_check 的 `QEventLoop` + `runWithTimeout` 阻塞模式）：
 
@@ -270,8 +270,8 @@ bool parseJudgeVerdict(const std::string& reply, JudgeVerdict* out);
 | 文件 | 改动 |
 |---|---|
 | `src/ai/quality_judge.h/.cpp`（新） | rubric/prompt/parser（纯逻辑） |
-| `tools/quality_eval.cpp`（新） | 离线打分驱动 |
-| `CMakeLists.txt` | 注册 `vgo_quality_eval` 目标（不进 CTest） |
+| `../../../tools/quality_eval.cpp`（新） | 离线打分驱动 |
+| `../../../CMakeLists.txt` | 注册 `vgo_quality_eval` 目标（不进 CTest） |
 
 **CTest（纯逻辑）**：`buildJudgePrompt` 含 4 维字段与真值；`parseJudgeVerdict` 正常/围栏包裹/畸形/缺字段 4 类输入。**离线人工**：跑 `vgo_quality_eval` 得 4 维基线，作为后续 A 系列迭代验收。
 
@@ -281,7 +281,7 @@ bool parseJudgeVerdict(const std::string& reply, JudgeVerdict* out);
 
 ### 5.1 纯逻辑映射
 
-新增 `buildWeaknessDirective`（放 `src/ai/learner/`，复用 `WeakArea` 枚举与 `topWeakAreas`）：
+新增 `buildWeaknessDirective`（放 `../../../src/ai/learner`，复用 `WeakArea` 枚举与 `topWeakAreas`）：
 
 ```cpp
 // 把 Top-N 弱项映射成「讲解侧重指令」（注入 system prompt），空 = 无侧重。
@@ -308,11 +308,11 @@ std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>
 
 | 文件 | 改动 |
 |---|---|
-| `src/ai/learner/`（新文件或 learner_model.cpp） | `buildWeaknessDirective` |
-| `src/ai/conversation.h` | `ConversationRequest` 增 `weakness_directive` |
+| `../../../src/ai/learner`（新文件或 learner_model.cpp） | `buildWeaknessDirective` |
+| `../../../src/ai/conversation.h` | `ConversationRequest` 增 `weakness_directive` |
 | `src/ai/advisor.h/.cpp` | `setWeaknessProvider` + 填字段 |
 | `conversation_http/http_conversation.cpp` | `buildSystemPrompt` 追加侧重 |
-| `src/ui/MainWindow.cpp` | 接线 provider |
+| `../../../src/ui/MainWindow.cpp` | 接线 provider |
 
 **单测（纯逻辑）**：`buildWeaknessDirective` 空向量→空；各 `WeakArea`→对应指令；Top-N 顺序；`buildSystemPrompt` 含侧重段。手测：低段位/弱项用户提问后，讲解自然带上对应侧重。
 
@@ -322,11 +322,11 @@ std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>
 
 | 层 | 覆盖 | 密闭性 |
 |---|---|---|
-| `tests/test_explain.cpp`（扩） | B1a 七形状判定 + renderExplanation | ✅ 纯逻辑 |
-| `tests/test_phase.cpp`（新） | B2 阶段判定阈值/回退 | ✅ 纯逻辑 |
-| `tests/test_sse.cpp`（新） | B3 SseParser 跨块/多 delta/[DONE]/tool_calls/容错 | ✅ 纯逻辑 |
-| `tests/test_quality_judge.cpp`（新） | B4 prompt/parser | ✅ 纯逻辑 |
-| `tests/test_weakness.cpp`（新） | D-a 映射 | ✅ 纯逻辑 |
+| `../../../tests/test_explain.cpp`（扩） | B1a 七形状判定 + renderExplanation | ✅ 纯逻辑 |
+| `../../../tests/test_phase.cpp`（新） | B2 阶段判定阈值/回退 | ✅ 纯逻辑 |
+| `../../../tests/test_sse.cpp`（新） | B3 SseParser 跨块/多 delta/[DONE]/tool_calls/容错 | ✅ 纯逻辑 |
+| `../../../tests/test_quality_judge.cpp`（新） | B4 prompt/parser | ✅ 纯逻辑 |
+| `../../../tests/test_weakness.cpp`（新） | D-a 映射 | ✅ 纯逻辑 |
 | 离线工具 | B3 本地 SSE 冒烟；B4 `vgo_quality_eval` 打分 | 手动 |
 | 手测 | B1a 真实局面形状；B2 三阶段 prompt；B3 逐字渲染；D-a 侧重自然融入 | 手动 |
 
@@ -353,6 +353,6 @@ std::string buildWeaknessDirective(const std::vector<std::pair<WeakArea, double>
 1. **B1a**：`explain.h` 枚举 → `explain.cpp` 判定/渲染 → `learner_model.cpp` 映射。
 2. **B2**：`phase.h/.cpp` → `conversation.h` 字段 → `advisor.cpp` 填充 → `http_conversation.cpp` 渲染。
 3. **B3**：`winhttp_transport` 增量回调 → `SseParser` → `answerStream` 覆写 → `ChatPanel.abortAiStream` → `MainWindow` 接线。
-4. **B4**：`quality_judge.h/.cpp` → `tools/quality_eval.cpp` → CMake 注册（不进 CTest）。
+4. **B4**：`quality_judge.h/.cpp` → `../../../tools/quality_eval.cpp` → CMake 注册（不进 CTest）。
 5. **D-a**：`buildWeaknessDirective` → `conversation.h` 字段 → `advisor` provider → `http_conversation` 注入 → `MainWindow` 接线。
-6. 文档同步：`docs/长期任务清单.md`（L10/L9/L12 相关进展）、`VGO-设计优化评审报告.md` Batch 2 状态。
+6. 文档同步：`../../长期任务清单.md`（L10/L9/L12 相关进展）、`VGO-设计优化评审报告.md` Batch 2 状态。

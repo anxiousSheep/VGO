@@ -253,6 +253,35 @@ TEST(joseki_v2_tool_unknown_name_and_no_library_honest) {
     CHECK(!res2.ok);
 }
 
+// G4-1/G3-1：joseki_lookup 返回顶层 summary（程序预生成人话），供 LLM 转述而非朗读字段名。
+TEST(joseki_v2_tool_summary_field) {
+    Game g(19);
+    AgentToolContext ctx;
+    ctx.game = g;
+    ctx.joseki = std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin());
+    const ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("joseki_lookup");
+
+    // 空盘：前提不满足 → summary 明说「不适用」。
+    Json j;
+    CHECK(parseJson(t->invoke(R"({"name":"点三三"})").json, &j));
+    const std::string empty_summary = j.get("summary")->asString();
+    CHECK(empty_summary.find("不适用") != std::string::npos);
+    CHECK(empty_summary.find("点三三") != std::string::npos);
+
+    // 有星位锚：前提满足 → summary 明说「前提满足」。
+    Game g2(19);
+    CHECK(g2.play(P("Q16").x, P("Q16").y));
+    AgentToolContext ctx2;
+    ctx2.game = g2;
+    ctx2.joseki = ctx.joseki;
+    const ToolRegistry r2 = buildAgentTools(ctx2);
+    const Tool* t2 = r2.find("joseki_lookup");
+    Json j2;
+    CHECK(parseJson(t2->invoke(R"({"name":"点三三"})").json, &j2));
+    CHECK(j2.get("summary")->asString().find("前提满足") != std::string::npos);
+}
+
 // §4.4.1 预仲裁注入：joseki_lookup 从共享 verdict 存储读取 engine_verdict。
 TEST(joseki_v2_tool_engine_verdict_from_store) {
     Game g(19);

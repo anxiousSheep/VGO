@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 依据 | `docs/VGO-设计优化评审报告.md` v1.1（§5 技术路线确认）、`docs/VGO-P0任务拆解-A1-A4.md` |
+| 依据 | `../../VGO-设计优化评审报告.md` v1.1（§5 技术路线确认）、`VGO-P0任务拆解-A1-A4.md` |
 | 范围 | Batch 1：A1 Skills 扩容 / A2 多轮记忆 / A3 输出契约 / A4 反馈环（不含 B/C/D 批次） |
 | 版本 | v0.1 |
 | 日期 | 2026-10-08 |
@@ -13,7 +13,7 @@
 1. **CTest 只进离线密闭纯逻辑**——所有联网/引擎/强模型依赖一律走离线集成工具（对齐 `tools/vgo_integration_check`），不进 release gate。
 2. **未配置 LLM 时降级链不劣化**——`TemplateConversation` 与开箱即用路径回归无变化。
 3. **技能双源同步**——`resources/skills/*.md` 与 `SkillRegistry::builtin()` 两处必须一致。
-4. **无 Qt、无 I/O 进 `src/ai/`**——平台层（持久化 / 面板）归 `src/ui/`。
+4. **无 Qt、无 I/O 进 `../../../src/ai`**——平台层（持久化 / 面板）归 `../../../src/ui`。
 
 ---
 
@@ -23,8 +23,8 @@ A2/A3/A4 会触碰共享类型，先列出，便于评审一次看清影响面�
 
 | 变更 | 位置 | 性质 | 影响 |
 |---|---|---|---|
-| `ConversationService` 增 `virtual bool hasHistory() const` | `src/ai/conversation.h` | 新增虚函数，默认 `false` | 无破坏，子类可覆写 |
-| `ConversationReply` 增 4 个反馈元数据字段 | `src/ai/conversation.h` | 追加字段 | 无破坏（默认空） |
+| `ConversationService` 增 `virtual bool hasHistory() const` | `../../../src/ai/conversation.h` | 新增虚函数，默认 `false` | 无破坏，子类可覆写 |
+| `ConversationReply` 增 4 个反馈元数据字段 | `../../../src/ai/conversation.h` | 追加字段 | 无破坏（默认空） |
 | `HttpConversationService::doChat` 增 `int max_tokens` 形参 | `conversation_http/http_conversation.h/.cpp` | 私有方法签名变更 | 仅内部递归，无外部调用方 |
 | `max_tokens_` 默认值 1024 → 0（=自动分档） | `conversation_http/http_conversation.h` | 语义变更 | `setMaxTokens` 目前无调用方（已核实），安全 |
 | 纯函数 `buildConversationMessages` / `compressSession` / `buildStructureContract` / `maxTokensForLevel` | `conversation_http/http_conversation.h` | 新增、暴露供单测 | 沿用 `buildUserPrompt`/`buildToolFollowup` 既有可测模式 |
@@ -112,8 +112,8 @@ version: 1
 | 文件 | 改动 |
 |---|---|
 | `resources/skills/*.md` | +6 新包、5 包加厚 |
-| `src/ai/skill.cpp` | `builtin()` 同步 6 新 + 5 加厚 |
-| `src/ai/skill_eval.cpp` | `builtinGoldenQuestions()` +~12 条 |
+| `../../../src/ai/skill.cpp` | `builtin()` 同步 6 新 + 5 加厚 |
+| `../../../src/ai/skill_eval.cpp` | `builtinGoldenQuestions()` +~12 条 |
 | 测试 | `ctest -R skill` 全绿；`validateSkill` 对 11 包全过；`avg_injected` 不恶化 |
 
 无头文件/签名变更（纯内容 + 测试数据）。
@@ -216,11 +216,11 @@ doChat(messages, 0, nowMs() + max_loop_ms_, /*max_tokens*/ mt, std::move(wrapped
 
 | 文件 | 改动 |
 |---|---|
-| `src/ai/conversation.h` | `ConversationService` 增 `hasHistory()` |
+| `../../../src/ai/conversation.h` | `ConversationService` 增 `hasHistory()` |
 | `conversation_http/http_conversation.h/.cpp` | 增 session 状态 + 纯函数 + 组装 + 写入 |
-| `src/ai/advisor.cpp` | 缓存直返加 `!hasHistory()` 守卫 |
-| `src/ui/MainWindow.cpp` | 新对局/切模式调 `clearSession()` |
-| `tests/test_conversation_memory.cpp`（新） | 见下 |
+| `../../../src/ai/advisor.cpp` | 缓存直返加 `!hasHistory()` 守卫 |
+| `../../../src/ui/MainWindow.cpp` | 新对局/切模式调 `clearSession()` |
+| `../../../tests/test_conversation_memory.cpp`（新） | 见下 |
 
 **单测（纯逻辑，无 transport）**：`buildConversationMessages` 组装顺序（system→摘要→窗口→user）；`compressSession` 窗口裁剪 + 摘要累积；中间态不入历史（直接测 SessionTurn 结构，不含 tool 消息）。D5.2 守卫测：`hasHistory()` 真/假时 `ask()` 是否走缓存（用注入的 ConversationService stub）。
 
@@ -269,7 +269,7 @@ A1 的 few-shot 示例按三档风格撰写，与 `buildStructureContract` 措�
 |---|---|
 | `conversation_http/http_conversation.h` | 暴露 `buildStructureContract`/`maxTokensForLevel`；`max_tokens_` 默认 0；`doChat` 增形参 |
 | `conversation_http/http_conversation.cpp` | `buildSystemPrompt` 用契约；`answer` 解析 mt 并传入 |
-| `tests/test_http_tools.cpp`（或新） | 见下 |
+| `../../../tests/test_http_tools.cpp`（或新） | 见下 |
 
 **单测（纯逻辑）**：`buildStructureContract(5/9/13)` 返回三档不同契约且含关键结构词；`maxTokensForLevel(5/9/13)=512/1024/768`；`buildSystemPrompt` 在三分档下不再含"简短"字样。人工 rubric：同局三档各 5 问，结构符合率 ≥80%（B4 离线工具就位前的表格打分）。
 
@@ -338,11 +338,11 @@ bad_sample_store_->append(s);   // 复用已建的 store（MainWindow.cpp L84）
 
 | 文件 | 改动 |
 |---|---|
-| `src/ai/conversation.h` | `ConversationReply` 加 4 反馈字段 |
-| `src/ai/advisor.cpp` | `deliverAnswer` 填反馈字段 |
-| `src/ai/verify/bad_sample.h` | 加 `kDispositionUserDownvote` 常量 |
+| `../../../src/ai/conversation.h` | `ConversationReply` 加 4 反馈字段 |
+| `../../../src/ai/advisor.cpp` | `deliverAnswer` 填反馈字段 |
+| `../../../src/ai/verify/bad_sample.h` | 加 `kDispositionUserDownvote` 常量 |
 | `src/ui/ChatPanel.h/.cpp` | 👍/👎 按钮 + `setFeedbackEnabled` + `feedbackGiven` 信号 |
-| `src/ui/MainWindow.cpp` | 连 `feedbackGiven` → 构 `BadSample` → `bad_sample_store_->append` |
+| `../../../src/ui/MainWindow.cpp` | 连 `feedbackGiven` → 构 `BadSample` → `bad_sample_store_->append` |
 
 **测试**：`bad_sampleToJsonl`/`parseBadSample` 往返带 `disposition="user_downvote"`（纯逻辑）；UI 手测：差评后 `bad_samples.jsonl` 新增记录且字段齐全、按钮置灰防重复。
 
@@ -358,7 +358,7 @@ bad_sample_store_->append(s);   // 复用已建的 store（MainWindow.cpp L84）
 | CTest 全量 | 无新增联网/引擎测试 | ✅ |
 | 人工 | A1 Ollama few-shot 稳定性；A2 追问链指代；A3 结构符合率；A4 差评落盘 | 手动 |
 
-**跨任务 Done 定义**（承 P0 拆解 §跨任务验收）：`ctest --output-on-failure` 全绿；模板解说回归无劣化；用 `bad_samples.jsonl` + A4 新反馈回放对比前后（专业性/语气，为 B4 积累基准）；文档同步（`长期任务清单.md` L10 进展 + skills 迭代日志）。
+**跨任务 Done 定义**（承 P0 拆解 §跨任务验收）：`ctest --output-on-failure` 全绿；模板解说回归无劣化；用 `bad_samples.jsonl` + A4 新反馈回放对比前后（专业性/语气，为 B4 积累基准）；文档同步（`../../长期任务清单.md` L10 进展 + skills 迭代日志）。
 
 ---
 
@@ -401,4 +401,4 @@ bad_sample_store_->append(s);   // 复用已建的 store（MainWindow.cpp L84）
 2. **A3**（纯逻辑，与 A1 双锚定）：`http_conversation.h/.cpp` 契约 + max_tokens 分档。
 3. **A2**（记忆）：`conversation.h` 虚函数 → `http_conversation.h/.cpp` session → `advisor.cpp` 守卫 → `MainWindow.cpp` clearSession。
 4. **A4**（反馈）：`conversation.h` 字段 → `advisor.cpp` 填字段 → `bad_sample.h` 常量 → `ChatPanel` 按钮 → `MainWindow` 落盘。
-5. 文档同步：`docs/长期任务清单.md` L10、skills 迭代日志。
+5. 文档同步：`../../长期任务清单.md` L10、skills 迭代日志。

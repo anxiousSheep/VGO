@@ -49,6 +49,27 @@ const char* ldStatusStr(LDStatus s) {
     }
 }
 
+// G4-1/G3-1：程序预生成的人话摘要（顶层 summary），供 LLM 直接转述，而非逐字段朗读
+// 判定书的 JSON 键名（治「内部参数泄露」与「指代漂移」两个现象）。
+std::string josekiSummary(const JosekiEntry& e, const PrecondReport& pre, bool demonstrable) {
+    std::string s = "「" + e.name + "」";
+    if (pre.satisfied && demonstrable) {
+        s += "前提满足，可实战演示";
+    } else if (pre.satisfied) {
+        s += "前提满足，但无可演示的定式线";
+    } else {
+        s += "目前不适用：";
+        if (!pre.missing.empty()) {
+            s += pre.missing[0];
+        } else if (!pre.occupied_path.empty()) {
+            s += "路径点 " + gtpPoint(pre.occupied_path[0], e.size) + " 已被占";
+        } else {
+            s += "当前局面不适用";
+        }
+    }
+    return s;
+}
+
 }  // namespace
 
 ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
@@ -166,7 +187,9 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
         t.description =
             "查询定式词典并按当前局面判定适用性：返回前提是否满足、侧翼接应计数、可用变体"
             "（含投影到目标角的走法序列）与可用模式（apply/textbook）。适用性由程序判定，"
-            "你只负责解释判定结果；词典未收录的名字一律回答『这个定式我还没收录』。";
+            "你只负责解释判定结果；词典未收录的名字一律回答『这个定式我还没收录』。"
+            "输出中的 preconditions/context/engine_verdict 等字段是给你理解的内部数据，"
+            "禁止原文出现给用户；向用户只使用 summary 的表述。";
         t.json_schema =
             "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":"
             "\"定式名称或别名\"},\"corner\":{\"type\":\"string\",\"description\":\"目标角 "
@@ -270,6 +293,7 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
             r.json = dumpJson(Json::makeObject({
                 {"id", Json::makeString(e->id)},
                 {"name", Json::makeString(e->name)},
+                {"summary", Json::makeString(josekiSummary(*e, pre, any_demonstrable))},
                 {"applies_to_formation", Json::makeString(e->applies_to_formation)},
                 {"corner", Json::makeString(cornerName(corner))},
                 {"size", Json::makeNumber(static_cast<double>(e->size))},

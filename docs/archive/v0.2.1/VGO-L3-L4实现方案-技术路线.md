@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 输入 | `docs/VGO-定式死活-完整可靠设计方案.md`（v3.0 专家报告，可靠性整合定稿） |
+| 输入 | `VGO-定式死活-完整可靠设计方案.md`（v3.0 专家报告，可靠性整合定稿） |
 | 产出 | 三条线（定式 v2 / L3 死活常型 / L4 死活题）+ 共享基础设施 S0 的工程级实现路线 |
 | 基线 | v1.1 路线及其失败实现已回滚；本文是**回陆的唯一依据文档** |
 | 版本 | v2.1 |
@@ -37,28 +37,28 @@
 |---|---|---|
 | 死活纯逻辑 | `src/ai/lifedeath.h/.cpp` | 仅 `deadGroups` / `savingCandidates` / `analyzeLifeDeath`，无眼位/常型/假眼 |
 | 死活结果模型 | `src/ai/explain.h:57` `LifeDeathResult` | 已含 L3 新字段 `status/verification/shape/eye_space/kill_points/live_points`（失败尝试已加，保留） |
-| 死活渲染 | `src/ai/explain.cpp` `renderLifeDeath` | 一句话文案，无常型名/要点 |
-| 死活提问异步路径 | `src/ai/advisor.cpp` `handleLifeDeath` / `groundFromAnalysis` | Interactive 优先级 analyze → 填 `dead_groups` + `life_death` |
-| 同步工具注册 | `src/ai/agent/agent_tools.cpp` `buildAgentTools` | `life_death_solve` / `sgf_lookup_position` 等 |
+| 死活渲染 | `../../../src/ai/explain.cpp` `renderLifeDeath` | 一句话文案，无常型名/要点 |
+| 死活提问异步路径 | `../../../src/ai/advisor.cpp` `handleLifeDeath` / `groundFromAnalysis` | Interactive 优先级 analyze → 填 `dead_groups` + `life_death` |
+| 同步工具注册 | `../../../src/ai/agent/agent_tools.cpp` `buildAgentTools` | `life_death_solve` / `sgf_lookup_position` 等 |
 | 工具上下文 | `src/ai/agent/agent_tools.h:15` `AgentToolContext` | `{Game, OwnershipMap, Analysis, joseki}`（`joseki` 字段失败尝试已加） |
 | 演示工具 | `src/ui/MainWindow.cpp:1688` `handleDemoTool` | 只支持 `point/color/plies/reset/undo_to`（无 `sequence`/`mode`） |
 | AI 续下 | `src/ui/MainWindow.cpp:1635` `collectAiMoves` | 逐手 `requestDemoMoveSync`，引擎自择优（根因 2） |
 | 演示落子校验 | `src/ui/MainWindow.cpp:1551` `enterDemoAndPlace` | `Game probe(b, play)` + `variation_.commitStep` |
 | 固定线助手 | `src/ui/MainWindow.h:89` `playFixedSequence` | 失败尝试已加（逐手摆定线），**保留复用** |
 | 恶手→每日一题 | `src/ui/MainWindow.cpp:1754` `maybeWarnBlunder` | `reviewItemFromBlunder` + `addReviewItem` |
-| 技能热更 | `src/ui/MainWindow.cpp` `loadSkills` | 三目录 `*.md` → `SkillRegistry::fromText` → `http->setSkills` |
+| 技能热更 | `../../../src/ui/MainWindow.cpp` `loadSkills` | 三目录 `*.md` → `SkillRegistry::fromText` → `http->setSkills` |
 | 系统提示词 | `src/ai/conversation_http/http_conversation.cpp:82` `buildSystemPrompt` | 能力声明 + claims 契约 + 技能注入点 |
-| 工具声明 | `src/ai/conversation_http/http_conversation.cpp` `buildTools` | `demonstrate_go_moves` 硬编码 + ToolRegistry 追加 |
+| 工具声明 | `../../../src/ai/conversation_http/http_conversation.cpp` `buildTools` | `demonstrate_go_moves` 硬编码 + ToolRegistry 追加 |
 | 引擎接口/优先级 | `src/ai/engine.h:18` `EngineInterface` + `src/ai/engine_pool.h:80` `analyzePrioritized` | Interactive/Background/Idle 已就绪 |
 | 模式枚举 | `src/ai/game_setup.h:11` `GameMode` | 已含 `Tsumego`（失败尝试已加，保留） |
 | 快照重建 | `src/ai/learner/daily_puzzle.h:24` `boardFromSnapshot` | `Board::snapshot()` 格式 `'X'/'O'/'.'` 行主序 |
-| 学习画像 | `src/ai/learner/learner_model.h` | `WeakArea{...LifeDeath, Joseki...}` / `recordBlunder` / `addReviewItem` |
-| SGF | `src/ai/sgf.h` `parseSgf` | **只读主变线**（变分支跳过）→ L4 用 JSON 不用 SGF 树的根因 |
+| 学习画像 | `../../../src/ai/learner/learner_model.h` | `WeakArea{...LifeDeath, Joseki...}` / `recordBlunder` / `addReviewItem` |
+| SGF | `../../../src/ai/sgf.h` `parseSgf` | **只读主变线**（变分支跳过）→ L4 用 JSON 不用 SGF 树的根因 |
 | 谓词引擎 / probe 协议 | **不存在** | 需新增（v3.0 的核心新设施） |
 
 ### 1.2 回滚真相与残留处置（开工 F0 前必修）
 
-**回滚并不干净**：回滚动作是 `git reset` 到 `d29b96f`（"修复：AI 输出被 max_tokens 截断"），只把 3 个失败提交（`2d7266f` 文档 v1.0、`a067fc5` 文档 v1.1、`9438927` 实现）从**历史**移除；但 `reset`（mixed）**把它们的改动原样留在了工作区**——追踪文件并未回到 master 状态。实测工作区相对 `d29b96f` 仍有 **~532 行未提交残留，横跨 12 个 `src/` 追踪文件**（另含 `CMakeLists.txt`、`README.md`），另有大量未跟踪新文件。§1.1 的行号即取自这个「带残留的工作区」而非干净 master，**一律只作参考、以符号名定位**。
+**回滚并不干净**：回滚动作是 `git reset` 到 `d29b96f`（"修复：AI 输出被 max_tokens 截断"），只把 3 个失败提交（`2d7266f` 文档 v1.0、`a067fc5` 文档 v1.1、`9438927` 实现）从**历史**移除；但 `reset`（mixed）**把它们的改动原样留在了工作区**——追踪文件并未回到 master 状态。实测工作区相对 `d29b96f` 仍有 **~532 行未提交残留，横跨 12 个 `../../../src` 追踪文件**（另含 `../../../CMakeLists.txt`、`README.md`），另有大量未跟踪新文件。§1.1 的行号即取自这个「带残留的工作区」而非干净 master，**一律只作参考、以符号名定位**。
 
 **开工 F0 前必须 `git diff d29b96f` 逐文件核对**，把残留分成「v3.0 保留」与「v1.1 丢弃」两堆，确认无未登记残留（重点：`MainWindow.cpp` +213、`agent_tools.cpp` +167、`advisor.cpp` +50、`http_conversation.cpp` +30）：
 
@@ -69,20 +69,20 @@
 | `src/ai/lifedeath_shape.h/.cpp`（新） | L1/L2/L3 纯逻辑 | **复用**，先修常型数据标注（§5.2） |
 | `src/ai/lifedeath_verify.h/.cpp`（新） | L4 双向 probe（内联） | **重构**：抽出共享 `probe`（§3.3），定式仲裁复用 |
 | `src/ai/tsumego.h/.cpp`（新） | 题模型 + 判题 + 加载 | **复用**（v3.0 L4 与 v1.1 一致） |
-| `tests/test_symmetry.cpp` 等 6 个（新） | v1.1 测试 | `test_symmetry/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*` 保留增强；`test_joseki.cpp` 重写为 `test_joseki_v2.cpp` |
+| `../../../tests/test_symmetry.cpp` 等 6 个（新） | v1.1 测试 | `test_symmetry/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*` 保留增强；`test_joseki.cpp` 重写为 `test_joseki_v2.cpp` |
 | `resources/joseki/*.json`（新） | 单条线 schema | **重写**为变体树 schema（§4.1） |
 | `resources/lifeshapes/*.json`、`resources/tsumego/*.json`（新） | 常型/题数据 | 常型数据修正后复用；题目复用 |
-| `tools/tsumego_gen.cpp`（新） | 生成器 | 复用，补「根要点 == vital 反投影」自检（§6.3） |
-| `src/ai/explain.h`（+16） | `LifeDeathResult` 新字段 | **保留**（v3.0 §5.6 需要） |
-| `src/ai/game_setup.h`（+7） | `GameMode::Tsumego` | **保留**（v3.0 §6.4 需要） |
+| `../../../tools/tsumego_gen.cpp`（新） | 生成器 | 复用，补「根要点 == vital 反投影」自检（§6.3） |
+| `../../../src/ai/explain.h`（+16） | `LifeDeathResult` 新字段 | **保留**（v3.0 §5.6 需要） |
+| `../../../src/ai/game_setup.h`（+7） | `GameMode::Tsumego` | **保留**（v3.0 §6.4 需要） |
 | `src/ai/agent_tools.h`（+5） | `AgentToolContext.joseki` 字段 | **保留字段、升级语义**：单序列词典 → 判定书/verdict（§4.4.1） |
 | `src/ai/agent_tools.cpp`（+167） | `joseki_lookup` 返回单序列 | **重写**为返回适用性判定书（§4.6） |
 | `src/ai/http_conversation.cpp`（+30） | `joseki_lookup` 能力声明、`joseki_directory` 注入、`sequence` 参数声明 | `joseki_directory`/`sequence` **保留**；能力声明**改写**为判定书语义；补 `mode` 参数（§4.6） |
 | `src/ui/MainWindow.h/.cpp`（+23/+213） | `playFixedSequence`、`loadJoseki`、tsumego UI、`handleDemoTool` sequence 处理 | `playFixedSequence`/`loadJoseki`/tsumego UI **保留**；`handleDemoTool` **重构**为三模式（§3.4） |
 | `src/ai/advisor.h/.cpp`（+10/+50） | `setJosekiLibrary`、死活接入 | `setJosekiLibrary` **保留**；补预仲裁注入路径（§4.4.1） |
-| `src/ai/conversation.h`（+3） | `joseki_directory` 字段 | **保留** |
-| `src/ai/explain.cpp`（+29） | `renderLifeDeath` 升级 | **保留** |
-| `tests/test_agent.cpp`（+15） | `joseki_lookup` 测试 | **重写**（对齐判定书返回） |
+| `../../../src/ai/conversation.h`（+3） | `joseki_directory` 字段 | **保留** |
+| `../../../src/ai/explain.cpp`（+29） | `renderLifeDeath` 升级 | **保留** |
+| `../../../tests/test_agent.cpp`（+15） | `joseki_lookup` 测试 | **重写**（对齐判定书返回） |
 
 ---
 
@@ -347,9 +347,9 @@ apply 的三闸（L1 谓词 + L3 变体 + L4 仲裁）里，前两闸是纯逻�
 
 ### 4.7 测试与验收
 
-- `tests/test_joseki_v2.cpp`（CTest，重写自 `test_joseki.cpp`）：词典加载（含坐标帧防御、`when` 四谓词解析）、变体筛选、`projectToCorner` 8 对称往返（含 **UR→四角→UR 恒等**，锁死坐标帧）、`size` 不匹配拒绝、`fromJsonText` 非法 JSON 报错、`directoryIndex` 只含索引。
-- `tests/test_board_predicates.cpp`（CTest）：前提谓词（有/缺 anchor、路径占用、forbidden）、zone 分类、方向规则求镜像。
-- `tests/test_demo_modes.cpp`（CTest，替身引擎）：三模式分流（空角 textbook、空角实战 refuse、前提满足 apply、路径占用 refuse、无引擎降级）、教学模式先摆前提再走线、apply 引擎否决降级、**无 verdict 注入 + 请求 apply → 必须降级 textbook 且不摆线（apply 门禁闭合，§4.4.1）**。
+- `../../../tests/test_joseki_v2.cpp`（CTest，重写自 `test_joseki.cpp`）：词典加载（含坐标帧防御、`when` 四谓词解析）、变体筛选、`projectToCorner` 8 对称往返（含 **UR→四角→UR 恒等**，锁死坐标帧）、`size` 不匹配拒绝、`fromJsonText` 非法 JSON 报错、`directoryIndex` 只含索引。
+- `../../../tests/test_board_predicates.cpp`（CTest）：前提谓词（有/缺 anchor、路径占用、forbidden）、zone 分类、方向规则求镜像。
+- `../../../tests/test_demo_modes.cpp`（CTest，替身引擎）：三模式分流（空角 textbook、空角实战 refuse、前提满足 apply、路径占用 refuse、无引擎降级）、教学模式先摆前提再走线、apply 引擎否决降级、 **无 verdict 注入 + 请求 apply → 必须降级 textbook 且不摆线（apply 门禁闭合，§4.4.1）**。
 
 ---
 
@@ -438,8 +438,8 @@ apply 的三闸（L1 谓词 + L3 变体 + L4 仲裁）里，前两闸是纯逻�
 
 ### 5.7 测试
 
-- `tests/test_lifedeath_shape.cpp`（CTest）：九常型逐个识别+要点、假眼三档对角规则、两真眼直判活、方四直判死、污染眼位降置信、对称等价。
-- `tests/test_lifedeath_verify.cpp`（CTest，替身引擎）：覆盖四态结论表（重构到 `probe` 后仍四态齐全）。
+- `../../../tests/test_lifedeath_shape.cpp`（CTest）：九常型逐个识别+要点、假眼三档对角规则、两真眼直判活、方四直判死、污染眼位降置信、对称等价。
+- `../../../tests/test_lifedeath_verify.cpp`（CTest，替身引擎）：覆盖四态结论表（重构到 `probe` 后仍四态齐全）。
 
 ---
 
@@ -449,7 +449,7 @@ apply 的三闸（L1 谓词 + L3 变体 + L4 仲裁）里，前两闸是纯逻�
 
 | 路 | 内容 | 本期 |
 |---|---|---|
-| ① 内置题库 | **生成器为主**：`tools/tsumego_gen.cpp` 用 L3 常型库在角/边摆常型局面，自动生成题面+解树，引擎离线验证后入库；手工精选 20-40 题（古典《玄玄棋经》公有领域可重录；**现代 SGF 汇编有版权风险**，首批以自研为主） | ✅ |
+| ① 内置题库 | **生成器为主**：`../../../tools/tsumego_gen.cpp` 用 L3 常型库在角/边摆常型局面，自动生成题面+解树，引擎离线验证后入库；手工精选 20-40 题（古典《玄玄棋经》公有领域可重录；**现代 SGF 汇编有版权风险**，首批以自研为主） | ✅ |
 | ② 对局挖掘 | 复用恶手采集管线（`maybeWarnBlunder`，MainWindow.cpp:1754）：某块棋随后死亡 → 回溯死亡前局部 → 裁切 → 引擎验证可杀/可活且解唯一 → 入个人题库（"你自己的死活题"） | Phase C |
 | ③ 引擎合成 | KataGo self-play 批量挖矿 | v2 暂缓 |
 
@@ -509,8 +509,8 @@ TsumegoJudgement judgeTsumegoMove(const TsumegoProblem& p,
 
 ### 6.6 测试
 
-- `tests/test_tsumego_judge.cpp`（CTest）：good/bad/OffTree/Solved 四路、路径回溯、多分支。
-- `tests/test_tsumego_load.cpp`（CTest）：JSON 解析、`boardFromSnapshot` 重建、字段校验、生成器产物自检。
+- `../../../tests/test_tsumego_judge.cpp`（CTest）：good/bad/OffTree/Solved 四路、路径回溯、多分支。
+- `../../../tests/test_tsumego_load.cpp`（CTest）：JSON 解析、`boardFromSnapshot` 重建、字段校验、生成器产物自检。
 
 ---
 
@@ -547,9 +547,9 @@ TsumegoJudgement judgeTsumegoMove(const TsumegoProblem& p,
 | `test_lifedeath_verify.cpp` | 纯逻辑（替身引擎） | CTest | 无（替身） |
 | `test_tsumego_judge.cpp` / `test_tsumego_load.cpp` | 纯逻辑 | CTest | 无 |
 | 生成器产物自检 | 纯逻辑 | CTest（`test_tsumego_load.cpp` 内） | 无 |
-| 离线对拍（死活 20-30 局） | 集成 | `tools/integration_check.cpp` 扩展 | KataGo（离线，不进 CTest） |
+| 离线对拍（死活 20-30 局） | 集成 | `../../../tools/integration_check.cpp` 扩展 | KataGo（离线，不进 CTest） |
 | 定式仲裁准确率对拍（宜/不宜各 10 局） | 集成 | 离线 | KataGo（离线） |
-| 题库引擎复核 | 集成 | `tools/tsumego_gen.cpp` + KataGo | KataGo（离线） |
+| 题库引擎复核 | 集成 | `../../../tools/tsumego_gen.cpp` + KataGo | KataGo（离线） |
 | 点三三回归 / 完整做 5 题 | 手测 | 验收清单 | KataGo + LLM |
 
 **铁律**：CTest 全绿且**无新增联网测试**；未配置 KataGo/LLM 的降级路径（只教不战 + 常型直判 + 树内判题）完整可用。
@@ -612,30 +612,30 @@ F0 可靠性框架（S0 全部：**① 替身引擎（全部替身测试的隐�
 - `src/ai/tsumego.h/.cpp`（复用残留）
 
 **新增（工具/离线）**
-- `tools/tsumego_gen.cpp`（复用残留，补自检）
+- `../../../tools/tsumego_gen.cpp`（复用残留，补自检）
 
 **新增（数据资源，热更）**
 - `resources/joseki/*.json`（**重写**为变体树 schema）、`resources/lifeshapes/*.json`（修数据）、`resources/tsumego/*.json`
 
 **改动（Qt-free）**
-- `src/ai/explain.h`（`LifeDeathResult` 扩展，保留）、`src/ai/explain.cpp`（`renderLifeDeath`）
+- `../../../src/ai/explain.h`（`LifeDeathResult` 扩展，保留）、`src/ai/explain.cpp`（`renderLifeDeath`）
 - `src/ai/advisor.h/.cpp`（`setJosekiLibrary`、`groundFromAnalysis`、`handleLifeDeath`、`joseki_advise` 异步路径）
 - `src/ai/agent/agent_tools.h/.cpp`（`AgentToolContext.joseki`、`joseki_lookup` 判定书、`life_death_solve` 升级）
-- `src/ai/conversation.h`（`ConversationRequest.joseki_directory`）
+- `../../../src/ai/conversation.h`（`ConversationRequest.joseki_directory`）
 
 **改动（Qt 层）**
-- `src/ai/conversation_http/http_conversation.cpp`（能力声明 + 目录注入 + `sequence`/`mode` 工具声明）
+- `../../../src/ai/conversation_http/http_conversation.cpp`（能力声明 + 目录注入 + `sequence`/`mode` 工具声明）
 - `src/ui/MainWindow.h/.cpp`（`loadJoseki`、`setupPreconditions`、`playFixedSequence`、`handleDemoTool` 扩展三模式、死活题标签页、`GameMode::Tsumego`）
-- `src/ai/game_setup.h`（`GameMode::Tsumego` 保留）
+- `../../../src/ai/game_setup.h`（`GameMode::Tsumego` 保留）
 
 **改动（构建/测试）**
-- `CMakeLists.txt`（新增 `board_predicates/probe` 源 + 测试目标 `test_symmetry/test_board_predicates/test_joseki_v2/test_demo_modes/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*`）
+- `../../../CMakeLists.txt`（新增 `board_predicates/probe` 源 + 测试目标 `test_symmetry/test_board_predicates/test_joseki_v2/test_demo_modes/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*`）
 
 ## 附 B：纪律清单（任何实现不得违反）
 
 1. CTest 只进离线密闭纯逻辑（引擎验证用替身引擎）；
 2. 未配置 KataGo/LLM 时降级链不劣化：定式只教不战、死活常型直判、死活题树内判题全部可用；
-3. 技能/数据双源：代码内嵌 builtin + `resources/` 热更；
+3. 技能/数据双源：代码内嵌 builtin + `../../../resources` 热更；
 4. 纯逻辑层无 Qt、无 I/O；
 5. **适用性判断不进 prompt，只进谓词**（P1，本次失败换来的新纪律）；
 6. 冲突以引擎为准，坏样本落 `bad_samples.jsonl` 回收。

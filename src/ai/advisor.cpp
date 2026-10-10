@@ -15,6 +15,7 @@
 #include "strength.h"
 #include "verify/claim_extractor.h"
 #include "verify/claim_verifier.h"
+#include "verify/leak_gate.h"
 
 namespace vgo {
 
@@ -71,6 +72,13 @@ std::string truthSummary(const GroundedFacts& facts, double score_black, Color t
 void verifyAndAnnotate(ConversationReply& r, const Board& board,
                        const GroundedFacts& facts, double score_black,
                        Color to_move, int size) {
+    // G4-3 泄露闸门（硬保险，先于 truth/claims 判断）：回答正文泄露定式判定书 / 仲裁的
+    // 内部字段名时，追加标注并置 unsure 灰显。与 D2 数字校验并列，模型「说不听」也拦得住。
+    if (leakGateViolation(r.text)) {
+        r.text += "\n\n（注：回答含内部字段，已标记为待确认。）";
+        r.unsure = true;
+        return;
+    }
     const bool has_truth = facts.analysis.valid || !facts.analysis.ownership.empty() ||
                            !facts.dead_groups.empty() || facts.move_eval.has_value() ||
                            facts.life_death.has_value();

@@ -108,6 +108,8 @@ add_library(vgo_ai STATIC
     src/ai/verify/claim_verifier.cpp
     src/ai/verify/bad_sample.h
     src/ai/verify/bad_sample.cpp
+    src/ai/verify/leak_gate.h
+    src/ai/verify/leak_gate.cpp
     src/ai/learner/learner_model.h
     src/ai/learner/learner_model.cpp
     src/ai/learner/daily_puzzle.h
@@ -160,6 +162,7 @@ add_executable(vgo_ai_tests
     tests/test_sgf.cpp
     tests/test_agent.cpp
     tests/test_verify.cpp
+    tests/test_leak_gate.cpp
     tests/test_learner.cpp
     tests/test_daily_puzzle.cpp
     tests/test_engine_pool.cpp
