@@ -302,6 +302,13 @@ QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
         s += QStringLiteral("上一次定式判定：%1\n").arg(QString::fromStdString(req.last_joseki_context));
     }
 
+    // G1：推荐点的着法几何术语（程序判定）。直接采用该术语叙述这手棋，不要自行判断或
+    // 改用别的名称（如把「点入三三」说成「扳」）。
+    if (!req.recommended_move_shape.empty()) {
+        s += QStringLiteral("推荐点的着法几何（程序判定，请直接采用其术语）：%1\n")
+                 .arg(QString::fromStdString(req.recommended_move_shape));
+    }
+
     s += QStringLiteral("\n棋手的问题：%1").arg(QString::fromStdString(req.question));
     return s;
 }

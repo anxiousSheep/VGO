@@ -392,6 +392,33 @@ TEST(http_user_prompt_omits_empty_last_joseki) {
     CHECK(!s.contains(QStringLiteral("上一次定式判定")));
 }
 
+// G1：推荐点着法几何术语注入 prompt。
+TEST(http_user_prompt_injects_recommended_shape) {
+    ConversationRequest req;
+    req.question = "我该下哪";
+    req.size = 19;
+    req.to_move = Color::White;
+    req.score_black = 0.0;
+    req.move_number = 1;
+    req.board_context = "X .";
+    req.recommended_move_shape = "R17 与黑 Q16 对角相邻，属点入三三，术语为「点」";
+    const QString s = buildUserPrompt(req, QuestionClass::WhereToPlay);
+    CHECK(s.contains(QStringLiteral("推荐点的着法几何")));
+    CHECK(s.contains(QStringLiteral("点入三三")));
+}
+
+TEST(http_user_prompt_omits_empty_recommended_shape) {
+    ConversationRequest req;
+    req.question = "我该下哪";
+    req.size = 19;
+    req.to_move = Color::White;
+    req.score_black = 0.0;
+    req.move_number = 1;
+    req.board_context = "X .";
+    const QString s = buildUserPrompt(req, QuestionClass::WhereToPlay);
+    CHECK(!s.contains(QStringLiteral("推荐点的着法几何")));
+}
+
 // --- A4：差评坏样本往返 ---
 
 TEST(a4_bad_sample_user_downvote_roundtrip) {

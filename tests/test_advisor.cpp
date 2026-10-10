@@ -319,6 +319,31 @@ TEST(advisor_injects_last_joseki_context) {
           std::string::npos);
 }
 
+// G1：advisor 对引擎推荐点预标注着法几何术语，注入 prompt（推荐点 = 点入三三）。
+TEST(advisor_injects_recommended_move_shape) {
+    struct CaptureConversation : ConversationService {
+        ConversationRequest captured;
+        void answer(const ConversationRequest& req, Callback cb) override {
+            captured = req;
+            cb(ConversationReply{});
+        }
+    };
+    ScriptedEngine eng;
+    Point rec;
+    CHECK(gtpParsePoint("R17", 19, &rec));
+    eng.moves = {rec};
+    CaptureConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    Game g(19);
+    Point anchor;
+    CHECK(gtpParsePoint("Q16", 19, &anchor));
+    CHECK(g.play(anchor.x, anchor.y));  // 黑下四四
+
+    a.ask(g, "我该下哪", [](const ConversationReply&) {});
+    CHECK(conv.captured.recommended_move_shape.find("点") != std::string::npos);
+    CHECK(conv.captured.recommended_move_shape.find("点入三三") != std::string::npos);
+}
+
 // D1.8：prewarmAnalysis 用 Background 优先级预热 last_analysis_；随后 Other 问题的
 // 请求里工具快照（facts.analysis.ownership）已带归属真值，且 ask 不再二次取分析。
 TEST(advisor_prewarm_analysis_populates_tool_snapshot) {

@@ -10,12 +10,14 @@
 #include "lifedeath.h"
 #include "lifedeath_shape.h"
 #include "lifedeath_verify.h"
+#include "move_shape.h"
 #include "ownership.h"
 #include "phase.h"
 #include "strength.h"
 #include "verify/claim_extractor.h"
 #include "verify/claim_verifier.h"
 #include "verify/leak_gate.h"
+#include "verify/term_gate.h"
 
 namespace vgo {
 
@@ -28,6 +30,24 @@ constexpr std::size_t kMaxExplainCache = 8;
 std::int64_t nowEpochMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+// G1：推荐点（引擎推荐 / what-if 落点）着法几何术语渲染（程序判定），供 prompt 注入。
+std::string renderRecommendedShape(const Board& board, const GroundedFacts& facts,
+                                   Color to_move) {
+    Point sp{-1, -1};
+    Color sp_mover = to_move;
+    if (facts.move_eval && facts.move_eval->valid && facts.move_eval->p.x >= 0) {
+        sp = facts.move_eval->p;
+        sp_mover = facts.move_eval->mover;
+    } else if (facts.analysis.valid && !facts.analysis.best.is_pass &&
+               facts.analysis.best.p.x >= 0) {
+        sp = facts.analysis.best.p;
+    }
+    if (sp.x < 0) return {};
+    const ShapeFact sf = classifyMove(board, sp, sp_mover);
+    if (sf.term.empty() || sf.term == "普通落子") return {};
+    return sf.relation + "，术语为「" + sf.term + "」";
 }
 
 // 把校验结果压缩成 trace 里的一档：none / pass / corrected / unverifiable。
@@ -78,6 +98,23 @@ void verifyAndAnnotate(ConversationReply& r, const Board& board,
         r.text += "\n\n（注：回答含内部字段，已标记为待确认。）";
         r.unsure = true;
         return;
+    }
+    // G1-3 术语断言闸门：程序已对推荐点判定出术语时，若正文把它改写成了另一个着法术语，
+    // 追加标注并置 unsure（治「R17 说成扳」）。
+    {
+        Point rec{-1, -1};
+        Color rec_mover = to_move;
+        if (facts.analysis.valid && !facts.analysis.best.is_pass && facts.analysis.best.p.x >= 0) {
+            rec = facts.analysis.best.p;
+        }
+        if (rec.x >= 0) {
+            const ShapeFact sf = classifyMove(board, rec, rec_mover);
+            if (!sf.term.empty() && sf.term != "普通落子" &&
+                termGateViolation(r.text, sf.term)) {
+                r.text += "\n\n（注：回答中的着法术语与程序判定不一致，已标记为待确认。）";
+                r.unsure = true;
+            }
+        }
     }
     const bool has_truth = facts.analysis.valid || !facts.analysis.ownership.empty() ||
                            !facts.dead_groups.empty() || facts.move_eval.has_value() ||
@@ -430,6 +467,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
     // G3-2：注入上一次定式判定（程序解析的指代事实），供「演示这个定式」消歧。
     req.last_joseki_context = renderJosekiDialogState(*last_joseki_);
+    // G1：注入推荐点的着法几何术语（程序判定），LLM 只转述、勿自行判断。
+    req.recommended_move_shape = renderRecommendedShape(game.board(), req.facts, req.to_move);
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;
@@ -600,6 +639,8 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
     req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
     // G3-2：注入上一次定式判定（程序解析的指代事实），供「演示这个定式」消歧。
     req.last_joseki_context = renderJosekiDialogState(*last_joseki_);
+    // G1：注入推荐点的着法几何术语（程序判定），LLM 只转述、勿自行判断。
+    req.recommended_move_shape = renderRecommendedShape(game.board(), req.facts, req.to_move);
     {
         AgentToolContext tool_ctx;
         tool_ctx.game = game;

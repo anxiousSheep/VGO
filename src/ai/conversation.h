@@ -128,6 +128,9 @@ struct ConversationRequest {
     // G3-2：上一次定式判定（程序解析的指代事实，如「点三三（可用，apply 模式）」），
     // 注入 prompt 让「演示这个定式」的「这个」由程序消歧，而非让 LLM 凭记忆猜名。空 = 无。
     std::string last_joseki_context;
+    // G1：推荐点的着法几何术语（程序判定，如「R17 与白 Q16 对角相邻，属点入三三，术语为
+    // 「点」」），注入 prompt 让 LLM 转述程序给的术语、而非自行判断着法名称。空 = 无。
+    std::string recommended_move_shape;
     // 程序已给出的确定性输出（如局中恶手预警），让 LLM 的讲解与 UI 已提示内容一致。
     std::vector<BlunderNote> blunder_notes;
 };

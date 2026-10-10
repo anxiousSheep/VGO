@@ -6,6 +6,7 @@
 #include "ai/verify/claim.h"
 #include "ai/verify/claim_extractor.h"
 #include "ai/verify/claim_verifier.h"
+#include "ai/verify/term_gate.h"
 
 using namespace vgo;
 
@@ -172,4 +173,17 @@ TEST(bad_sample_parse_rejects_garbage) {
     BadSample out;
     CHECK(!parseBadSample("not json", &out));
     CHECK(!parseBadSample("[1,2]", &out));
+}
+
+// G1-3 术语断言闸门：程序判定术语为 expectedTerm 时，正文改用别的着法术语 → 违规。
+TEST(term_gate_detects_conflicting_term) {
+    CHECK(termGateViolation("这手是扳，黑棋拐头", "点"));   // 用「扳」而非「点」
+    CHECK(termGateViolation("先尖再跳", "贴"));              // 用「尖」「跳」而非「贴」
+    CHECK(!termGateViolation("点入三三，夺角", "点"));        // 用了期望术语「点」
+    CHECK(!termGateViolation("这手棋很大", "点"));            // 无着法术语 → 通过
+    CHECK(!termGateViolation("随便说点什么", ""));            // 无期望术语 → 通过
+}
+
+TEST(term_gate_passes_empty_expected) {
+    CHECK(!termGateViolation("这手是扳", ""));
 }

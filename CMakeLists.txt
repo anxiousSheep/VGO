@@ -74,6 +74,8 @@ add_library(vgo_ai STATIC
     src/ai/symmetry.cpp
     src/ai/board_predicates.h
     src/ai/board_predicates.cpp
+    src/ai/move_shape.h
+    src/ai/move_shape.cpp
     src/ai/joseki.h
     src/ai/joseki.cpp
     src/ai/joseki_apply.h
@@ -110,6 +112,8 @@ add_library(vgo_ai STATIC
     src/ai/verify/bad_sample.cpp
     src/ai/verify/leak_gate.h
     src/ai/verify/leak_gate.cpp
+    src/ai/verify/term_gate.h
+    src/ai/verify/term_gate.cpp
     src/ai/learner/learner_model.h
     src/ai/learner/learner_model.cpp
     src/ai/learner/daily_puzzle.h
@@ -151,6 +155,7 @@ add_executable(vgo_ai_tests
     tests/test_lifedeath.cpp
     tests/test_symmetry.cpp
     tests/test_board_predicates.cpp
+    tests/test_move_shape.cpp
     tests/test_joseki_v2.cpp
     tests/test_demo_modes.cpp
     tests/test_lifedeath_shape.cpp
