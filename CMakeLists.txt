@@ -269,6 +269,13 @@ add_executable(vgo_integration_check
 target_include_directories(vgo_integration_check PRIVATE src)
 target_link_libraries(vgo_integration_check PRIVATE vgo_ai_qt vgo_model Qt6::Core)
 
+# G1–G6 实测修复的定式端到端复测（真实 KataGo + LLM）：点三三适用性 + 推荐点术语。
+add_executable(vgo_joseki_e2e_check
+    tools/joseki_e2e_check.cpp
+)
+target_include_directories(vgo_joseki_e2e_check PRIVATE src)
+target_link_libraries(vgo_joseki_e2e_check PRIVATE vgo_ai_qt vgo_model Qt6::Core)
+
 # B4 讲解质量评估（离线 judge 工具，手动触发，不进 CTest）。
 add_executable(vgo_quality_eval
     tools/quality_eval.cpp
