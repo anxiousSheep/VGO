@@ -173,7 +173,9 @@ void arbitrateJoseki(Probe& probe, const Board& board, Color invader,
         } else {
             const Board after = g.board();
             const Color next = g.current();  // 下一手方 = 守方
-            probe.analyzePosition(after, next, [st](const ProbeResult& r) {
+            // G5-4：摆固定线 + 引擎续下 N 手后再评估，读的是定式的完整结果而非半截中间态。
+            // selfPlayThenAnalyze 保证回调 winrate 是起始（守方）视角，口径与旧实现一致。
+            probe.selfPlayThenAnalyze(after, next, kJosekiSelfPlayPlies, [st](const ProbeResult& r) {
                 // r.winrate 是守方视角，入侵方视角 = 1 - 守方。
                 if (r.ok && r.analysis.valid) st->w_joseki = 1.0 - r.winrate;
                 if (--st->pending == 0) finishArb(st);

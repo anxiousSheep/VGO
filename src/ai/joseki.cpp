@@ -147,13 +147,39 @@ JosekiLibrary JosekiLibrary::builtin() {
         e.preconditions.zones = {
             {"left_flank",
              zone("left_flank",
-                  {pt("Q14"), pt("Q13"), pt("Q12"), pt("R14"), pt("R13"), pt("R12")},
-                  "左侧翼")},
+                  {pt("Q14"), pt("Q13"), pt("Q12"), pt("R14"), pt("R13"), pt("R12"),
+                   // G5-1 三线/四线挂角与夹击带（左侧）：使 classifyContext 能看见
+                   // 夹击子（M17 一带）与挂角子（O17）。
+                   pt("P16"), pt("P17"), pt("O16"), pt("O17"), pt("N16"), pt("N17"),
+                   pt("M16"), pt("M17")},
+                  "左侧翼（含三线/四线挂角与夹击带）")},
             {"right_flank",
              zone("right_flank",
-                  {pt("S14"), pt("S13"), pt("S12"), pt("T14"), pt("T13"), pt("T12")},
+                  {pt("S14"), pt("S13"), pt("S12"), pt("T14"), pt("T13"), pt("T12"),
+                   // G5-1 对称的三线/四线带（右侧，朝 S/T 边）。
+                   pt("Q15"), pt("R15")},
                   "右侧翼")},
         };
+        {
+            // G5-2 有夹击时的点三三（挡朝夹击侧，外势与夹子连片）。置于 main 之前，
+            // 使夹击局面下 firstDemonstrable 优先取本变体。
+            JosekiVariant v;
+            v.id = "pincer-variant";
+            v.name = "有夹击时的点三三（挡朝夹击侧）";
+            v.when = "zone_enemy_majority:left_flank";
+            v.direction_rule = "";  // 挡已朝夹击侧（左侧），无需镜像
+            v.sequence = {
+                mv("R17", Color::White, "点三三，夺角"),
+                mv("Q17", Color::Black, "挡，朝夹击子一侧"),
+                mv("Q18", Color::White, "爬，求活"),
+                mv("R16", Color::Black, "长，护角"),
+                mv("Q15", Color::White, "飞，出头"),
+                mv("P16", Color::Black, "长，外势朝夹击连片"),
+                mv("Q13", Color::White, "跳，安定"),
+                mv("N16", Color::Black, "跳，外势与夹击呼应"),
+            };
+            e.variants.push_back(std::move(v));
+        }
         {
             JosekiVariant v;
             v.id = "main";
@@ -164,6 +190,11 @@ JosekiLibrary JosekiLibrary::builtin() {
                 mv("R17", Color::White, "点三三，夺角"),
                 mv("Q17", Color::Black, "挡（方向由 direction_rule 镜像决定）"),
                 mv("Q18", Color::White, "爬，求活关键"),
+                mv("R16", Color::Black, "长，护住角地"),
+                mv("Q15", Color::White, "飞，出头求活"),
+                mv("Q14", Color::Black, "长，扩张外势"),
+                mv("P16", Color::White, "跳，安定"),
+                mv("O16", Color::Black, "跳，外势连片"),
             };
             e.variants.push_back(std::move(v));
         }
@@ -187,7 +218,8 @@ JosekiLibrary JosekiLibrary::builtin() {
         e.alternatives_if_rejected = {"approach-knight", "approach-high"};
         e.teaching.idea = "星位角空虚时直接点三三夺实地，对方得外势";
         e.teaching.caution =
-            "点三三过早让外势朝向对方接应方向时亏损；征子关系不利时部分变化不成立";
+            "点三三过早让外势朝向对方接应方向时亏损；征子关系不利时部分变化不成立；"
+            "对方有夹击子时，挡的方向应朝夹击子一侧使外势呼应";
         lib.upsert(std::move(e));
     }
     {

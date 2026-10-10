@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 
 #include "analysis.h"
 #include "engine.h"
@@ -38,6 +39,11 @@ public:
     // 最优」读 analysis.best 使用。无引擎：立即 cb(ok=false)。
     void analyzePosition(const Board& board, Color to_move, Callback cb);
 
+    // G5-4 仲裁续下：以 to_move 方自对弈 plies 手（逐手 engine_->requestMove 摆子），
+    // 再 analyze 最终局面。回调的 winrate 统一为「起始 to_move 方」视角，供仲裁与
+    // probe/analyzePosition 同口径消费。plies<=0 或无引擎时退化为 analyzePosition。
+    void selfPlayThenAnalyze(const Board& board, Color to_move, int plies, Callback cb);
+
     // 是否接了引擎（供消费者在发起 probe 前决定降级路径）。
     bool hasEngine() const { return engine_ != nullptr; }
 
@@ -45,6 +51,15 @@ public:
     void cancel();
 
 private:
+    // G5-4 自对弈续下的跨回调状态。
+    struct SelfPlayCtx {
+        Color start_color = Color::Black;   // 起始 to_move 方（回调 winrate 的基准视角）
+        int remaining = 0;                  // 剩余自对弈手数
+        Callback cb;
+    };
+    void selfPlayStep(const std::shared_ptr<SelfPlayCtx>& ctx, const Board& board,
+                      Color to_move, int gen);
+
     EngineInterface* engine_ = nullptr;
     StrengthParams sp_;
     int generation_ = 0;

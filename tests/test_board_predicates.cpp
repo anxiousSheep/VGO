@@ -140,3 +140,39 @@ TEST(predicates_project_variant_mirror_flips_block) {
     CHECK(a[0].p == b[0].p);     // 3-3 入侵点固定
     CHECK(!(a[1].p == b[1].p));  // 挡点被镜像到另一侧
 }
+
+// G5-1：zones 扩域后，classifyContext 能看见三线的夹击子（M17）与挂角子（O17）。
+TEST(predicates_classify_context_sees_pincer_and_approach) {
+    Board b = boardWithBlackAnchor();  // 黑 Q16
+    const Point pincer = P("M17");     // 一间夹（黑）
+    b.set(pincer.x, pincer.y, Color::Black);
+    const Point approach = P("O17");   // 小飞挂（白）
+    b.set(approach.x, approach.y, Color::White);
+
+    const CornerContext ctx = classifyContext(b, *sansan(), Corner::UR, Color::White);
+    CHECK(ctx.left_enemy >= 1);      // 看见夹击子（黑 M17）
+    CHECK(ctx.left_friendly >= 1);   // 看见挂角子（白 O17）
+    CHECK(ctx.path_clear);
+}
+
+// G5-2：夹击局面 selectVariants 命中夹击变体；无夹击时不命中。
+TEST(predicates_select_pincer_variant_on_left_pincer) {
+    Board b = boardWithBlackAnchor();
+    const Point pincer = P("M17");
+    b.set(pincer.x, pincer.y, Color::Black);
+    const std::vector<int> sel = selectVariants(b, *sansan(), Corner::UR, Color::White);
+    bool has_pincer = false;
+    for (int i : sel)
+        if (sansan()->variants[static_cast<std::size_t>(i)].id == "pincer-variant")
+            has_pincer = true;
+    CHECK(has_pincer);
+
+    // 无夹击：不命中夹击变体。
+    const std::vector<int> sel2 =
+        selectVariants(boardWithBlackAnchor(), *sansan(), Corner::UR, Color::White);
+    bool has_pincer2 = false;
+    for (int i : sel2)
+        if (sansan()->variants[static_cast<std::size_t>(i)].id == "pincer-variant")
+            has_pincer2 = true;
+    CHECK(!has_pincer2);
+}

@@ -163,6 +163,21 @@ TEST(joseki_v2_directory_index_has_no_body) {
     CHECK(idx.find("夺角") == std::string::npos);
 }
 
+// G5-2：main 与夹击变体序列已补全至收束（≥8 手），且颜色黑白交替。
+TEST(joseki_v2_completed_variant_sequences) {
+    const JosekiLibrary lib = JosekiLibrary::builtin();
+    const JosekiEntry* e = lib.find("点三三");
+    CHECK(e != nullptr);
+    if (!e) return;
+    for (const JosekiVariant& v : e->variants) {
+        if (v.id != "main" && v.id != "pincer-variant") continue;
+        CHECK(v.sequence.size() >= 8u);
+        for (std::size_t i = 1; i < v.sequence.size(); ++i) {
+            CHECK(v.sequence[i].by != v.sequence[i - 1].by);  // 黑白交替
+        }
+    }
+}
+
 TEST(joseki_v2_parse_corner) {
     Corner c;
     CHECK(parseCorner("UR", &c) && c == Corner::UR);

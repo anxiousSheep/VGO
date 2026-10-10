@@ -67,4 +67,8 @@ void arbitrateJoseki(Probe& probe, const Board& board, Color invader,
 // 判定阈值（§4.4）：引擎最优与定式线的胜率差 <= 3 个百分点视为「定式成立」。
 constexpr double kJosekiMargin = 0.03;
 
+// G5-4 仲裁续下手数：变体序列已补全至收束（G5-2），step1 摆全 line 即等价于续下，故
+// 降级为 0；>0 时 step1 会在摆完定式线后让引擎自对弈 N 手再评估（供仍会分支的变体启用）。
+constexpr int kJosekiSelfPlayPlies = 0;
+
 }  // namespace vgo

@@ -11,11 +11,27 @@
     "required_empty": ["R17", "Q17", "S17", "Q18", "S18"],
     "forbidden": [],
     "zones": {
-      "left_flank":  {"points": ["Q14","Q13","Q12","R14","R13","R12"], "meaning": "左侧翼"},
-      "right_flank": {"points": ["S14","S13","S12","T14","T13","T12"], "meaning": "右侧翼"}
+      "left_flank":  {"points": ["Q14","Q13","Q12","R14","R13","R12","P16","P17","O16","O17","N16","N17","M16","M17"], "meaning": "左侧翼（含三线/四线挂角与夹击带）"},
+      "right_flank": {"points": ["S14","S13","S12","T14","T13","T12","Q15","R15"], "meaning": "右侧翼"}
     }
   },
   "variants": [
+    {
+      "id": "pincer-variant",
+      "name": "有夹击时的点三三（挡朝夹击侧）",
+      "when": {"zone_enemy_majority": "left_flank"},
+      "direction_rule": "",
+      "sequence": [
+        {"move": "R17", "by": "white", "note": "点三三，夺角"},
+        {"move": "Q17", "by": "black", "note": "挡，朝夹击子一侧"},
+        {"move": "Q18", "by": "white", "note": "爬，求活"},
+        {"move": "R16", "by": "black", "note": "长，护角"},
+        {"move": "Q15", "by": "white", "note": "飞，出头"},
+        {"move": "P16", "by": "black", "note": "长，外势朝夹击连片"},
+        {"move": "Q13", "by": "white", "note": "跳，安定"},
+        {"move": "N16", "by": "black", "note": "跳，外势与夹击呼应"}
+      ]
+    },
     {
       "id": "main",
       "name": "挡后长（常型）",
@@ -24,7 +40,12 @@
       "sequence": [
         {"move": "R17", "by": "white", "note": "点三三，夺角"},
         {"move": "Q17", "by": "black", "note": "挡（方向由 direction_rule 镜像决定）"},
-        {"move": "Q18", "by": "white", "note": "爬，求活关键"}
+        {"move": "Q18", "by": "white", "note": "爬，求活关键"},
+        {"move": "R16", "by": "black", "note": "长，护住角地"},
+        {"move": "Q15", "by": "white", "note": "飞，出头求活"},
+        {"move": "Q14", "by": "black", "note": "长，扩张外势"},
+        {"move": "P16", "by": "white", "note": "跳，安定"},
+        {"move": "O16", "by": "black", "note": "跳，外势连片"}
       ]
     },
     {
@@ -44,7 +65,7 @@
   "alternatives_if_rejected": ["approach-knight", "approach-high"],
   "teaching": {
     "idea": "星位角空虚时直接点三三夺实地，对方得外势",
-    "caution": "点三三过早让外势朝向对方接应方向时亏损；征子关系不利时部分变化不成立"
+    "caution": "点三三过早让外势朝向对方接应方向时亏损；征子关系不利时部分变化不成立；对方有夹击子时，挡的方向应朝夹击子一侧使外势呼应"
   },
   "source": "json"
 }
