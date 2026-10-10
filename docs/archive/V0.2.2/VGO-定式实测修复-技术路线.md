@@ -3,7 +3,7 @@
 | 项 | 内容 |
 |---|---|
 | 输入 | `VGO-定式实测问题诊断与解决方案.md`（点三三第二轮实测，六现象 G1–G6） |
-| 回源 | master（b8eebbc）：`joseki_apply.cpp` / `board_predicates.cpp` / `agent_tools.cpp` joseki_lookup / `http_conversation.cpp` 分级契约 / `MainWindow.cpp` handleDemoTool / `explain.cpp` B1a / `probe.h` / `resources/joseki/hoshi-sansan-invasion.json`，并对照 `docs/archive/v0.2.1/`（P1 技术路线 B1a、定式死活完整方案 §4/§5） |
+| 回源 | master（b8eebbc）：`joseki_apply.cpp` / `board_predicates.cpp` / `agent_tools.cpp` joseki_lookup / `http_conversation.cpp` 分级契约 / `MainWindow.cpp` handleDemoTool / `explain.cpp` B1a / `probe.h` / `../../../resources/joseki/hoshi-sansan-invasion.json`，并对照 `docs/archive/v0.2.1/`（P1 技术路线 B1a、定式死活完整方案 §4/§5） |
 | 结论 | v2 可靠性架构（谓词→变体→仲裁→门禁）**判定正确，不回滚**。六现象的根因在架构外三层（grounding 缺事实 / 词典数据不充盈 / 呈现契约不严），以六个针对性补丁 G1–G6 修复，全部守住「程序判适用性、引擎判得失、LLM 只叙述」的分工 |
 | 版本 | v1.0 |
 
@@ -55,7 +55,7 @@
 ### Phase 0 · G6 口头禅（0.5 天，独立，可立即合入）
 
 - **改动**：`http_conversation.cpp:53-71` `buildStructureContract`。三档里「先用一句话给出明确结论 / 先给结论」改为「先直接给出明确结论」，并追加「不要把结构说明里的字样（如『一句话』『结构』）当作标题或引导语复述」。
-- **测试**：`tests/test_http_tools.cpp`（`buildStructureContract` 已暴露可单测）补断言：输出不含「一句话结论」、含「先直接给出明确结论」。
+- **测试**：`../../../tests/test_http_tools.cpp`（`buildStructureContract` 已暴露可单测）补断言：输出不含「一句话结论」、含「先直接给出明确结论」。
 - **验收**：复测原场景，回答不再以「一句话结论：」开头。
 
 ### Phase 1 · G4 泄露（1–2 天）
@@ -68,7 +68,7 @@
    进 `vgo_ai_tests`，6 个 token 正反例各一条。
 2. **summary 层 + 转述禁令**：`agent_tools.cpp:270-291` `joseki_lookup` 返回 JSON 增加顶层 `summary`（程序预生成人话，如「小飞挂目前不适用：第一步 O17 已被占（就是白棋刚下的那一手）」）；`agent_tools.cpp:166-169` 的 `description` 追加「preconditions/context/engine_verdict 等字段是给你理解的内部数据，禁止原文出现给用户」。
 3. **接入闸门**：`advisor.cpp:71-95` `verifyAndAnnotate` 末尾，若 `leakGateViolation(r.text)` → 追加标注（如「（注：回答含内部字段，已隐藏。）」）并 `r.unsure=true`。**先不加 retry 回路**（决策点 D1）。
-4. **测试**：`tests/test_verify.cpp` 扩（或新 `test_leak_gate.cpp`）。
+4. **测试**：`../../../tests/test_verify.cpp` 扩（或新 `test_leak_gate.cpp`）。
 
 ### Phase 2 · G3 指代消歧（2 天）
 
@@ -80,7 +80,7 @@
    - `AiAdvisor` 加成员 `std::shared_ptr<JosekiDialogState> last_joseki_`，在 `deliverAnswer`/`deliverAnswerStream`（`advisor.cpp:417-425` / `583-591`）构造 `tool_ctx` 时传入同一指针；`ConversationRequest`（`conversation.h`）加字段 `last_joseki_context`。
    - `buildUserPrompt`（`http_conversation.cpp:183`）非空时注入「上一次定式判定：点三三（可用，apply 模式）」作为硬事实。
 3. **工具描述补丁**：`http_conversation.cpp:306-310` `demonstrate_go_moves` description 追加「演示目标定式若在上一轮判定书中已出现，优先使用该定式名，不要自行更换」。
-4. **测试**：`tests/test_agent.cpp`（工具写状态）、`tests/test_advisor.cpp`（注入渲染）。失效时机见决策点 D2。
+4. **测试**：`../../../tests/test_agent.cpp`（工具写状态）、`tests/test_advisor.cpp`（注入渲染）。失效时机见决策点 D2。
 
 ### Phase 3 · G5 数据 + 管线（3–4 天，可与 Phase 4 并行）
 
@@ -88,7 +88,7 @@
 2. **补全序列 + 夹击变体**：`main` 变体 `sequence` 从 3 手补到 8–12 手（收束）；新增 `{"id":"pincer-variant","when":{"zone_enemy_majority":"left_flank"}, ...}` 完整变体线（`evaluateWhen` 已支持 `zone_enemy_majority`，`board_predicates.cpp:98`，纯数据即可）。
 3. **G5-3 确认**：`MainWindow::handleDemoTool` 已 `playFixedSequence` + `collectAiMoves`，无需新写；只需确认 joseki 演示路径的 `plies` 默认值（`MainWindow.cpp:1701` 当前 4）够收束，必要时在 joseki 分支调高。
 4. **仲裁续下（G5-4）**：`Probe`（`probe.h:27-51`）新增 `selfPlayThenAnalyze(board, to_move, plies, cb)`——内部 `engine_->requestMove` 逐手摆、末位 `analyzePosition`。`arbitrateJoseki` step1（`joseki_apply.cpp:160-182`）改为「摆固定线 + `selfPlayThenAnalyze(N)`」。**若 Phase3-2 已把序列补到收束，step1 摆全 line 即等价于续下，此项可降级为仅对仍会分支的变体启用**——这是本阶段的主要工期杠杆。
-5. **测试**：`tests/test_joseki_v2.cpp` / `tests/test_demo_modes.cpp` 扩：夹击局面 `classifyContext` 计数正确、`selectVariants` 命中夹击变体、方向镜像朝夹击侧、`arbitrateJoseki` 用 `ArbEngine` 假引擎验证续下后 verdict 基于完整线。
+5. **测试**：`../../../tests/test_joseki_v2.cpp` / `tests/test_demo_modes.cpp` 扩：夹击局面 `classifyContext` 计数正确、`selectVariants` 命中夹击变体、方向镜像朝夹击侧、`arbitrateJoseki` 用 `ArbEngine` 假引擎验证续下后 verdict 基于完整线。
 
 ### Phase 4 · G1+G2 着法几何 + 空间事实（4–5 天，= B1a 真正补全）
 
@@ -105,7 +105,7 @@
    - `advisor.cpp` 的 `handleMoveQuality`（move-quality 路径）：对引擎推荐点预标注 `ShapeFact` 注入 prompt；
    - `MainWindow.cpp` 演示逐手注释：`collectAiMoves`/`playFixedSequence` 每手落子后追加 `classifyMove` 结果；
    - `verify/term_gate.h/.cpp`：`termGateViolation(text, expectedTerm)`，`verifyAndAnnotate` 接入（先标注，retry 见 D1）。
-3. **测试**：新 `tests/test_move_shape.cpp`：扳/断/尖/飞/跳/虎/点/挂/夹各一经典局部形；`describePoint` 四角/边/天元/三三/小目 **19 路 + 9 路各一套 golden 全枚举**。
+3. **测试**：新 `../../../tests/test_move_shape.cpp`：扳/断/尖/飞/跳/虎/点/挂/夹各一经典局部形；`describePoint` 四角/边/天元/三三/小目 **19 路 + 9 路各一套 golden 全枚举**。
 4. **验收**：同局面「我该下哪」→ 回答「点入三三」而非「扳」。
 
 ---
