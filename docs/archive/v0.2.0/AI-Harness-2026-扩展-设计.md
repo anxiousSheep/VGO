@@ -5,8 +5,8 @@
 | 版本 | v0.1 |
 | 日期 | 2026-10-03 |
 | 状态 | **基本完成**：D1 **已落地**——工具注册表 + 多工具 HTTP 回填 + D1.7 `sgf_lookup_position`（手顺 SGF 快照工具，棋谱库位置索引另行推进）+ D1.8 局面快照预热（`prewarmAnalysis` 替代 ask 阻塞预取）+ D1.9 prompt 收敛（Other 走工具按需取）+ D1.10 环路墙钟兜底均已上线并通过单测；D2（校验闸门）已落地并通过单测；D5.1 降级明示 + D5.5 预算守护已上线；**D3 已落地**（blunder 采集 → LearnerStore 持久化 → 教练记忆注入 → **D3.4 动态难度 + 新手难度动态爬坡**：`estimateKyuRank` + `humanProfileForStrength` 细粒度 `rank_20k→…→rank_1d` 阶梯 + `NewGameDialog` 自动难度开关 + `noviceLevelLabel` 新手档动态标注，消除新手→业余1段断崖）；**D2.4 证据溯源（hover 看来源 + 跳 PV）与 D5.6 可观测（trace 落盘 + 本地面板）已落地**；**D5.4 分析并发池 + 优先级队列（`EnginePool`）与 D5.2 投机预生成已落地**；**D4 评估闭环已落地**（D4.4 `select` 组合去重 + 预算、D4.5 golden 集 + `SkillEval` 评估器纳入 CTest release gate、D4.6 pending 区 + 一键采纳 + 评分回写、D4.7 `validateSkill` 校验 + 体积上限）；**L13 真实 KataGo/LLM 集成实测已完成**；**D2.5 坏样本集、D3.5 每日一题标签页（棋盘题 + 宽松判题）、D5.3 模型路由（轻/强模型分路）、D5.7 harness golden 集 CTest 均已落地**（D2.5 校验失败沉淀 `bad_samples.jsonl` 反哺 D4；D3.5 恶手→棋盘题（`reviewItemFromBlunder` 存局面快照 + 领先基准），「每日一题」独立标签页动态重建棋盘，宽松判题 `judgeDailyMove` 提升>0 即过、分数 60..100 与提升目数双射；D5.3 `routeTurn` 轻模型挑工具、强模型做最终讲解，配置留空即单模型；D5.7 `harness_eval` 路由 golden 集进 CTest release gate）；**D4.2 渐进式披露（`frontmatter()`/`SkillMeta` 常驻前言 + `select` body 按需注入）与 D4.6 模型提议改写（`buildRewritePrompt`/`extractRewriteBody`/`proposeRewrite`）已落地**，唯一剩余：D4.7 版本回滚 UI 待 L15 |
-| 相关代码 | `src/ai/`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
-| 上游文档 | `docs/archive/VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
+| 相关代码 | `../../../src/ai`（conversation / advisor / skill / evaluate / lifedeath / ownership / variation / explain / session / engine / strength）、`src/ai/conversation_http/`、`src/ui/`、`resources/skills/` |
+| 上游文档 | `VGO-AI-Harness-2026-扩展路线.md`（权威意见）、`docs/长期任务清单.md`、`docs/archive/`（历史设计与技术路线） |
 
 ## 状态图例
 
@@ -41,7 +41,7 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 真正停在 2024 年的是**模型周边的运行时（harness）**，集中体现在五个现状：
 
-1. **关键词分路由**：`src/ai/conversation.h` 的 `classifyQuestion()` 用硬编码中文关键词 `contains()` 顺序判定（死活 → 落点质量 → 形势 → 落点 → 为什么），源码注释明确写着「先于 WhyThisMove，避免『为什么下这里不好』被误判」——靠写死顺序打补丁。系统能力集合 = 关键词命中集合。
+1. **关键词分路由**：`../../../src/ai/conversation.h` 的 `classifyQuestion()` 用硬编码中文关键词 `contains()` 顺序判定（死活 → 落点质量 → 形势 → 落点 → 为什么），源码注释明确写着「先于 WhyThisMove，避免『为什么下这里不好』被误判」——靠写死顺序打补丁。系统能力集合 = 关键词命中集合。
 2. **静态 facts 灌 prompt**：`AiAdvisor` 在调用 LLM **之前**由 C++ 决定「算什么、怎么算」（`handleMoveQuality()` / `handleLifeDeath()`），`GroundedFacts` 一次性全量拼进 prompt。`MoveEvaluator` / `LifeDeathAnalyzer` 等确定性能力对模型不可见、不可组合。
 3. **单次同步调用**：`HttpConversationService` 单 `base_url` + 单 `model`；每次问答一次完整往返；讲解与 KataGo 分析串行。
 4. **无记忆**：`PlayerProfile { int level = 5; bool teaching = true; }` 只有两个标量，且 `level` 来自难度滑块的静态设置（`GameSetup.level`），关掉应用 AI 完全不认识用户。
@@ -49,7 +49,7 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 ### 1.2 一句话目标
 
-把「让模型自己决定调什么工具、让事实可被校验、让用户被记住、让知识可被度量、让延迟被编排」这五件事，用一层 **`src/ai/` 下无 Qt 的 C++ 编排**补齐。
+把「让模型自己决定调什么工具、让事实可被校验、让用户被记住、让知识可被度量、让延迟被编排」这五件事，用一层 **`../../../src/ai` 下无 Qt 的 C++ 编排**补齐。
 
 ---
 
@@ -57,7 +57,7 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 ### 2.1 落地约束（必须遵守）
 
-- **无 Qt、无 I/O**：harness 核心放 `src/ai/`，与现有分层哲学一致；下载 / 持久化 / 密钥等平台层仍归 `src/ui/model/`。
+- **无 Qt、无 I/O**：harness 核心放 `../../../src/ai`，与现有分层哲学一致；下载 / 持久化 / 密钥等平台层仍归 `src/ui/model/`。
 - **不接 MCP、不引 Python 侧链、不上重型 Agent 框架**：本项目 harness 的正确形态是一层自建的轻量 Tool Registry + 有界环路。
 - **工具即 C++ 函数**：把**已有**的确定性能力（`EngineInterface` / `MoveEvaluator` / `LifeDeathAnalyzer` / `ownership` / `variation` / `record` / 规则引擎计分）注册成工具，**重写注册表、不重写能力**。
 - **降级可回退**：端点不支持工具 / 校验失败 / LLM 不可用，一律回到现有 C++ dispatch 与模板解说路径，保证「开箱即用」不被破坏。
@@ -83,13 +83,13 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 | 模块 | 位置 | Qt | 说明 |
 |---|---|---|---|
-| `Tool` / `ToolResult` / `ToolRegistry` | `src/ai/agent/` | 无 | 工具描述 + JSON schema + `invoke` |
-| `AgentLoop`（有界环路 + trace） | `src/ai/agent/` | 无 | max_steps / 超时 / 取消 |
-| `Claim` / `ClaimExtractor` / `ClaimVerifier` | `src/ai/verify/` | 无 | 断言抽取 + 对照真值校验 |
-| `LearnerModel`（纯逻辑） | `src/ai/learner/` | 无 | 弱项向量 / 棋力估计 / SM-2 |
-| `LearnerStore`（持久化） | `src/ui/model/` | 有 | jsonl 落盘；隐私开关 / 导出 / 清空 |
-| `Skill` 2.0 + `SkillIndex`（检索） | `src/ai/` | 无 | YAML frontmatter + body + version + score |
-| 路由 / 预算 / 观测 | `src/ai/`（逻辑）+ `src/ui/`（面板） | 混合 | 见 D5 |
+| `Tool` / `ToolResult` / `ToolRegistry` | `../../../src/ai/agent` | 无 | 工具描述 + JSON schema + `invoke` |
+| `AgentLoop`（有界环路 + trace） | `../../../src/ai/agent` | 无 | max_steps / 超时 / 取消 |
+| `Claim` / `ClaimExtractor` / `ClaimVerifier` | `../../../src/ai/verify` | 无 | 断言抽取 + 对照真值校验 |
+| `LearnerModel`（纯逻辑） | `../../../src/ai/learner` | 无 | 弱项向量 / 棋力估计 / SM-2 |
+| `LearnerStore`（持久化） | `../../../src/ui/model` | 有 | jsonl 落盘；隐私开关 / 导出 / 清空 |
+| `Skill` 2.0 + `SkillIndex`（检索） | `../../../src/ai` | 无 | YAML frontmatter + body + version + score |
+| 路由 / 预算 / 观测 | `../../../src/ai`（逻辑）+ `src/ui/`（面板） | 混合 | 见 D5 |
 
 ---
 
@@ -101,10 +101,10 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 | 位置 | 事实 |
 |---|---|
-| `src/ai/conversation.h` | `classifyQuestion()` 是硬编码中文关键词 `contains()` 顺序判定；靠写死顺序打补丁（「先于 WhyThisMove」） |
-| `src/ai/advisor.cpp` | `handleMoveQuality()` / `handleLifeDeath()`：在调用 LLM **之前** C++ 已决定要算什么、怎么算 |
+| `../../../src/ai/conversation.h` | `classifyQuestion()` 是硬编码中文关键词 `contains()` 顺序判定；靠写死顺序打补丁（「先于 WhyThisMove」） |
+| `../../../src/ai/advisor.cpp` | `handleMoveQuality()` / `handleLifeDeath()`：在调用 LLM **之前** C++ 已决定要算什么、怎么算 |
 | `MoveEvaluator` / `LifeDeathAnalyzer` | 确定性能力已存在，但对模型不可见、不可组合 |
-| `src/ai/conversation_http/http_conversation.h` | 🔄 **已有单个 `ToolHandler`**（function-calling，用于 `demonstrate_go_moves`），但**没有**通用 Tool Registry、没有多工具选择、没有有界环路 |
+| `../../../src/ai/conversation_http/http_conversation.h` | 🔄 **已有单个 `ToolHandler`**（function-calling，用于 `demonstrate_go_moves`），但**没有**通用 Tool Registry、没有多工具选择、没有有界环路 |
 
 ### 3.2 本质
 
@@ -118,7 +118,7 @@ VGO 的**围棋内核与 UI 已经相当扎实**：规则引擎、AI 状态机�
 
 ### 3.3 设计
 
-**核心类型（`src/ai/agent/tool.h`）**
+**核心类型（`../../../src/ai/agent/tool.h`）**
 
 ```cpp
 struct ToolResult { bool ok; std::string json; std::string error; };
@@ -131,7 +131,7 @@ struct Tool {
 };
 ```
 
-**注册表（`src/ai/agent/tool_registry.h`）**：`registerTool` / `find(name)` / `all()` / `schemasForModel()`。
+**注册表（`../../../src/ai/agent/tool_registry.h`）**：`registerTool` / `find(name)` / `all()` / `schemasForModel()`。
 
 **首批注册的既有能力**（写注册表，不重写能力）：
 
@@ -146,7 +146,7 @@ struct Tool {
 | `count_territory` | 规则引擎计分（`go/game.h`） | 需确认暴露 API |
 | `sgf_lookup_position` | `record.h` + L5 SGF | ✅ 已注册（返回当前局面手顺 SGF + 结构化着法；棋谱库位置索引另行推进） |
 
-**环路（`src/ai/agent/loop.h`）**
+**环路（`../../../src/ai/agent/loop.h`）**
 
 - `AgentLoop::run(question, tools, on_step, on_done)`：模型 → 工具调用 → 结果回填 → 再问模型，直到模型给出最终答案或到达边界。
 - 有界：`max_steps = 4`、`max_wallclock_ms = 3000`；取消复用现有 `generation_` 语义（`AiAdvisor` / `AIMatchController` / `MoveEvaluator` 已有此计数器，环路内再包一层）。
@@ -217,7 +217,7 @@ struct Tool {
  { "type": "group_life", "point": "C3", "alive": false }]
 ```
 
-**校验链（`src/ai/verify/`）**
+**校验链（`../../../src/ai/verify`）**
 
 | 组件 | 职责 |
 |---|---|
@@ -274,7 +274,7 @@ struct Tool {
 | 难度 | 用户自己拖滑块 | 由观测棋力自动标定（保留手动 override） |
 | 复习 | 无 | 从**用户自己的恶手**生成的间隔重复队列 |
 
-**组件（纯逻辑 `src/ai/learner/`，持久化在 `src/ui/model/`）**
+**组件（纯逻辑 `../../../src/ai/learner`，持久化在 `src/ui/model/`）**
 
 - `LearnerModel`：弱项向量 + 滚动窗口（近 20 局）+ 真实棋力估计（平均目损 / 胜率偏离）。
 - 每步异步 what-if（复用 `MoveEvaluator` + `isBlunder`，**仅在 UI 空闲 / 低优先级线程**跑，不阻塞行棋），产出 blunder 序列。
@@ -388,7 +388,7 @@ last_score: 0.71
 | D4.2 | 渐进式披露：frontmatter 常驻（`frontmatter()`/`SkillMeta`）、body 按需加载（`select` 仅注入命中正文） | `skill.*` + 注入路径 | ✅ |
 | D4.3 | 检索升级：embedding 优先 / TF-IDF 兜底，带命中理由 | `skill.*` 或 `ai/skill_index.*` | ✅ |
 | D4.4 | 组合与冲突解决：优先级 + token 预算裁剪 | `skill.*` | ✅ |
-| D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `skill_eval.*` + `tests/` | ✅ |
+| D4.5 | 评估闭环：golden Q&A 集 + skill-on/off 对比 + 指标表 | `skill_eval.*` + `../../../tests` | ✅ |
 | D4.6 | 自进化：pending 区 + 一键采纳 / 模型提议改写 | `skill.*` | ✅（pending/采纳/评分 + 模型提议改写 `buildRewritePrompt`/`extractRewriteBody`/`proposeRewrite`） |
 | D4.7 | 版本与回滚 + 热更加固（schema 校验 / 体积上限 / 沙箱） | `skill.*` + `SettingsDialog` | ✅（校验/体积上限；版本回滚 UI 待 L15） |
 
@@ -437,7 +437,7 @@ last_score: 0.71
 | D5.4 | KataGo 分析并发池 + 优先级队列 | `engine_pool` / `AiAdvisor` / `MainWindow` | ✅ |
 | D5.5 | 预算守护：token 上限 / max_tokens / 超时熔断 | `conversation_http` | ✅ |
 | D5.6 | 可观测：trace 面板（`{position hash, route, latency, verify, cost, model}`） | `ui/` + 本地存储 | ✅ |
-| D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `tests/` + CI | ✅ |
+| D5.7 | golden 集纳入 CTest，release gate = 回归通过 | `../../../tests` + CI | ✅ |
 
 ### 7.4 验收标准
 
@@ -459,7 +459,7 @@ last_score: 0.71
 
 **建议的最小第一步（半天到一天产量）**
 
-1. 在 `src/ai/agent/` 建 `tool.h` + `tool_registry.h`，把 `evaluate_move` 与 `life_death_solve` 两个**已有**能力注册成工具——零新增算法、纯收益。
+1. 在 `../../../src/ai/agent` 建 `tool.h` + `tool_registry.h`，把 `evaluate_move` 与 `life_death_solve` 两个 **已有**能力注册成工具——零新增算法、纯收益。
 2. 同时把「当前讲解档位」徽标做进 UI（D5 中最便宜的一项，立竿见影消除静默降级）。
 3. 之后跑 D1 的有界环路，接 D2 校验闸门；此时 golden 集自然成型，再回头喂 D4 的评估闭环。
 
@@ -483,7 +483,7 @@ last_score: 0.71
 
 **必须遵守**
 
-1. harness 核心全部在 `src/ai/`，无 Qt、无 I/O；平台层（下载 / 持久化 / 密钥 / 面板）在 `src/ui/` 与 `src/ui/model/`。
+1. harness 核心全部在 `../../../src/ai`，无 Qt、无 I/O；平台层（下载 / 持久化 / 密钥 / 面板）在 `src/ui/` 与 `src/ui/model/`。
 2. 工具是既有 `EngineInterface` / `GoBoard` 之上的 C++ 函数；**写注册表，不重写能力**。
 3. 端点不支持工具、校验失败、LLM 不可用时，**回退现有 C++ dispatch + 模板解说**，开箱即用不被破坏。
 4. 每项落地都带单测（沿用现有自研轻量框架 + CTest）。

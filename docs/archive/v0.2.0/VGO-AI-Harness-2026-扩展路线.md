@@ -4,14 +4,14 @@ title: VGO-AI-Harness-2026-扩展路线
 
 # VGO · 2026 Harness 概念下的 5 个 AI 扩展方向
 
-> **状态（2026-10）**：本文的五个方向已全部落地，详细任务计划与状态见 [`docs/AI-Harness-2026-扩展-设计.md`](../AI-Harness-2026-扩展-设计.md)。本文保留为「为什么做、做什么」的原始设想（下方勾选框不再逐一回填）。
+> **状态（2026-10）**：本文的五个方向已全部落地，详细任务计划与状态见 [`AI-Harness-2026-扩展-设计.md`](AI-Harness-2026-扩展-设计.md)。本文保留为「为什么做、做什么」的原始设想（下方勾选框不再逐一回填）。
 
 > 结论先行：VGO 的**围棋内核和 UI 已经相当扎实**，真正停在 2024 年的是「模型周边的运行时」——  
 > 关键词分路由 + 静态 facts 灌 prompt + 单次同步调用 + 无记忆 + 无校验。  
 > 2026 年的 harness 指的就是这一层：**让模型自己决定调什么工具、让事实可被校验、让用户被记住、让知识可被度量、让延迟被编排**。  
 > 五个方向按此展开，每条都给到可勾选的功能代办。
 
-**C++ 落地约束（必须先讲清）**：本项目无关 Python 侧链，harness 必须是 `src/ai/` 下**无 Qt 依赖**的纯逻辑层（与现有 `src/ai` 分层哲学一致），工具即现有 `EngineInterface` / `GoBoard` 之上的 C++ 函数。MCP 过重，本项目应当自建轻量 Tool Registry。
+**C++ 落地约束（必须先讲清）**：本项目无关 Python 侧链，harness 必须是 `../../../src/ai` 下**无 Qt 依赖**的纯逻辑层（与现有 `src/ai` 分层哲学一致），工具即现有 `EngineInterface` / `GoBoard` 之上的 C++ 函数。MCP 过重，本项目应当自建轻量 Tool Registry。
 
 ---
 
@@ -21,8 +21,8 @@ title: VGO-AI-Harness-2026-扩展路线
 
 | 位置                                  | 事实                                                                                                |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `src/ai/conversation.h`             | `classifyQuestion()` 是硬编码中文关键词 `contains()` 顺序判定，源码注释写着「先于 WhyThisMove，避免『为什么下这里不好』被误判」——靠写死顺序打补丁 |
-| `src/ai/advisor.cpp`                | `handleMoveQuality()` / `handleLifeDeath()`：**在调用 LLM 之前**，C++ 已决定要算什么、怎么算                        |
+| `../../../src/ai/conversation.h`             | `classifyQuestion()` 是硬编码中文关键词 `contains()` 顺序判定，源码注释写着「先于 WhyThisMove，避免『为什么下这里不好』被误判」——靠写死顺序打补丁 |
+| `../../../src/ai/advisor.cpp`                | `handleMoveQuality()` / `handleLifeDeath()`：**在调用 LLM 之前**，C++ 已决定要算什么、怎么算                        |
 | `MoveEvaluator` / `LifeDeathResult` | 确定性能力已存在，但对模型不可见、不可组合                                                                             |
 
 **本质**：系统能力集合 = 关键词命中集合。用户换个说法就掉进 `QuestionClass::Other`；多跳问题（「右上角能活吗，另外中腹谁大」）必然漏一半。
@@ -43,7 +43,7 @@ title: VGO-AI-Harness-2026-扩展路线
     - [ ] `life_death_solve(group)` → 现有 `LifeDeathAnalyzer`
     - [ ] `ownership_map` → `ownership.h`
     - [ ] `variation_pv(n)` → `variation.h`
-    - [ ] `count_territory` → `src/go` 数子
+    - [ ] `count_territory` → `../../../src/go` 数子
     - [x] `sgf_lookup_position`（已落地：注册表，返回当前局面手顺 SGF + 结构化着法；棋谱库位置索引另行推进）
 - [ ] `ConversationService` 增加 tool-capable 分支（OpenAI 兼容 `tools` / `tool_calls`）；**端点不支持工具时回退现有 C++ dispatch 路径**，保住 fallback 引擎 + 模板解说可用性
 - [ ] 有界环路：建议 `max_steps = 4`、`max_wallclock_ms = 3000`、取消复用现有 `generation_` 语义
@@ -169,8 +169,8 @@ title: VGO-AI-Harness-2026-扩展路线
 
 **建议的最小第一步（半天到一天产量）**
 
-1. 在 `src/ai/agent/` 建 `tool.h` + `tool_registry.h`，把 `evaluate_move` 与 `life_death_solve` 两个**已有**能力注册成工具——这是零新增算法、纯收益的动作。
+1. 在 `../../../src/ai/agent` 建 `tool.h` + `tool_registry.h`，把 `evaluate_move` 与 `life_death_solve` 两个 **已有**能力注册成工具——这是零新增算法、纯收益的动作。
 2. 同时把「当前讲解档位」徽标做进 UI（D5 中最便宜的一项，立竿见影消除静默降级）。
 3. 之后跑 D1 的有界环路，接 D2 校验闸门，此时 golden 集自然成型，再回头喂 D4 的评估闭环。
 
-**不建议做的事**：为了对齐概念而去接 MCP / 引入 Python 侧链 / 上重型 Agent 框架。本项目 harness 的正确形态就是 `src/ai/` 里一层无 Qt 的 C++ 编排，这正是现有代码分层已经铺好的路。
+**不建议做的事**：为了对齐概念而去接 MCP / 引入 Python 侧链 / 上重型 Agent 框架。本项目 harness 的正确形态就是 `../../../src/ai` 里一层无 Qt 的 C++ 编排，这正是现有代码分层已经铺好的路。

@@ -115,7 +115,7 @@ resources/skills/           Skills 知识包（可热更的 markdown 数据文�
 
 ## 文档
 
-- [`docs/AI-Harness-2026-扩展-设计.md`](docs/AI-Harness-2026-扩展-设计.md) — **2026 Harness 扩展设计与任务计划（D1–D5，已基本完成）**
+- [`docs/archive/v0.2.0/AI-Harness-2026-扩展-设计.md`](docs/archive/v0.2.0/AI-Harness-2026-扩展-设计.md) — **2026 Harness 扩展设计与任务计划（D1–D5，已基本完成）**
 - [`docs/长期任务清单.md`](docs/长期任务清单.md) — **长期任务 backlog（L 系列，持续进行）**
 
 > 历史设计与技术路线文档已归档至 [`docs/archive/`](docs/archive/)：
@@ -129,7 +129,7 @@ resources/skills/           Skills 知识包（可热更的 markdown 数据文�
 
 - **🔁 持续进行**：持续优化 LLM 模型的 Skills（L10）。
 - **🧪 待实测**：19 级难度真实 KataGo 标定（L1）、Grounding 校验器真实对拍（L11）、LLM 半提示完整实现（L9）。
-- **⬜ 未开始**：更细难度标定（L2）、眼形 / 要点死活求解（L3）、死活题（L4）、复盘分支回放（L7）、叙事级复盘（L8）、CommentaryPolicy（L12）、模型 / KataGo 升级检查（L14）、界面打磨（L15）。
-- **✅ 已完成**：SGF 标准棋谱读写（L5）、让子对弈（L6）、真实 KataGo / LLM 集成实测（L13）、LLM 网络层崩溃修复（L16）。
+- **⬜ 未开始**：更细难度标定（L2）、复盘分支回放（L7）、叙事级复盘（L8）、CommentaryPolicy（L12）、模型 / KataGo 升级检查（L14）、界面打磨（L15）。
+- **✅ 已完成**：SGF 标准棋谱读写（L5）、让子对弈（L6）、真实 KataGo / LLM 集成实测（L13）、LLM 网络层崩溃修复（L16）、**眼形 / 要点死活求解（L3，常型识别 + 引擎 probe 验证）**、**死活题（L4，题库 + 树内判题 + 生成器 + 标签页）**。
 
 > 优先级 P0（阻塞 / 持续）→ P1（计划内）→ P2（愿景）。
