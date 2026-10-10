@@ -237,6 +237,20 @@ TEST(a3_structure_contract_three_tiers_differ) {
     CHECK(expert.contains(QStringLiteral("坐标")));
 }
 
+// G6：结构契约不再是「一句话结论」式的可复述模板——措辞改为「先直接给出明确结论」，
+// 且明示不要把结构说明里的字样当作标题复述（治「一句话结论：」口头禅）。
+TEST(a3_structure_contract_no_parroted_header) {
+    // 新手/进阶档用「先直接给出明确结论」；高手档本就是要点式，无该措辞。
+    CHECK(buildStructureContract(5).contains(QStringLiteral("先直接给出明确结论")));
+    CHECK(buildStructureContract(9).contains(QStringLiteral("先直接给出明确结论")));
+    for (int level : {5, 9, 13}) {
+        const QString s = buildStructureContract(level);
+        CHECK(!s.contains(QStringLiteral("一句话结论")));       // 口头禅措辞已消除
+        CHECK(!s.contains(QStringLiteral("先给结论")));          // 旧进阶措辞已消除
+        CHECK(s.contains(QStringLiteral("不要把结构说明里的字样")));
+    }
+}
+
 TEST(a3_max_tokens_for_level) {
     CHECK_EQ(maxTokensForLevel(5), 1024);
     CHECK_EQ(maxTokensForLevel(9), 2048);
