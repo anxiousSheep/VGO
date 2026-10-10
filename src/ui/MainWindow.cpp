@@ -1258,6 +1258,8 @@ void MainWindow::clearConversationSession() {
     // A2：新对局 / 切换模式时清空多轮会话记忆（人机对弈经 startAi 重建服务，天然清零）。
     if (auto* h = dynamic_cast<vgo::HttpConversationService*>(conversation_))
         h->clearSession();
+    // G3-2：同步清空「上一次定式判定」状态，避免「演示这个定式」跨局串到旧定式。
+    if (advisor_) advisor_->resetJosekiDialogState();
 }
 
 bool MainWindow::usingHttp() const {

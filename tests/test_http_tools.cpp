@@ -366,6 +366,32 @@ TEST(http_user_prompt_omits_empty_blunder_notes) {
     CHECK(!s.contains(QStringLiteral("本局已提示的恶手")));
 }
 
+// G3-2：上一次定式判定注入 prompt，供「演示这个定式」消歧。
+TEST(http_user_prompt_injects_last_joseki) {
+    ConversationRequest req;
+    req.question = "演示这个定式";
+    req.size = 19;
+    req.to_move = Color::Black;
+    req.score_black = 0.0;
+    req.move_number = 2;
+    req.board_context = "X .";
+    req.last_joseki_context = "点三三（可用，apply 模式）";
+    const QString s = buildUserPrompt(req, QuestionClass::Other);
+    CHECK(s.contains(QStringLiteral("上一次定式判定：点三三（可用，apply 模式）")));
+}
+
+TEST(http_user_prompt_omits_empty_last_joseki) {
+    ConversationRequest req;
+    req.question = "演示这个定式";
+    req.size = 19;
+    req.to_move = Color::Black;
+    req.score_black = 0.0;
+    req.move_number = 2;
+    req.board_context = "X .";
+    const QString s = buildUserPrompt(req, QuestionClass::Other);
+    CHECK(!s.contains(QStringLiteral("上一次定式判定")));
+}
+
 // --- A4：差评坏样本往返 ---
 
 TEST(a4_bad_sample_user_downvote_roundtrip) {

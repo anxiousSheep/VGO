@@ -18,6 +18,7 @@ namespace vgo {
 class JosekiLibrary;
 class JosekiVerdictStore;
 class LifeDeathVerifier;
+struct JosekiDialogState;
 
 // Combines an Engine (analysis / candidate moves) with a ConversationService
 // (natural language) to answer questions about a position and explain the last
@@ -117,6 +118,9 @@ public:
         joseki_verdicts_ = std::move(s);
     }
 
+    // G3-2：清空上一次定式判定状态（换局 / 换模式时由 UI 调用，与 clearSession 同步）。
+    void resetJosekiDialogState();
+
     // 程序确定性输出来源：本局已提示的恶手预警（UI 注入，供 LLM 讲解上下文对齐）。
     void setBlunderNotesProvider(std::function<std::vector<BlunderNote>()> fn) {
         blunder_notes_fn_ = std::move(fn);
@@ -169,6 +173,7 @@ private:
     std::function<std::string()> weakness_fn_;      // D-a 讲解侧重
     std::shared_ptr<const JosekiLibrary> joseki_;   // A.5 定式词典（可空）
     std::shared_ptr<JosekiVerdictStore> joseki_verdicts_;  // §4.4.1 预仲裁注入（可空）
+    std::shared_ptr<JosekiDialogState> last_joseki_;  // G3-2 定式指代消歧状态（跨轮保留）
     std::function<std::vector<BlunderNote>()> blunder_notes_fn_;  // 本局恶手预警
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5

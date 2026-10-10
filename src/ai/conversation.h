@@ -125,6 +125,9 @@ struct ConversationRequest {
     // 定式目录索引（id + name + aliases，几十行），注入 system prompt 供 LLM 知道
     // 词典里有什么、避免编造词典外的定式（A.5）。
     std::string joseki_directory;
+    // G3-2：上一次定式判定（程序解析的指代事实，如「点三三（可用，apply 模式）」），
+    // 注入 prompt 让「演示这个定式」的「这个」由程序消歧，而非让 LLM 凭记忆猜名。空 = 无。
+    std::string last_joseki_context;
     // 程序已给出的确定性输出（如局中恶手预警），让 LLM 的讲解与 UI 已提示内容一致。
     std::vector<BlunderNote> blunder_notes;
 };

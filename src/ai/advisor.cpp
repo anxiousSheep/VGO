@@ -105,9 +105,16 @@ void verifyAndAnnotate(ConversationReply& r, const Board& board,
 }  // namespace
 
 AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation, int level)
-    : engine_(engine), conversation_(conversation), level_(level) {}
+    : engine_(engine),
+      conversation_(conversation),
+      level_(level),
+      last_joseki_(std::make_shared<JosekiDialogState>()) {}
 
 AiAdvisor::~AiAdvisor() = default;
+
+void AiAdvisor::resetJosekiDialogState() {
+    *last_joseki_ = JosekiDialogState{};
+}
 
 void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
@@ -421,6 +428,8 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
     // A.5：注入定式目录索引（几十行），让 LLM 知道词典里有什么、词典外别硬编。
     req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
+    // G3-2：注入上一次定式判定（程序解析的指代事实），供「演示这个定式」消歧。
+    req.last_joseki_context = renderJosekiDialogState(*last_joseki_);
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;
@@ -429,6 +438,7 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
         tool_ctx.analysis = req.facts.analysis;
         tool_ctx.joseki = joseki_;
         tool_ctx.joseki_verdicts = joseki_verdicts_;
+        tool_ctx.last_joseki = last_joseki_;  // G3-2：本轮 joseki_lookup 判定后回写，供下一轮消歧
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     // D2：校验闸门需要真值与棋盘快照（facts 已 move 进 req，先复制一份）。
@@ -588,6 +598,8 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
     req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
     // A.5：注入定式目录索引（几十行），让 LLM 知道词典里有什么、词典外别硬编。
     req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
+    // G3-2：注入上一次定式判定（程序解析的指代事实），供「演示这个定式」消歧。
+    req.last_joseki_context = renderJosekiDialogState(*last_joseki_);
     {
         AgentToolContext tool_ctx;
         tool_ctx.game = game;
@@ -595,6 +607,7 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
         tool_ctx.analysis = req.facts.analysis;
         tool_ctx.joseki = joseki_;
         tool_ctx.joseki_verdicts = joseki_verdicts_;
+        tool_ctx.last_joseki = last_joseki_;  // G3-2：本轮 joseki_lookup 判定后回写，供下一轮消歧
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     const GroundedFacts verify_facts = req.facts;

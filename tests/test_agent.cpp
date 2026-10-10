@@ -7,6 +7,8 @@
 #include "ai/agent/loop.h"
 #include "ai/agent/tool_registry.h"
 #include "ai/agent/trace.h"
+#include "ai/gtp.h"
+#include "ai/joseki.h"
 #include "ai/json.h"
 
 using namespace vgo;
@@ -350,4 +352,56 @@ TEST(trace_parse_rejects_garbage) {
     AgentTraceRecord r;
     CHECK(!parseTraceRecord("not json", &r));
     CHECK(!parseTraceRecord("", &r));
+}
+
+// G3-2：把上次定式判定渲染成硬事实句。
+TEST(render_joseki_dialog_state) {
+    JosekiDialogState s;
+    CHECK(renderJosekiDialogState(s).empty());  // 空状态 → 空串
+
+    s.name = "点三三";
+    s.applicable = true;
+    s.mode = "apply";
+    CHECK(renderJosekiDialogState(s).find("点三三（可用，apply 模式）") != std::string::npos);
+
+    s.applicable = false;
+    s.mode = "textbook";
+    CHECK(renderJosekiDialogState(s).find("点三三（当前不适用）") != std::string::npos);
+}
+
+// G3-2：joseki_lookup 判定后回写 last_joseki 共享状态（工具写状态）。
+TEST(joseki_lookup_writes_last_joseki) {
+    auto state = std::make_shared<JosekiDialogState>();
+
+    // 空盘：前提不满足 → applicable=false，但仍记录用户问过的定式名。
+    {
+        Game g(19);
+        AgentToolContext ctx;
+        ctx.game = g;
+        ctx.joseki = std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin());
+        ctx.last_joseki = state;
+        const ToolRegistry r = buildAgentTools(ctx);
+        const Tool* t = r.find("joseki_lookup");
+        CHECK(t != nullptr);
+        CHECK(t->invoke(R"({"name":"点三三"})").ok);
+        CHECK_EQ(state->name, std::string("点三三"));
+        CHECK(!state->applicable);
+    }
+
+    // 有星位锚：前提满足 → applicable=true + mode=apply。
+    {
+        Game g(19);
+        Point a;
+        CHECK(gtpParsePoint("Q16", 19, &a));
+        CHECK(g.play(a.x, a.y));
+        AgentToolContext ctx;
+        ctx.game = g;
+        ctx.joseki = std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin());
+        ctx.last_joseki = state;
+        const ToolRegistry r = buildAgentTools(ctx);
+        const Tool* t = r.find("joseki_lookup");
+        CHECK(t->invoke(R"({"name":"点三三"})").ok);
+        CHECK(state->applicable);
+        CHECK_EQ(state->mode, std::string("apply"));
+    }
 }

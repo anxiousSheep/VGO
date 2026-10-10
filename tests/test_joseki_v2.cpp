@@ -173,6 +173,8 @@ TEST(joseki_v2_parse_corner) {
 }
 
 // A.3 工具级：joseki_lookup 返回「适用性判定书」。
+// G3-1 瘦身：不适用条目收敛为 {name, summary, applicable:false, reason}，不再输出
+// preconditions/occupied_path/context/applicable_variants 等全量字段（指代歧义源头）。
 TEST(joseki_v2_tool_verdict_empty_board_not_satisfied) {
     Game g(19);
     AgentToolContext ctx;
@@ -185,16 +187,12 @@ TEST(joseki_v2_tool_verdict_empty_board_not_satisfied) {
     CHECK(res.ok);
     Json j;
     CHECK(parseJson(res.json, &j));
-    const Json* pre = j.get("preconditions");
-    CHECK(pre != nullptr);
-    CHECK_EQ(pre->get("satisfied")->asBool(), false);  // 空盘：缺对方星位子
-    // 模式仅 textbook，无 apply。
-    const Json* modes = j.get("modes_available");
-    CHECK(modes != nullptr && modes->isArray());
-    bool has_apply = false;
-    for (const Json& m : modes->array)
-        if (m.asString() == "apply") has_apply = true;
-    CHECK(!has_apply);
+    CHECK(j.get("preconditions") == nullptr);      // 瘦身：无全量字段
+    CHECK(j.get("modes_available") == nullptr);
+    CHECK(j.get("applicable_variants") == nullptr);
+    CHECK_EQ(j.get("applicable")->asBool(), false);  // 空盘：缺对方星位子
+    CHECK(j.get("summary")->asString().find("不适用") != std::string::npos);
+    CHECK(j.get("reason") != nullptr);
 }
 
 TEST(joseki_v2_tool_verdict_with_anchor_satisfied) {

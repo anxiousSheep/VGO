@@ -296,6 +296,12 @@ QString buildUserPrompt(const ConversationRequest& req, QuestionClass cls) {
                                              : QString::fromStdString(req.demo_moves));
     }
 
+    // G3-2：上一次定式判定（程序解析的指代事实）。用户说「演示这个定式/就它了」时，
+    // 「这个」指的就是这里给的定式，不要凭记忆自行更换定式名。
+    if (!req.last_joseki_context.empty()) {
+        s += QStringLiteral("上一次定式判定：%1\n").arg(QString::fromStdString(req.last_joseki_context));
+    }
+
     s += QStringLiteral("\n棋手的问题：%1").arg(QString::fromStdString(req.question));
     return s;
 }
@@ -314,7 +320,8 @@ QJsonArray buildTools(const ToolRegistry* reg) {
         "在棋盘上演示走法：进入试下模式，可回退若干步、落一手假设手，并用权威 AI 续下若干手。"
         "当用户要求演示、展示变化、模拟对局、询问后续应对、局部变化或「后面几步怎么下」时调用。"
         "当用户点名定式/具体变化时，先用 joseki_lookup 取判定书（applicable_variants 的 "
-        "sequence），再用 sequence 逐手演示。");
+        "sequence），再用 sequence 逐手演示。"
+        "演示目标定式若在上一轮判定书中已出现，优先使用该定式名，不要自行更换。");
 
     QJsonObject pPoint;
     pPoint["type"] = "string";

@@ -51,6 +51,13 @@ const char* ldStatusStr(LDStatus s) {
 
 // G4-1/G3-1：程序预生成的人话摘要（顶层 summary），供 LLM 直接转述，而非逐字段朗读
 // 判定书的 JSON 键名（治「内部参数泄露」与「指代漂移」两个现象）。
+std::string josekiReason(const PrecondReport& pre, int size) {
+    if (!pre.missing.empty()) return pre.missing[0];
+    if (!pre.occupied_path.empty())
+        return "路径点 " + gtpPoint(pre.occupied_path[0], size) + " 已被占";
+    return "当前局面不适用";
+}
+
 std::string josekiSummary(const JosekiEntry& e, const PrecondReport& pre, bool demonstrable) {
     std::string s = "「" + e.name + "」";
     if (pre.satisfied && demonstrable) {
@@ -58,19 +65,21 @@ std::string josekiSummary(const JosekiEntry& e, const PrecondReport& pre, bool d
     } else if (pre.satisfied) {
         s += "前提满足，但无可演示的定式线";
     } else {
-        s += "目前不适用：";
-        if (!pre.missing.empty()) {
-            s += pre.missing[0];
-        } else if (!pre.occupied_path.empty()) {
-            s += "路径点 " + gtpPoint(pre.occupied_path[0], e.size) + " 已被占";
-        } else {
-            s += "当前局面不适用";
-        }
+        s += "目前不适用：" + josekiReason(pre, e.size);
     }
     return s;
 }
 
 }  // namespace
+
+// G3-2：把上次定式判定渲染成硬事实句，供 buildUserPrompt 注入。
+std::string renderJosekiDialogState(const JosekiDialogState& s) {
+    if (s.name.empty()) return {};
+    std::string out = s.name;
+    if (s.applicable) out += "（可用，" + s.mode + " 模式）";
+    else out += "（当前不适用）";
+    return out;
+}
 
 ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
     auto c = std::make_shared<AgentToolContext>(ctx);
@@ -237,6 +246,28 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
             const Board& board = c->game.board();
             const Color invader = josekiInvader(*e);
             const PrecondReport pre = checkPreconditions(board, *e, corner);
+
+            // G3-1 判定书瘦身：不适用条目只回 name/summary/applicable/reason，把指代
+            // 歧义的源头（occupied_path/context/applicable_variants 等全量字段）从上下文
+            // 里拿掉。同时写入 last_joseki（用户问过的定式名），供下一轮「演示这个定式」消歧。
+            if (!pre.satisfied) {
+                if (c->last_joseki) {
+                    JosekiDialogState st;
+                    st.id = e->id;
+                    st.name = e->name;
+                    st.applicable = false;
+                    st.mode = "textbook";
+                    *c->last_joseki = st;
+                }
+                r.json = dumpJson(Json::makeObject({
+                    {"name", Json::makeString(e->name)},
+                    {"summary", Json::makeString(josekiSummary(*e, pre, false))},
+                    {"applicable", Json::makeBool(false)},
+                    {"reason", Json::makeString(josekiReason(pre, e->size))},
+                }));
+                return r;
+            }
+
             const CornerContext ctx = classifyContext(board, *e, corner, invader);
             const std::vector<int> sel = selectVariants(board, *e, corner, invader);
 
@@ -290,10 +321,21 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
                 }
             }
 
+            // G3-2：写入本次判定（适用且可演示 → apply），供下一轮「演示这个定式」消歧。
+            if (c->last_joseki) {
+                JosekiDialogState st;
+                st.id = e->id;
+                st.name = e->name;
+                st.applicable = any_demonstrable;
+                st.mode = any_demonstrable ? "apply" : "textbook";
+                *c->last_joseki = st;
+            }
+
             r.json = dumpJson(Json::makeObject({
                 {"id", Json::makeString(e->id)},
                 {"name", Json::makeString(e->name)},
                 {"summary", Json::makeString(josekiSummary(*e, pre, any_demonstrable))},
+                {"applicable", Json::makeBool(true)},
                 {"applies_to_formation", Json::makeString(e->applies_to_formation)},
                 {"corner", Json::makeString(cornerName(corner))},
                 {"size", Json::makeNumber(static_cast<double>(e->size))},

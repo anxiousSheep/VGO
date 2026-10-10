@@ -1,6 +1,8 @@
 #include "test_framework.h"
 
 #include "ai/advisor.h"
+#include "ai/gtp.h"
+#include "ai/joseki.h"
 #include "ai/template_conversation.h"
 
 using namespace vgo;
@@ -278,6 +280,43 @@ TEST(advisor_other_question_does_not_block_on_engine) {
     CHECK(conv.got);                  // 仍能应答
     CHECK_EQ(eng.analyze_calls, 0);   // 不再阻塞式取分析
     CHECK_EQ(eng.move_calls, 0);
+}
+
+// G3-2：advisor 把 last_joseki 传入工具快照，下一轮把「上一次定式判定」渲染进
+// req.last_joseki_context——「演示这个定式」的「这个」由程序消歧，而非 LLM 凭记忆猜名。
+TEST(advisor_injects_last_joseki_context) {
+    struct CaptureConversation : ConversationService {
+        ToolRegistry registry;
+        ConversationRequest captured;
+        void setTools(ToolRegistry tools) override { registry = std::move(tools); }
+        void answer(const ConversationRequest& req, Callback cb) override {
+            captured = req;
+            cb(ConversationReply{});
+        }
+    };
+    ScriptedEngine eng;
+    CaptureConversation conv;
+    AiAdvisor a(&eng, &conv, 5);
+    a.setJosekiLibrary(std::make_shared<const JosekiLibrary>(JosekiLibrary::builtin()));
+
+    Game g(19);
+    Point anchor;
+    CHECK(gtpParsePoint("Q16", 19, &anchor));
+    CHECK(g.play(anchor.x, anchor.y));
+
+    // 首问：无上次判定 → last_joseki_context 为空。
+    a.ask(g, "适合哪些定式", [](const ConversationReply&) {});
+    CHECK(conv.captured.last_joseki_context.empty());
+
+    // 模拟模型调用 joseki_lookup（工具快照共享 advisor 的 last_joseki 状态）。
+    const Tool* t = conv.registry.find("joseki_lookup");
+    CHECK(t != nullptr);
+    CHECK(t->invoke(R"({"name":"点三三"})").ok);
+
+    // 二问：上次判定已写入 → 渲染成硬事实注入 prompt。
+    a.ask(g, "演示这个定式", [](const ConversationReply&) {});
+    CHECK(conv.captured.last_joseki_context.find("点三三（可用，apply 模式）") !=
+          std::string::npos);
 }
 
 // D1.8：prewarmAnalysis 用 Background 优先级预热 last_analysis_；随后 Other 问题的
