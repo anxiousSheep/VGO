@@ -47,7 +47,12 @@ std::string renderRecommendedShape(const Board& board, const GroundedFacts& fact
     if (sp.x < 0) return {};
     const ShapeFact sf = classifyMove(board, sp, sp_mover);
     if (sf.term.empty() || sf.term == "普通落子") return {};
-    return sf.relation + "，术语为「" + sf.term + "」";
+    // G2：附上推荐点的空间事实（区域/线数/方位），供 LLM 转述「右上角、三线」等方位。
+    const PointGeo geo = describePoint(board, sp);
+    std::string out = "推荐点位于" + geo.region + "、第 " + std::to_string(geo.line) + " 线";
+    if (!geo.nearby.empty()) out += "，" + geo.nearby;
+    out += "；" + sf.relation + "，术语为「" + sf.term + "」";
+    return out;
 }
 
 // 把校验结果压缩成 trace 里的一档：none / pass / corrected / unverifiable。
