@@ -1,0 +1,19 @@
+{
+  "id": "hoshi-sansan-invasion",
+  "name": "点三三",
+  "aliases": ["三三入侵", "点33", "点三·三"],
+  "corner": "UR",
+  "size": 19,
+  "trigger": "对方星位占角，己方直接点三三夺角",
+  "sequence": [
+    {"move": "R17", "by": "white", "note": "直接点入三三，意图夺角"},
+    {"move": "Q17", "by": "black", "note": "挡，必然"},
+    {"move": "Q18", "by": "white", "note": "爬，求活的关键"},
+    {"move": "P17", "by": "black", "note": "长"},
+    {"move": "S17", "by": "white", "note": "再爬"},
+    {"move": "S16", "by": "black", "note": "扳，封锁"},
+    {"move": "R18", "by": "white", "note": "扳活角，黑得外势"}
+  ],
+  "choices": "黑外围有配合时可选连扳强封；白需注意点三三时机过早会亏损",
+  "source": "json"
+}

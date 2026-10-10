@@ -5,9 +5,10 @@
 namespace vgo {
 
 // What a new game is: placement (human arranges stones, AI only answers),
-// human-vs-AI, review (replay an imported record), or the daily puzzle
-// (re-solve one of the learner's own blunders, D3.5「每日一题」).
-enum class GameMode { Placement, HumanVsAi, Review, DailyPuzzle };
+// human-vs-AI, review (replay an imported record), the daily puzzle
+// (re-solve one of the learner's own blunders, D3.5「每日一题」), or the
+// tsumego (life-and-death problem) drill (C.5 死活题).
+enum class GameMode { Placement, HumanVsAi, Review, DailyPuzzle, Tsumego };
 
 // Parameters produced by the New Game dialog. Immutable once a game starts.
 struct GameSetup {

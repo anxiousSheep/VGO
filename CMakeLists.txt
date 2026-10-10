@@ -70,6 +70,18 @@ add_library(vgo_ai STATIC
     src/ai/evaluate.cpp
     src/ai/lifedeath.h
     src/ai/lifedeath.cpp
+    src/ai/symmetry.h
+    src/ai/symmetry.cpp
+    src/ai/joseki.h
+    src/ai/joseki.cpp
+    src/ai/lifedeath_shape.h
+    src/ai/lifedeath_shape.cpp
+    src/ai/lifedeath_verify.h
+    src/ai/lifedeath_verify.cpp
+    src/ai/probe.h
+    src/ai/probe.cpp
+    src/ai/tsumego.h
+    src/ai/tsumego.cpp
     src/ai/json.h
     src/ai/json.cpp
     src/ai/degradation.h
@@ -131,6 +143,13 @@ add_executable(vgo_ai_tests
     tests/test_variation.cpp
     tests/test_evaluate.cpp
     tests/test_lifedeath.cpp
+    tests/test_symmetry.cpp
+    tests/test_joseki.cpp
+    tests/test_lifedeath_shape.cpp
+    tests/test_lifedeath_verify.cpp
+    tests/test_probe.cpp
+    tests/test_tsumego_judge.cpp
+    tests/test_tsumego_load.cpp
     tests/test_record.cpp
     tests/test_sgf.cpp
     tests/test_agent.cpp
@@ -240,6 +259,13 @@ target_link_libraries(vgo_integration_check PRIVATE vgo_ai_qt vgo_model Qt6::Cor
 add_executable(vgo_quality_eval
     tools/quality_eval.cpp
 )
+
+# 死活题生成器（C.3，离线，用 L3 常型库摆题，不进 CTest）。
+add_executable(vgo_tsumego_gen
+    tools/tsumego_gen.cpp
+)
+target_include_directories(vgo_tsumego_gen PRIVATE src)
+target_link_libraries(vgo_tsumego_gen PRIVATE vgo_ai)
 target_include_directories(vgo_quality_eval PRIVATE src)
 target_link_libraries(vgo_quality_eval PRIVATE vgo_ai_qt vgo_model Qt6::Core)
 

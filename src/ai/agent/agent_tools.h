@@ -1,7 +1,10 @@
 #pragma once
 
+#include <memory>
+
 #include "../analysis.h"
 #include "../go/game.h"
+#include "../joseki.h"
 
 #include "tool_registry.h"
 
@@ -13,6 +16,8 @@ struct AgentToolContext {
     Game game;              // position snapshot (territory / move count)
     OwnershipMap ownership; // may be empty (fallback engine)
     Analysis analysis;      // may be invalid (fallback engine)
+    // 定式词典（可空；由 UI 注入的 library 共享指针，工具据此查定式）。
+    std::shared_ptr<const JosekiLibrary> joseki;
 };
 
 // Registers the existing deterministic capabilities as model-callable tools:

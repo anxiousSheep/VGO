@@ -11,12 +11,14 @@
 #include "ai/game_setup.h"
 #include "ai/learner/learner_model.h"
 #include "ai/record.h"
+#include "ai/tsumego.h"
 #include "ai/variation.h"
 #include "go/game.h"
 
 class QLabel;
 class QAction;
 class QDockWidget;
+class QJsonArray;
 class QJsonObject;
 class QStackedWidget;
 class QTabBar;
@@ -37,6 +39,7 @@ struct Analysis;
 struct MoveEvaluation;
 struct GroundedFacts;
 struct DemoRequest;
+class JosekiLibrary;
 }
 
 // Main window: hosts a mode tab bar (摆棋 / 人机对弈 / 复盘) above a shared
@@ -83,6 +86,8 @@ private slots:
                            std::string* placed);
     std::vector<vgo::Move> collectAiMoves(int plies);
     bool requestDemoMoveSync(const vgo::Board& b, vgo::Color to_move, vgo::Move* out);
+    // A.4：逐手摆完固定线（定式 sequence），复用 enterDemoAndPlace 的校验 + commitStep。
+    int playFixedSequence(const QJsonArray& seq, std::string* err);
 
     // 教学增强（M3b）
     void onBlunderToggled(bool on);
@@ -95,6 +100,11 @@ private slots:
     void enterDailyPuzzle();
     void onDailyAnswer(int x, int y);
     void skipDailyProblem();
+
+    // 死活题（C.5）：进入标签页 / 判题 / 换一题
+    void enterTsumego();
+    void onTsumegoAnswer(int x, int y);
+    void skipTsumegoProblem();
 
 private:
     void applySetup(const vgo::GameSetup& setup);
@@ -134,6 +144,8 @@ private:
     // 教学增强（M3b）
     void maybeWarnBlunder();
     void loadSkills();
+    void loadJoseki();  // A.5：定式词典双源加载（builtin + resources/joseki/*.json）
+    void loadTsumego();  // C.5：死活题库双源加载（builtin + resources/tsumego/*.json）
 
     // 学习者画像（D3）：恶手采集 + 每局摘要落盘
     void recordGameSummary();
@@ -159,6 +171,7 @@ private:
     bool analysis_kata_ = false;                    // 形势判断是否由 KataGo 提供（D5.4）
     vgo::ConversationService* conversation_ = nullptr;
     vgo::AiAdvisor* advisor_ = nullptr;
+    std::shared_ptr<const vgo::JosekiLibrary> joseki_library_;  // A.5 定式词典（热更）
 
     vgo::GobanWidget* board_view_ = nullptr;
     QStackedWidget* central_stack_ = nullptr;      // 棋盘 / 复盘空态 两页
@@ -214,6 +227,16 @@ private:
     bool daily_solved_ = false;               // 已过关（不再判题）
     QWidget* daily_placeholder_ = nullptr;    // 无题空态引导
     QAction* skipDailyAction_ = nullptr;      // 「换一题」
+
+    // 死活题（C.5）：题库 + 判题状态（镜像每日一题）
+    std::shared_ptr<const vgo::TsumegoLibrary> tsumego_library_;
+    std::unique_ptr<vgo::Game> tsumego_game_;        // 由题面快照重建的局面
+    vgo::TsumegoProblem tsumego_problem_;            // 当前题目
+    std::vector<std::pair<vgo::Color, vgo::Move>> tsumego_path_;  // 已走路径
+    bool tsumego_ready_ = false;
+    bool tsumego_solved_ = false;
+    std::size_t tsumego_index_ = 0;                  // 当前题索引（浏览题库用）
+    QAction* skipTsumegoAction_ = nullptr;           // 「换一题」
 
     // 人机对弈空态：未开始对局时显示「新对局」大按钮（取代空棋盘）。
     QWidget* newgame_placeholder_ = nullptr;

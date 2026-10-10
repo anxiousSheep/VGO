@@ -312,6 +312,35 @@ std::string renderMoveEvaluation(const MoveEvaluation& e, int size) {
 }
 
 std::string renderLifeDeath(const LifeDeathResult& r, int size) {
+    // L3：有常型/状态结论时给出明确（可追溯到验证来源）的判读。
+    if (!r.shape.empty() || r.status != LDStatus::Unknown) {
+        if (r.group.empty()) return "当前没有能被确认判死的棋。";
+        std::ostringstream os;
+        os << "这块棋" << (r.shape.empty() ? "" : ("是" + r.shape));
+        switch (r.status) {
+            case LDStatus::Dead: os << "，对方抢占要点即死"; break;
+            case LDStatus::Unsettled: os << "，先手相关（先手死）"; break;
+            case LDStatus::Alive: os << "，是活形"; break;
+            case LDStatus::Unknown: break;
+        }
+        if (!r.kill_points.empty()) {
+            os << "，对方走 ";
+            for (std::size_t i = 0; i < r.kill_points.size() && i < 3; ++i)
+                os << gtpPoint(r.kill_points[i], size) << ' ';
+            os << "可杀";
+        }
+        if (!r.live_points.empty()) {
+            os << "，己方补 ";
+            for (std::size_t i = 0; i < r.live_points.size() && i < 3; ++i)
+                os << gtpPoint(r.live_points[i], size) << ' ';
+            os << "可活";
+        }
+        if (r.verification == LDVerify::EngineVerified) os << "（KataGo 已验证）";
+        else if (r.verification == LDVerify::PatternOnly) os << "（按常型）";
+        os << "。";
+        return os.str();
+    }
+    // 旧逻辑：无 L3 结论时维持一句话判读。
     if (r.alive || r.group.empty()) return "当前没有能被确认判死的棋。";
     std::ostringstream os;
     os << "有一块棋被判死：";

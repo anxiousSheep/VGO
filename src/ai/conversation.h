@@ -122,6 +122,9 @@ struct ConversationRequest {
     std::string phase;          // B2 局面阶段："布局"/"中盘"/"官子"
     std::string move_sequence;  // B2 最近手顺："黑 H6、白 G5、…"，空 = 无历史
     std::string weakness_directive;  // D-a 教学侧重指令（注入 system prompt），可为空
+    // 定式目录索引（id + name + aliases，几十行），注入 system prompt 供 LLM 知道
+    // 词典里有什么、避免编造词典外的定式（A.5）。
+    std::string joseki_directory;
     // 程序已给出的确定性输出（如局中恶手预警），让 LLM 的讲解与 UI 已提示内容一致。
     std::vector<BlunderNote> blunder_notes;
 };

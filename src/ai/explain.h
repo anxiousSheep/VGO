@@ -46,12 +46,26 @@ struct MoveEvaluation {
     std::string note;             // e.g. "非法落子（该点不可下）"
 };
 
+// L3 死活状态：Alive/Dead = 直判结论；Unsettled = 先手相关（先手死/劫/特殊型）；
+// Unknown = 常型未识别且无引擎结论。
+enum class LDStatus { Alive, Dead, Unsettled, Unknown };
+// 结论来源：PatternOnly = 常型直判（无引擎）；EngineVerified = KataGo probe 验证；
+// None = 无死活结论。
+enum class LDVerify { PatternOnly, EngineVerified, None };
+
 // A deterministic life-and-death verdict for the largest confidently-dead group.
 struct LifeDeathResult {
     std::vector<Point> group;         // the dead block (empty if none)
-    bool alive = true;                // no confident dead group
+    bool alive = true;                // no confident dead group（由 status 派生，保留兼容）
     std::vector<Point> saving_moves;  // candidate moves that might save it
     std::string reason;
+    // —— L3 新增 ——
+    LDStatus status = LDStatus::Unknown;
+    LDVerify verification = LDVerify::None;
+    std::string shape;                       // 常型名（"刀五"），空 = 未识别
+    std::vector<Point> eye_space;            // 眼位区域（供 UI 高亮）
+    std::vector<Point> kill_points;          // 杀棋要点（已验证优先）
+    std::vector<Point> live_points;          // 做活要点（已验证优先）
 };
 
 struct GroundedFacts {

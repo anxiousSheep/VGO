@@ -7,6 +7,7 @@
 #include "../gtp.h"
 #include "../json.h"
 #include "../lifedeath.h"
+#include "../lifedeath_shape.h"
 #include "../ownership.h"
 #include "../record.h"
 #include "../sgf.h"
@@ -37,6 +38,15 @@ bool parsePointArg(const std::string& args, const std::string& key, int size, Po
     return true;
 }
 
+const char* ldStatusStr(LDStatus s) {
+    switch (s) {
+        case LDStatus::Alive:     return "alive";
+        case LDStatus::Dead:      return "dead";
+        case LDStatus::Unsettled: return "unsettled";
+        default:                  return "unknown";
+    }
+}
+
 }  // namespace
 
 ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
@@ -65,52 +75,149 @@ ToolRegistry buildAgentTools(const AgentToolContext& ctx) {
     {
         Tool t;
         t.name = "life_death_solve";
-        t.description = "判断某块棋（或盘面最大的一块死棋）的死活，并给出可能的做活点。";
+        t.description =
+            "判断某块棋（或盘面最大的一块死棋）的死活，识别常型（刀五/直三/方四等）并给出"
+            "杀棋/做活要点。纯棋形分析，无需引擎；无引擎时只按常型判断。";
         t.json_schema =
             "{\"type\":\"object\",\"properties\":{\"group\":{\"type\":\"string\","
             "\"description\":\"要判断的棋块上的一个 GTP 坐标（如 C3），省略则判断盘面最大死棋\"}},"
             "\"required\":[]}";
         t.invoke = [c](const std::string& args) -> ToolResult {
             ToolResult r;
-            if (c->ownership.empty()) {
-                r.ok = false;
-                r.error = "需要 KataGo 归属分析才能判断死活";
-                return r;
-            }
+            const Board& board = c->game.board();
             Point anchor{-1, -1};
             if (!parsePointArg(args, "group", c->game.size(), &anchor)) {
                 r.ok = false;
                 r.error = "非法坐标";
                 return r;
             }
-            LifeDeathResult ld;
-            if (anchor.x >= 0 && c->game.board().at(anchor.x, anchor.y) != Color::Empty) {
-                const auto groups = deadGroups(c->game.board(), c->ownership);
-                for (const auto& grp : groups) {
-                    bool hit = false;
-                    for (const Point& p : grp) {
-                        if (p == anchor) { hit = true; break; }
-                    }
-                    if (hit) {
-                        ld.group = grp;
-                        ld.alive = false;
-                        ld.saving_moves = savingCandidates(c->game.board(), grp);
-                        ld.reason = "该点所在棋块被判死";
-                        break;
-                    }
+            std::vector<Point> group;
+            if (anchor.x >= 0) {
+                if (board.at(anchor.x, anchor.y) == Color::Empty) {
+                    r.ok = false;
+                    r.error = "该坐标是空点，请给棋块上的一颗子";
+                    return r;
                 }
-                if (ld.group.empty()) {
-                    ld.alive = true;
-                    ld.reason = "该点所在棋块未被判死";
+                group = board.group(anchor.x, anchor.y);
+            } else if (!c->ownership.empty()) {
+                const auto groups = deadGroups(board, c->ownership);
+                if (!groups.empty()) {
+                    group = groups[0];
+                    for (const auto& g : groups)
+                        if (g.size() > group.size()) group = g;
                 }
-            } else {
-                ld = analyzeLifeDeath(c->game.board(), c->ownership);
+            }
+            if (group.empty()) {
+                // 无 anchor 且无死棋归属：空结论（不再硬失败）。
+                r.json = dumpJson(Json::makeObject({
+                    {"alive", Json::makeBool(true)},
+                    {"group", Json::makeArray({})},
+                    {"shape", Json::makeString("")},
+                    {"status", Json::makeString("unknown")},
+                    {"verification", Json::makeString("none")},
+                    {"reason",
+                     Json::makeString("未给出棋块坐标，且无引擎归属分析可定位死棋")},
+                }));
+                return r;
+            }
+            // L3 常型识别（纯逻辑，无引擎）。
+            const ShapeAnalysis sa = analyzeShape(board, group);
+            // alive：优先引擎归属（deadStones 判死）；无引擎时由常型状态派生。
+            bool alive = true;
+            if (!c->ownership.empty()) {
+                const auto dead = deadStones(board, c->ownership, 0.8);
+                for (const Point& p : group) {
+                    bool isDead = false;
+                    for (const Point& d : dead)
+                        if (d == p) { isDead = true; break; }
+                    if (isDead) { alive = false; break; }
+                }
+            } else if (sa.status == LDStatus::Dead || sa.status == LDStatus::Unsettled) {
+                alive = false;
+            }
+            std::vector<Point> saving = sa.live_points;
+            if (saving.empty() && !alive) saving = savingCandidates(board, group);
+            const std::string reason = sa.shape.empty() ? "未能识别常型" : ("常型：" + sa.shape);
+            r.json = dumpJson(Json::makeObject({
+                {"alive", Json::makeBool(alive)},
+                {"group", pointsToJson(group, c->game.size())},
+                {"saving_moves", pointsToJson(saving, c->game.size())},
+                {"shape", Json::makeString(sa.shape)},
+                {"status", Json::makeString(ldStatusStr(sa.status))},
+                {"eye_space", pointsToJson(sa.eye_space, c->game.size())},
+                {"kill_points", pointsToJson(sa.kill_points, c->game.size())},
+                {"live_points", pointsToJson(sa.live_points, c->game.size())},
+                {"verification", Json::makeString("pattern_only")},
+                {"reason", Json::makeString(reason)},
+            }));
+            return r;
+        };
+        r.registerTool(t);
+    }
+
+    {
+        // A.3：定式词典查询。返回定式的完整走法序列（已投影到目标角）。
+        Tool t;
+        t.name = "joseki_lookup";
+        t.description =
+            "查询定式词典：按名称/别名匹配一条定式（点三三、小飞挂、托退等），返回其完整走法"
+            "序列（可投影到指定角）。当用户点名定式/具体变化时先调用它。";
+        t.json_schema =
+            "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":"
+            "\"定式名称或别名\"},\"corner\":{\"type\":\"string\",\"description\":\"目标角 "
+            "UR/UL/BL/BR，默认 UR\"}},\"required\":[\"name\"]}";
+        t.invoke = [c](const std::string& args) -> ToolResult {
+            ToolResult r;
+            if (!c->joseki) {
+                r.ok = false;
+                r.error = "这个定式我还没收录";
+                return r;
+            }
+            Json j;
+            if (!parseJson(args, &j) || !j.isObject()) {
+                r.ok = false;
+                r.error = "非法参数";
+                return r;
+            }
+            const Json* name = j.get("name");
+            if (!name || !name->isString() || name->string.empty()) {
+                r.ok = false;
+                r.error = "缺少 name";
+                return r;
+            }
+            const JosekiEntry* e = c->joseki->find(name->string);
+            if (!e) {
+                r.ok = false;
+                r.error = "这个定式我还没收录";
+                return r;
+            }
+            if (e->size != c->game.size()) {
+                r.ok = false;
+                r.error = "该定式适用于 " + std::to_string(e->size) + " 路棋盘（当前 " +
+                          std::to_string(c->game.size()) + " 路）";
+                return r;
+            }
+            const Json* corner = j.get("corner");
+            const std::string cornerStr =
+                (corner && corner->isString()) ? corner->string : "UR";
+            const std::vector<JosekiMove> seq = projectToCorner(e->sequence, e->size, cornerStr);
+            std::vector<Json> seqArr;
+            seqArr.reserve(seq.size());
+            for (const JosekiMove& m : seq) {
+                seqArr.push_back(Json::makeObject({
+                    {"move", Json::makeString(gtpPoint(m.p, e->size))},
+                    {"by", Json::makeString(m.by == Color::Black ? "black" : "white")},
+                    {"note", Json::makeString(m.note)},
+                }));
             }
             r.json = dumpJson(Json::makeObject({
-                {"alive", Json::makeBool(ld.alive)},
-                {"group", pointsToJson(ld.group, c->game.size())},
-                {"saving_moves", pointsToJson(ld.saving_moves, c->game.size())},
-                {"reason", Json::makeString(ld.reason)},
+                {"id", Json::makeString(e->id)},
+                {"name", Json::makeString(e->name)},
+                {"trigger", Json::makeString(e->trigger)},
+                {"corner", Json::makeString(cornerStr)},
+                {"size", Json::makeNumber(static_cast<double>(e->size))},
+                {"sequence", Json::makeArray(std::move(seqArr))},
+                {"choices", Json::makeString(e->choices)},
             }));
             return r;
         };

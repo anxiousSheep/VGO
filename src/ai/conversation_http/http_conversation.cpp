@@ -98,6 +98,11 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     }
     // A3：分级讲解结构契约（三档语气 + 结构 + 长度约定），替代原先「简短/口语化」一刀切。
     s += buildStructureContract(req.profile.level);
+    // A.5 定式能力声明：有词典先查词典，词典外诚实说「还没收录」，不要硬编（治根因 3）。
+    s += QStringLiteral(
+        "你有一个定式词典（joseki_lookup 工具）。遇到定式、点三三、小飞挂、托退、双飞燕等"
+        "提问，先调用 joseki_lookup 取走法序列，再用 demonstrate_go_moves 的 sequence 参数逐手"
+        "演示。词典里没有的定式，诚实说「这个定式我还没收录」，绝不硬编走法。\n");
     // D3.6：注入跨局教练记忆——让 LLM 知道用户最近的弱项（如「最近在打劫上吃亏」），
     // 仅在相关时自然提及，不要突兀复述。
     if (!req.coach_memory.empty()) {
@@ -122,6 +127,11 @@ QString buildSystemPrompt(const SkillRegistry& skills, QuestionClass cls,
     for (const Skill* sk : skills.select(cls, req.question, 3)) {
         s += QStringLiteral("\n【%1】%2")
                  .arg(QString::fromStdString(sk->name), QString::fromStdString(sk->prompt));
+    }
+    // A.5 定式目录注入：让模型知道词典里有哪些定式（只含索引，几十行）。
+    if (!req.joseki_directory.empty()) {
+        s += QStringLiteral("\n【定式词典目录】\n");
+        s += QString::fromStdString(req.joseki_directory);
     }
     return s;
 }
@@ -290,7 +300,8 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     fn["name"] = "demonstrate_go_moves";
     fn["description"] = QStringLiteral(
         "在棋盘上演示走法：进入试下模式，可回退若干步、落一手假设手，并用权威 AI 续下若干手。"
-        "当用户要求演示、展示变化、模拟对局、询问后续应对、局部变化或「后面几步怎么下」时调用。");
+        "当用户要求演示、展示变化、模拟对局、询问后续应对、局部变化或「后面几步怎么下」时调用。"
+        "当用户点名定式/具体变化时，先用 joseki_lookup 取序列，再用 sequence 逐手演示。");
 
     QJsonObject pPoint;
     pPoint["type"] = "string";
@@ -312,6 +323,22 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     pUndo["description"] = QStringLiteral(
         "回退到第 k 手之前（保留前 k-1 手，撤销第 k 手及之后的所有手）。"
         "例如用户说「重新假设/改第9手」就传 9；省略或 0 = 不回退");
+    QJsonObject pSeqItem;
+    pSeqItem["type"] = "object";
+    pSeqItem["properties"] = QJsonObject{
+        {"move", QJsonObject{{"type", QStringLiteral("string")},
+                             {"description", QStringLiteral("GTP 坐标，如 C3")}}},
+        {"color",
+         QJsonObject{{"type", QStringLiteral("string")},
+                     {"enum", QJsonArray{QStringLiteral("black"), QStringLiteral("white")}},
+                     {"description", QStringLiteral("执子方，可省（省则跟随行棋方）")}}},
+    };
+    QJsonObject pSequence;
+    pSequence["type"] = "array";
+    pSequence["items"] = pSeqItem;
+    pSequence["description"] = QStringLiteral(
+        "固定线手顺（如定式词典返回的 sequence）：先逐手摆完这一串，再用权威 AI 续下。"
+        "非空时按序摆子；例如点三三定式。");
 
     QJsonObject props;
     props["point"] = pPoint;
@@ -319,6 +346,7 @@ QJsonArray buildTools(const ToolRegistry* reg) {
     props["plies"] = pPlies;
     props["reset"] = pReset;
     props["undo_to"] = pUndo;
+    props["sequence"] = pSequence;
 
     QJsonObject params;
     params["type"] = "object";

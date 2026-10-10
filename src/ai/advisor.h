@@ -15,6 +15,9 @@
 
 namespace vgo {
 
+class JosekiLibrary;
+class LifeDeathVerifier;
+
 // Combines an Engine (analysis / candidate moves) with a ConversationService
 // (natural language) to answer questions about a position and explain the last
 // move. Shared by the placement mode (the UI asks directly) and human-vs-AI
@@ -25,6 +28,7 @@ public:
     using ReplyCb = std::function<void(const ConversationReply&)>;
 
     AiAdvisor(EngineInterface* engine, ConversationService* conversation, int level);
+    ~AiAdvisor();  // 定义在 .cpp，保证 LifeDeathVerifier 完整类型可见（unique_ptr 析构）
 
     // Answer `question` about the current position of `game`.
     void ask(const Game& game, const std::string& question, ReplyCb cb);
@@ -102,6 +106,9 @@ public:
         weakness_fn_ = std::move(fn);
     }
 
+    // A.5：注入定式词典（热更后共享指针），供 joseki_lookup 工具 + 目录注入。
+    void setJosekiLibrary(std::shared_ptr<const JosekiLibrary> lib) { joseki_ = std::move(lib); }
+
     // 程序确定性输出来源：本局已提示的恶手预警（UI 注入，供 LLM 讲解上下文对齐）。
     void setBlunderNotesProvider(std::function<std::vector<BlunderNote>()> fn) {
         blunder_notes_fn_ = std::move(fn);
@@ -134,6 +141,7 @@ private:
     // D1.8：由同一份归属分析统一派生死棋清单与死活结论（工具/硬事实/校验同源）。
     void groundFromAnalysis(const Game& game, const Analysis& a, GroundedFacts* f);
     MoveEvaluator* evaluator();
+    LifeDeathVerifier* verifier();  // L4 引擎验证（懒初始化，与分析引擎同源）
 
     EngineInterface* engine_;
     EngineInterface* analysis_engine_ = nullptr;  // 形势判断专用，可空
@@ -144,12 +152,14 @@ private:
     Color user_color_ = Color::Empty;
     Analysis last_analysis_;
     std::unique_ptr<MoveEvaluator> move_evaluator_;
+    std::unique_ptr<LifeDeathVerifier> life_death_verifier_;  // L4 引擎验证
     int generation_ = 0;
     int prewarm_generation_ = 0;  // D1.8：预热请求代际（旧结果丢弃，不影响 generation_）
     bool demo_active_ctx_ = false;   // 试下模式上下文（供 LLM 判断继续/重置）
     std::string demo_moves_;
     std::function<std::string()> coach_memory_fn_;  // D3.6
     std::function<std::string()> weakness_fn_;      // D-a 讲解侧重
+    std::shared_ptr<const JosekiLibrary> joseki_;   // A.5 定式词典（可空）
     std::function<std::vector<BlunderNote>()> blunder_notes_fn_;  // 本局恶手预警
     std::function<void(const AgentTraceRecord&)> trace_sink_;  // D5.6
     std::function<void(const BadSample&)> bad_sample_sink_;    // D2.5

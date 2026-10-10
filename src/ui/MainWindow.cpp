@@ -40,6 +40,7 @@
 #include "ai/engine_pool.h"
 #include "ai/fallback_engine.h"
 #include "ai/gtp.h"
+#include "ai/joseki.h"
 #include "ai/session.h"
 #include "go/handicap.h"
 #include "ai/sgf.h"
@@ -172,6 +173,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     mode_bar_->addTab(QStringLiteral("人机对弈"));
     mode_bar_->addTab(QStringLiteral("复盘"));
     mode_bar_->addTab(QStringLiteral("每日一题"));
+    mode_bar_->addTab(QStringLiteral("死活题"));
     mode_bar_->setExpanding(false);
     connect(mode_bar_, &QTabBar::currentChanged, this, &MainWindow::onModeChanged);
 
@@ -279,6 +281,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     analyzeAction_->setEnabled(false);  // 无 KataGo 时隐藏/禁用（见 createAiServices）
     // 每日一题（D3.5）：换一题（跳到下一道到期习题）。
     skipDailyAction_ = new QAction(QStringLiteral("换一题"), this);
+    // 死活题（C.5）：换一题。
+    skipTsumegoAction_ = new QAction(QStringLiteral("换一题"), this);
     auto* actQuit = new QAction(QStringLiteral("退出"), this);
     actQuit->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
     auto* actSettings = new QAction(QStringLiteral("模型设置…"), this);
@@ -295,6 +299,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(nextAction_, &QAction::triggered, this, [this] { stepReview(1); });
     connect(analyzeAction_, &QAction::toggled, this, &MainWindow::onAnalyzeToggled);
     connect(skipDailyAction_, &QAction::triggered, this, &MainWindow::skipDailyProblem);
+    connect(skipTsumegoAction_, &QAction::triggered, this, &MainWindow::skipTsumegoProblem);
     connect(actQuit, &QAction::triggered, qApp, &QApplication::quit);
     connect(actSettings, &QAction::triggered, this, &MainWindow::openModelSettings);
 
@@ -316,6 +321,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     gameMenu->addAction(nextAction_);
     gameMenu->addSeparator();
     gameMenu->addAction(skipDailyAction_);
+    gameMenu->addAction(skipTsumegoAction_);
     gameMenu->addSeparator();
     gameMenu->addAction(actQuit);
 
@@ -457,6 +463,8 @@ vgo::Game* MainWindow::currentGame() const {
             return review_game_.get();
         case vgo::GameMode::DailyPuzzle:
             return daily_game_.get();
+        case vgo::GameMode::Tsumego:
+            return tsumego_game_.get();
         case vgo::GameMode::Placement:
         default:
             return game_;
@@ -542,6 +550,8 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
     }
     if (!conversation_) conversation_ = new vgo::TemplateConversation();
     loadSkills();  // N4：按问题类型注入围棋知识包（可从 skills/ 目录热更）
+    loadJoseki();  // A.5：定式词典双源加载（builtin + resources/joseki/*.json）
+    loadTsumego();  // C.5：死活题库双源加载（builtin + resources/tsumego/*.json）
     // 给 LLM 挂上「打开演示并模拟下棋」的工具（function-calling），让模型自己决定
     // 何时演示、演示哪一手（解析自然语言），而非靠关键词。
     if (auto* h = dynamic_cast<vgo::HttpConversationService*>(conversation_)) {
@@ -554,6 +564,7 @@ void MainWindow::createAiServices(int level, double kyu_hint) {
     advisor_->setAnalysisEngine(analysis_engine_ ? analysis_engine_ : engine_);
     advisor_->setAnalysisLevel(vgo::ModelManager::instance().analysisLevel());
     advisor_->setKyuHint(kyu_hint);  // D3.4：新手难度爬坡（「我该下哪」口径一致）
+    advisor_->setJosekiLibrary(joseki_library_);  // A.5：定式词典供工具与目录注入
     // D3.6：把跨局教练记忆注入 prompt（隐私开关关闭或暂无数据时为空）。
     advisor_->setCoachMemoryProvider([this]() -> std::string {
         if (!learner_ || !learner_->enabled()) return {};
@@ -777,9 +788,11 @@ void MainWindow::onModeChanged(int index) {
         case 1: app_mode_ = vgo::GameMode::HumanVsAi; break;
         case 2: app_mode_ = vgo::GameMode::Review; break;
         case 3: app_mode_ = vgo::GameMode::DailyPuzzle; break;
+        case 4: app_mode_ = vgo::GameMode::Tsumego; break;
         default: return;
     }
     if (app_mode_ == vgo::GameMode::DailyPuzzle) enterDailyPuzzle();
+    if (app_mode_ == vgo::GameMode::Tsumego) enterTsumego();
     refresh();
     updateActionsForMode();
 }
@@ -894,6 +907,7 @@ void MainWindow::updateActionsForMode() {
     const bool ai = (app_mode_ == vgo::GameMode::HumanVsAi);
     const bool review = (app_mode_ == vgo::GameMode::Review);
     const bool daily = (app_mode_ == vgo::GameMode::DailyPuzzle);
+    const bool tsumego = (app_mode_ == vgo::GameMode::Tsumego);
     const int n = static_cast<int>(review_record_.moves.size());
 
     // 菜单/工具栏从属当前标签页：只显示本模式相关动作（隐藏而非置灰）。
@@ -909,11 +923,13 @@ void MainWindow::updateActionsForMode() {
     nextAction_->setVisible(review);         // 下一步：复盘
     if (blunderAction_) blunderAction_->setVisible(ai);  // 局中预警：对弈
     skipDailyAction_->setVisible(daily);     // 换一题：每日一题
+    skipTsumegoAction_->setVisible(tsumego);  // 换一题：死活题
 
     // 复盘导航随光标可用/不可用。
     prevAction_->setEnabled(review && review_cursor_ > 0);
     nextAction_->setEnabled(review && review_cursor_ < n);
     skipDailyAction_->setEnabled(daily);
+    skipTsumegoAction_->setEnabled(tsumego);
 }
 
 void MainWindow::updateModeView() {
@@ -982,6 +998,10 @@ void MainWindow::onPointClicked(int x, int y) {
     }
     if (app_mode_ == vgo::GameMode::DailyPuzzle) {
         onDailyAnswer(x, y);
+        return;
+    }
+    if (app_mode_ == vgo::GameMode::Tsumego) {
+        onTsumegoAnswer(x, y);
         return;
     }
     if (app_mode_ == vgo::GameMode::HumanVsAi) {
@@ -1634,6 +1654,37 @@ std::vector<vgo::Move> MainWindow::collectAiMoves(int plies) {
     return moves;
 }
 
+int MainWindow::playFixedSequence(const QJsonArray& seq, std::string* err) {
+    vgo::Game* g = currentGame();
+    if (!g) {
+        if (err) *err = "当前没有棋局";
+        return -1;
+    }
+    int placed = 0;
+    for (const QJsonValue& item : seq) {
+        const QJsonObject m = item.toObject();
+        const QString move = m["move"].toString();
+        vgo::Point p;
+        if (!vgo::gtpParsePoint(move.toStdString(), g->size(), &p)) {
+            if (err) *err = "非法坐标：" + move.toStdString();
+            return -1;
+        }
+        vgo::Color color = vgo::Color::Empty;
+        const QString c = m["color"].toString().toLower();
+        if (c == "black") color = vgo::Color::Black;
+        else if (c == "white") color = vgo::Color::White;
+        std::string placedStr;
+        // 首手从对局棋盘重建演示（reset），后续续下；任一非法立即中止。
+        if (!enterDemoAndPlace(p, color, /*reset=*/placed == 0, /*undo=*/0, &placedStr)) {
+            if (err) *err = placedStr;
+            return -1;
+        }
+        ++placed;
+    }
+    if (err) err->clear();
+    return placed;
+}
+
 std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& args) {
     if (name != QStringLiteral("demonstrate_go_moves")) return "未知工具";
     if (demo_busy_) return "正在演示中，请稍候";
@@ -1659,7 +1710,16 @@ std::string MainWindow::handleDemoTool(const QString& name, const QJsonObject& a
     }
 
     std::string placed;
-    if (!enterDemoAndPlace(p, color, reset, undo, &placed)) return placed;
+    // A.4：sequence 非空 → 逐手摆固定线（定式词典线），否则走既有单点假设手路径。
+    const QJsonArray seq = args["sequence"].toArray();
+    if (!seq.isEmpty()) {
+        std::string err;
+        const int fixed = playFixedSequence(seq, &err);
+        if (fixed < 0) return err;
+        placed = "按定式摆出 " + std::to_string(fixed) + " 手";
+    } else if (!enterDemoAndPlace(p, color, reset, undo, &placed)) {
+        return placed;
+    }
 
     // 同步跑完权威 AI 续下，拿到具体坐标，再回传给 LLM，避免「没有具体坐标」。
     const std::vector<vgo::Move> moves = collectAiMoves(plies);
@@ -1871,6 +1931,117 @@ void MainWindow::skipDailyProblem() {
     enterDailyPuzzle();
 }
 
+void MainWindow::loadTsumego() {
+    // C.5：死活题库双源——builtin 起步，再用 resources/tsumego/*.json 热更加载。
+    auto lib = std::make_shared<vgo::TsumegoLibrary>(vgo::TsumegoLibrary::builtin());
+    const QStringList dirs = {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/tsumego"),
+        QCoreApplication::applicationDirPath() + QStringLiteral("/../resources/tsumego"),
+        vgo::ModelManager::instance().dataDir() + QStringLiteral("/tsumego"),
+    };
+    for (const QString& dir : dirs) {
+        QDir d(dir);
+        if (!d.exists()) continue;
+        const QStringList files = d.entryList({QStringLiteral("*.json")}, QDir::Files);
+        for (const QString& f : files) {
+            QFile file(d.filePath(f));
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            const QByteArray bytes = file.readAll();
+            std::string err;
+            if (!lib->fromJsonText(QString::fromUtf8(bytes).toStdString(), &err)) {
+                appendNote(QStringLiteral("死活题加载失败（%1）：%2")
+                               .arg(f, QString::fromStdString(err)));
+            }
+        }
+    }
+    tsumego_library_ = std::move(lib);
+}
+
+void MainWindow::enterTsumego() {
+    if (demo_active_) exitDemo();
+    tsumego_ready_ = false;
+    tsumego_solved_ = false;
+    tsumego_game_.reset();
+    tsumego_problem_ = vgo::TsumegoProblem{};
+    tsumego_path_.clear();
+
+    chat_->clear();
+    replies_.clear();
+    feedback_ts_.clear();
+    if (!tsumego_library_ || tsumego_library_->size() == 0) {
+        appendNote(QStringLiteral("死活题：暂无题目。"));
+        refresh();
+        return;
+    }
+    const auto& all = tsumego_library_->all();
+    tsumego_index_ %= all.size();
+    tsumego_problem_ = all[tsumego_index_];
+    vgo::Board b;
+    if (!vgo::boardFromSnapshot(tsumego_problem_.snapshot, tsumego_problem_.size, &b)) {
+        appendNote(QStringLiteral("死活题：题目快照损坏，换下一题。"));
+        ++tsumego_index_;
+        enterTsumego();
+        return;
+    }
+    tsumego_game_ = std::make_unique<vgo::Game>(b, tsumego_problem_.to_move);
+    tsumego_ready_ = true;
+    appendNote(QStringLiteral("死活题 · %1\n%2（%3，%4）")
+                   .arg(QString::fromStdString(tsumego_problem_.id))
+                   .arg(QString::fromStdString(tsumego_problem_.goal))
+                   .arg(QString::fromStdString(tsumego_problem_.theme))
+                   .arg(QString::fromStdString(tsumego_problem_.difficulty)));
+}
+
+void MainWindow::onTsumegoAnswer(int x, int y) {
+    if (app_mode_ != vgo::GameMode::Tsumego) return;
+    if (!tsumego_ready_ || tsumego_solved_ || !tsumego_game_) return;
+    if (!tsumego_game_->is_legal(x, y)) {
+        status_->setText(QStringLiteral("该位置不能落子（已占/自杀/打劫）"));
+        return;
+    }
+    const vgo::Move user{vgo::Point{x, y}, false};
+    const vgo::TsumegoJudgement j =
+        vgo::judgeTsumegoMove(tsumego_problem_, tsumego_path_, user);
+    switch (j.judge) {
+        case vgo::TsumegoJudge::Correct: {
+            tsumego_game_->play(x, y);
+            tsumego_path_.emplace_back(tsumego_problem_.to_move, user);
+            // 树内自动应手（对方）。
+            const vgo::Color respBy = vgo::opponent(tsumego_problem_.to_move);
+            for (const vgo::Move& resp : j.response) {
+                if (resp.is_pass || !tsumego_game_->is_legal(resp.p.x, resp.p.y)) continue;
+                tsumego_game_->play(resp.p.x, resp.p.y);
+                tsumego_path_.emplace_back(respBy, resp);
+            }
+            refresh();
+            if (!j.comment.empty()) status_->setText(QString::fromStdString(j.comment));
+            break;
+        }
+        case vgo::TsumegoJudge::Solved: {
+            tsumego_game_->play(x, y);
+            tsumego_solved_ = true;
+            refresh();
+            board_view_->setHighlight({vgo::Point{x, y}});
+            const QString msg = QStringLiteral("答对了！%1").arg(QString::fromStdString(j.comment));
+            status_->setText(msg);
+            appendNote(msg);
+            break;
+        }
+        case vgo::TsumegoJudge::Wrong:
+            status_->setText(QStringLiteral("这手不对：%1").arg(QString::fromStdString(j.comment)));
+            break;
+        case vgo::TsumegoJudge::OffTree:
+            status_->setText(QStringLiteral("这手超出题库变化，交引擎裁判（尚未接入）"));
+            break;
+    }
+}
+
+void MainWindow::skipTsumegoProblem() {
+    if (app_mode_ != vgo::GameMode::Tsumego) return;
+    ++tsumego_index_;
+    enterTsumego();
+}
+
 void MainWindow::loadSkills() {
     auto* http = dynamic_cast<vgo::HttpConversationService*>(conversation_);
     if (!http) return;
@@ -1895,6 +2066,32 @@ void MainWindow::loadSkills() {
         }
     }
     http->setSkills(std::move(reg));
+}
+
+void MainWindow::loadJoseki() {
+    // A.5：定式词典双源——builtin 起步，再用 resources/joseki/*.json 热更 upsert。
+    auto lib = std::make_shared<vgo::JosekiLibrary>(vgo::JosekiLibrary::builtin());
+    const QStringList dirs = {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/joseki"),
+        QCoreApplication::applicationDirPath() + QStringLiteral("/../resources/joseki"),
+        vgo::ModelManager::instance().dataDir() + QStringLiteral("/joseki"),
+    };
+    for (const QString& dir : dirs) {
+        QDir d(dir);
+        if (!d.exists()) continue;
+        const QStringList files = d.entryList({QStringLiteral("*.json")}, QDir::Files);
+        for (const QString& f : files) {
+            QFile file(d.filePath(f));
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            const QByteArray bytes = file.readAll();
+            std::string err;
+            if (!lib->fromJsonText(QString::fromUtf8(bytes).toStdString(), &err)) {
+                appendNote(QStringLiteral("定式加载失败（%1）：%2")
+                               .arg(f, QString::fromStdString(err)));
+            }
+        }
+    }
+    joseki_library_ = std::move(lib);
 }
 
 void MainWindow::updateStatus() {
@@ -1923,6 +2120,20 @@ void MainWindow::updateStatus() {
                                  .arg(daily_problem_.to_move == vgo::Color::Black
                                           ? QStringLiteral("黑")
                                           : QStringLiteral("白")));
+        }
+        return;
+    }
+
+    if (app_mode_ == vgo::GameMode::Tsumego) {
+        if (tsumego_solved_) {
+            status_->setText(QStringLiteral("死活题：已解出 ✓"));
+        } else {
+            status_->setText(QStringLiteral("死活题（%1）：轮到%2，%3。")
+                                 .arg(QString::fromStdString(tsumego_problem_.id),
+                                      tsumego_problem_.to_move == vgo::Color::Black
+                                          ? QStringLiteral("黑")
+                                          : QStringLiteral("白"),
+                                      QString::fromStdString(tsumego_problem_.goal)));
         }
         return;
     }

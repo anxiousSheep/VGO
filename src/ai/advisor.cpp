@@ -6,7 +6,10 @@
 
 #include "agent/agent_tools.h"
 #include "engine_pool.h"
+#include "joseki.h"
 #include "lifedeath.h"
+#include "lifedeath_shape.h"
+#include "lifedeath_verify.h"
 #include "ownership.h"
 #include "phase.h"
 #include "strength.h"
@@ -95,6 +98,8 @@ void verifyAndAnnotate(ConversationReply& r, const Board& board,
 
 AiAdvisor::AiAdvisor(EngineInterface* engine, ConversationService* conversation, int level)
     : engine_(engine), conversation_(conversation), level_(level) {}
+
+AiAdvisor::~AiAdvisor() = default;
 
 void AiAdvisor::ask(const Game& game, const std::string& question, ReplyCb cb) {
     if (!conversation_) return;
@@ -237,6 +242,7 @@ void AiAdvisor::cancel() {
     ++generation_;
     if (conversation_) conversation_->cancel();
     if (move_evaluator_) move_evaluator_->cancel();
+    if (life_death_verifier_) life_death_verifier_->cancel();
     // D5.4：取消分析池（丢弃排队的形势刷新 / 恶手量化 + 取消在途分析）。守卫：
     // 当分析引擎回退到落子引擎（无 KataGo）时不要取消落子引擎——那是 controller 的职责。
     if (analysis_engine_ && analysis_engine_ != engine_) analysis_engine_->cancel();
@@ -250,6 +256,14 @@ MoveEvaluator* AiAdvisor::evaluator() {
         move_evaluator_->setStrength(strengthForLevel(analysis_level_));
     }
     return move_evaluator_.get();
+}
+
+LifeDeathVerifier* AiAdvisor::verifier() {
+    if (!life_death_verifier_) {
+        life_death_verifier_ = std::make_unique<LifeDeathVerifier>(
+            analysis_engine_ ? analysis_engine_ : engine_, strengthForLevel(analysis_level_));
+    }
+    return life_death_verifier_.get();
 }
 
 void AiAdvisor::evaluateMove(const Game& game, const Point& p, MoveEvaluator::Callback cb) {
@@ -308,6 +322,26 @@ void AiAdvisor::handleLifeDeath(const Game& game, const std::string& question, R
                            GroundedFacts f = currentFacts(snapshot);
                            f.analysis = a;
                            groundFromAnalysis(snapshot, a, &f);  // D1.8：死棋/死活与 analysis 同源
+                           // L4 引擎验证：常型已给出要点时，用 probe 双向验证并覆盖结论。
+                           if (f.life_death && !f.life_death->group.empty() &&
+                               (!f.life_death->kill_points.empty() ||
+                                !f.life_death->live_points.empty())) {
+                               const LifeDeathResult pattern = *f.life_death;
+                               const Color defender =
+                                   snapshot.board().at(pattern.group[0].x, pattern.group[0].y);
+                               verifier()->verify(
+                                   snapshot.board(), defender, pattern.group,
+                                   pattern.kill_points, pattern.live_points,
+                                   [this, gen, snapshot, question, cb, f = std::move(f),
+                                    pattern](LifeDeathResult v) mutable {
+                                       if (gen != generation_) return;
+                                       v.shape = pattern.shape;
+                                       v.eye_space = pattern.eye_space;
+                                       f.life_death = v;
+                                       deliverAnswer(snapshot, question, std::move(f), cb);
+                                   });
+                               return;
+                           }
                            deliverAnswer(snapshot, question, std::move(f), cb);
                        });
 }
@@ -318,6 +352,16 @@ void AiAdvisor::groundFromAnalysis(const Game& game, const Analysis& a, Grounded
     if (!a.ownership.empty()) {
         f->dead_groups = deadGroups(game.board(), a.ownership);
         f->life_death = analyzeLifeDeath(game.board(), a.ownership);
+        // L3：对最大死棋块跑常型识别，填 shape/status/要点（纯逻辑，无引擎）。
+        if (!f->life_death->group.empty()) {
+            const ShapeAnalysis sa = analyzeShape(game.board(), f->life_death->group);
+            f->life_death->shape = sa.shape;
+            f->life_death->status = sa.status;
+            f->life_death->eye_space = sa.eye_space;
+            f->life_death->kill_points = sa.kill_points;
+            f->life_death->live_points = sa.live_points;
+            if (!sa.shape.empty()) f->life_death->verification = LDVerify::PatternOnly;
+        }
     }
 }
 
@@ -367,12 +411,15 @@ void AiAdvisor::deliverAnswer(const Game& game, const std::string& question,
     req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
     // 程序确定性输出：本局已提示的恶手预警，让 LLM 讲解与 UI 已提示内容一致。
     req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
+    // A.5：注入定式目录索引（几十行），让 LLM 知道词典里有什么、词典外别硬编。
+    req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
     // D1：把当前局面的确定性能力注册为工具，交给模型自主调用（而非关键词分发）。
     {
         AgentToolContext tool_ctx;
         tool_ctx.game = game;
         tool_ctx.ownership = req.facts.analysis.ownership;
         tool_ctx.analysis = req.facts.analysis;
+        tool_ctx.joseki = joseki_;
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     // D2：校验闸门需要真值与棋盘快照（facts 已 move 进 req，先复制一份）。
@@ -530,11 +577,14 @@ void AiAdvisor::deliverAnswerStream(const Game& game, const std::string& questio
     req.weakness_directive = weakness_fn_ ? weakness_fn_() : std::string{};
     // 程序确定性输出：本局已提示的恶手预警，让 LLM 讲解与 UI 已提示内容一致。
     req.blunder_notes = blunder_notes_fn_ ? blunder_notes_fn_() : std::vector<BlunderNote>{};
+    // A.5：注入定式目录索引（几十行），让 LLM 知道词典里有什么、词典外别硬编。
+    req.joseki_directory = joseki_ ? joseki_->directoryIndex() : std::string{};
     {
         AgentToolContext tool_ctx;
         tool_ctx.game = game;
         tool_ctx.ownership = req.facts.analysis.ownership;
         tool_ctx.analysis = req.facts.analysis;
+        tool_ctx.joseki = joseki_;
         conversation_->setTools(buildAgentTools(tool_ctx));
     }
     const GroundedFacts verify_facts = req.facts;

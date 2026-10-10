@@ -127,6 +127,21 @@ TEST(illegal_coord_refused) {
     CHECK(!res.ok);
 }
 
+// B.5：无引擎（ownership 为空）时不再硬失败，退化为 PatternOnly 空结论。
+TEST(life_death_solve_degrades_without_engine) {
+    Game g(9);
+    AgentToolContext ctx;
+    ctx.game = g;  // ownership 为空
+    const ToolRegistry r = buildAgentTools(ctx);
+    const Tool* t = r.find("life_death_solve");
+    CHECK(t != nullptr);
+    const ToolResult res = t->invoke("{}");
+    CHECK(res.ok);
+    const Json j = resultOf(*t);
+    CHECK_EQ(j.get("status")->asString(), std::string("unknown"));
+    CHECK_EQ(j.get("verification")->asString(), std::string("none"));
+}
+
 TEST(sgf_lookup_position_returns_handseq) {
     Game g(9);
     g.play(3, 3);   // Black "dd"
