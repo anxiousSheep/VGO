@@ -5,8 +5,8 @@
 | 输入 | `docs/VGO-定式死活-完整可靠设计方案.md`（v3.0 专家报告，可靠性整合定稿） |
 | 产出 | 三条线（定式 v2 / L3 死活常型 / L4 死活题）+ 共享基础设施 S0 的工程级实现路线 |
 | 基线 | v1.1 路线及其失败实现已回滚；本文是**回陆的唯一依据文档** |
-| 版本 | v2.0 |
-| 修订 | v2.0：依据专家报告 v3.0 全量重写。定式线从「最小闭环」升级为「五层 v2（谓词 + 变体树 + 引擎仲裁 + 三模式）」，新增 `board_predicates` 与 `probe` 共享设施，纳入 14 行多面情况矩阵与回陆顺序 F0–F3 |
+| 版本 | v2.1 |
+| 修订 | v2.0：依据专家报告 v3.0 全量重写。定式线从「最小闭环」升级为「五层 v2（谓词 + 变体树 + 引擎仲裁 + 三模式）」，新增 `board_predicates` 与 `probe` 共享设施，纳入 14 行多面情况矩阵与回陆顺序 F0–F3。v2.1（评审后）：M1 修正「回滚不干净」误述（§1.2 重写 + 开工前 `git diff d29b96f` 核实门）；M2 新增 §4.4.1 apply 门禁闭合（预仲裁注入，无 verdict 一律降级 textbook）；另采纳空序列变体只作建议、probe 双向汇合防竞态、替身引擎列 F0 首件 |
 
 ---
 
@@ -29,7 +29,7 @@
 
 ## 1. 代码基线回源（接入点锚定 + 回滚后处置）
 
-> **定位纪律**：行号仅为本次回源快照，会随提交漂移；实现时一律**以符号名（函数/类型）定位**，行号只作参考。下表语义与文件归属均已对照 master 源码核实。
+> **定位纪律**：行号仅为本次回源快照，会随提交漂移；实现时一律**以符号名（函数/类型）定位**，行号只作参考。⚠️ 因回滚不干净（见 §1.2），下表行号取自**带 v1.1 残留的工作区**，非干净 master——`buildSystemPrompt` 在 `origin/master` 为 L28、残留工作区为 L82 即是一例。
 
 ### 1.1 接入点锚定
 
@@ -56,23 +56,33 @@
 | SGF | `src/ai/sgf.h` `parseSgf` | **只读主变线**（变分支跳过）→ L4 用 JSON 不用 SGF 树的根因 |
 | 谓词引擎 / probe 协议 | **不存在** | 需新增（v3.0 的核心新设施） |
 
-### 1.2 回滚后工作区残留的处置
+### 1.2 回滚真相与残留处置（开工 F0 前必修）
 
-回滚后工作区仍残留失败尝试（v1.1 路线）的**未跟踪文件**。回陆时按下表处置，**不得照单全收**：
+**回滚并不干净**：回滚动作是 `git reset` 到 `d29b96f`（"修复：AI 输出被 max_tokens 截断"），只把 3 个失败提交（`2d7266f` 文档 v1.0、`a067fc5` 文档 v1.1、`9438927` 实现）从**历史**移除；但 `reset`（mixed）**把它们的改动原样留在了工作区**——追踪文件并未回到 master 状态。实测工作区相对 `d29b96f` 仍有 **~532 行未提交残留，横跨 12 个 `src/` 追踪文件**（另含 `CMakeLists.txt`、`README.md`），另有大量未跟踪新文件。§1.1 的行号即取自这个「带残留的工作区」而非干净 master，**一律只作参考、以符号名定位**。
 
-| 残留文件 | v1.1 内容 | v3.0 处置 |
+**开工 F0 前必须 `git diff d29b96f` 逐文件核对**，把残留分成「v3.0 保留」与「v1.1 丢弃」两堆，确认无未登记残留（重点：`MainWindow.cpp` +213、`agent_tools.cpp` +167、`advisor.cpp` +50、`http_conversation.cpp` +30）：
+
+| 残留（相对 d29b96f） | v1.1 内容 | v3.0 处置 |
 |---|---|---|
-| `src/ai/symmetry.h/.cpp` | 8 对称 + `canonicalize` + 角投影 | **复用**，补坐标帧往返 CTest（§3.1） |
-| `src/ai/joseki.h/.cpp` | 单条 `sequence` 词典（无前提/变体） | **重写**为变体树词典（§4.1）；`projectToCorner` 保留复用 |
-| `src/ai/lifedeath_shape.h/.cpp` | L1/L2/L3 纯逻辑 | **复用**，先修常型数据标注（§5.2 回陆必修） |
-| `src/ai/lifedeath_verify.h/.cpp` | L4 双向 probe（内联） | **重构**：抽出共享 `probe` 协议（§3.3），定式仲裁复用 |
-| `src/ai/tsumego.h/.cpp` | 题模型 + 判题 + 加载 | **复用**（v3.0 L4 与 v1.1 一致） |
-| `tests/test_symmetry.cpp` 等 6 个 | v1.1 测试 | `test_symmetry/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*` 保留增强；`test_joseki.cpp` 重写为 `test_joseki_v2.cpp` |
-| `resources/joseki/*.json` | 单条线 schema | **重写**为变体树 schema（§4.1） |
-| `resources/lifeshapes/*.json`、`resources/tsumego/*.json` | 常型/题数据 | 常型数据修正后复用；题目复用 |
-| `tools/tsumego_gen.cpp` | 生成器 | 复用，补「解树根要点 = 常型 vital 反投影」自检（§6.3） |
-
-> 已回滚到 master 的**追踪文件改动**（`advisor.*`、`agent_tools.*`、`explain.*`、`game_setup.h`、`MainWindow.*`、`http_conversation.cpp`、`conversation.h`、`CMakeLists.txt`、`README.md`）中，`explain.h` 的 `LifeDeathResult` 扩展字段、`game_setup.h` 的 `GameMode::Tsumego`、`AgentToolContext.joseki` 属于 v3.0 仍然需要的改动，回陆时**保留**；其余按本文各节重做。
+| `src/ai/symmetry.h/.cpp`（新） | 8 对称 + `canonicalize` + 角投影 | **复用**，补坐标帧往返 CTest（§3.1） |
+| `src/ai/joseki.h/.cpp`（新） | 单条 `sequence` 词典（无前提/变体） | **重写**为变体树词典（§4.1）；`projectToCorner` 保留 |
+| `src/ai/lifedeath_shape.h/.cpp`（新） | L1/L2/L3 纯逻辑 | **复用**，先修常型数据标注（§5.2） |
+| `src/ai/lifedeath_verify.h/.cpp`（新） | L4 双向 probe（内联） | **重构**：抽出共享 `probe`（§3.3），定式仲裁复用 |
+| `src/ai/tsumego.h/.cpp`（新） | 题模型 + 判题 + 加载 | **复用**（v3.0 L4 与 v1.1 一致） |
+| `tests/test_symmetry.cpp` 等 6 个（新） | v1.1 测试 | `test_symmetry/test_lifedeath_shape/test_lifedeath_verify/test_tsumego_*` 保留增强；`test_joseki.cpp` 重写为 `test_joseki_v2.cpp` |
+| `resources/joseki/*.json`（新） | 单条线 schema | **重写**为变体树 schema（§4.1） |
+| `resources/lifeshapes/*.json`、`resources/tsumego/*.json`（新） | 常型/题数据 | 常型数据修正后复用；题目复用 |
+| `tools/tsumego_gen.cpp`（新） | 生成器 | 复用，补「根要点 == vital 反投影」自检（§6.3） |
+| `src/ai/explain.h`（+16） | `LifeDeathResult` 新字段 | **保留**（v3.0 §5.6 需要） |
+| `src/ai/game_setup.h`（+7） | `GameMode::Tsumego` | **保留**（v3.0 §6.4 需要） |
+| `src/ai/agent_tools.h`（+5） | `AgentToolContext.joseki` 字段 | **保留字段、升级语义**：单序列词典 → 判定书/verdict（§4.4.1） |
+| `src/ai/agent_tools.cpp`（+167） | `joseki_lookup` 返回单序列 | **重写**为返回适用性判定书（§4.6） |
+| `src/ai/http_conversation.cpp`（+30） | `joseki_lookup` 能力声明、`joseki_directory` 注入、`sequence` 参数声明 | `joseki_directory`/`sequence` **保留**；能力声明**改写**为判定书语义；补 `mode` 参数（§4.6） |
+| `src/ui/MainWindow.h/.cpp`（+23/+213） | `playFixedSequence`、`loadJoseki`、tsumego UI、`handleDemoTool` sequence 处理 | `playFixedSequence`/`loadJoseki`/tsumego UI **保留**；`handleDemoTool` **重构**为三模式（§3.4） |
+| `src/ai/advisor.h/.cpp`（+10/+50） | `setJosekiLibrary`、死活接入 | `setJosekiLibrary` **保留**；补预仲裁注入路径（§4.4.1） |
+| `src/ai/conversation.h`（+3） | `joseki_directory` 字段 | **保留** |
+| `src/ai/explain.cpp`（+29） | `renderLifeDeath` 升级 | **保留** |
+| `tests/test_agent.cpp`（+15） | `joseki_lookup` 测试 | **重写**（对齐判定书返回） |
 
 ---
 
@@ -156,7 +166,8 @@ CornerContext classifyContext(const Board& b, const JosekiEntry& e, Corner c, Co
 - 复用 `EnginePool::analyzePrioritized`（`engine_pool.h:80`，Interactive 优先级）与 `MoveEvaluator` 的「棋盘副本试下」模式；
 - **只复制 `Board`，不复制整局 `Game`**（`evaluate.cpp` 的教训：收官 Game 含 ~300KB 历史）；
 - 异步、有界（交换手数上限、超时诚实降级）；结果按 position hash 缓存（复用 explain_cache 模式）；
-- 测试用**替身引擎**（确定性假 analyze），保证 CTest hermetic。
+- 测试用**替身引擎**（确定性假 analyze），保证 CTest hermetic；
+- **双向汇合语义（防竞态）**：死活验证的攻/守两方向 probe 独立异步，靠「世代号 + 请求计数」汇合——每次 `verify` 递增 `generation_`，两方向回调各自携带发起时的世代号，**只有两个回调都带当前世代才合成四态结论**，迟到/过期回调直接丢弃。残留 `lifedeath_verify` 的 `generation_` 模式即此用途，抽出到 `probe` 后保留。
 
 ```cpp
 class Probe {
@@ -181,6 +192,8 @@ public:
 | `collectAiMoves(plies)` | 固定线摆完后的引擎续下（既有，`MainWindow.cpp:1635`） |
 
 `auto` 分流逻辑：L1 谓词求值 → `satisfied` 走 apply 流，否则走 refuse 流（§4.5）。`textbook` 强制先 `setupPreconditions()` 再走线；`apply` 在当前角摆线。
+
+> **apply 门禁（见 §4.4.1）**：`apply` 分支不得在工具环路内自行求值引擎仲裁——仲裁是异步的，`handleDemoTool` 只消费已注入的 `engine_verdict`，**无 verdict 一律降级 textbook，绝不摆线**。
 
 ---
 
@@ -249,7 +262,8 @@ public:
 
 - **坐标基准**：全部 UR 帧 19 路 GTP；`size` 与当前棋盘不符 → 工具层诚实回退「该定式适用于 19 路棋盘」；
 - **`when` 子句是微型谓词**，仅 4 个保留字：`default` / `zone_friendly_majority` / `zone_enemy_majority` / `ladder_favorable`，由 L1 求值，**不允许自由文本**；
-- 首批 **12-15 条**（星位：点三三、小飞挂、一间高挂、双飞燕；小目：小飞挂·秀策尖、托退、一间夹；三三/高目常见应接），每条 1-2 变体，**质量优先于数量**。
+- 首批 **12-15 条**（星位：点三三、小飞挂、一间高挂、双飞燕；小目：小飞挂·秀策尖、托退、一间夹；三三/高目常见应接），每条 1-2 变体，**质量优先于数量**；
+- **空 `sequence` 变体语义**：`sequence: []` 的变体（如 `reverse-block` / `ladder-variant`）**只作策略建议，不进演示线**——它表达「此上下文该改变局部策略」，由 `joseki_advise` 陈列给 LLM 叙述，不产生可逐手摆的定式线。凡进 apply/textbook 演示的变体必须 `sequence` 非空；空序列变体命中时只改写 `applicable_variants` 的「建议」而非「摆线」。
 
 纯逻辑结构（`joseki.h` 重写）：
 
@@ -302,6 +316,19 @@ std::vector<JosekiMove> projectToCorner(const std::vector<JosekiMove>& seq, int 
 4. `ladder_check: true` 的变体：B1b（征子模块）落地前**一律强制引擎仲裁**，引擎否决即弃用该变体——**规则层不碰征子**；
 5. 无 KataGo → 按 P5 拒绝实战应用，仅教学演示（标注"未经引擎验证"）。
 
+### 4.4.1 apply 门禁闭合（预仲裁注入，必修）
+
+apply 的三闸（L1 谓词 + L3 变体 + L4 仲裁）里，前两闸是纯逻辑可同步求值，但 **L4 仲裁是异步的**（D7：引擎验证只进 advisor 异步路径）。而 LLM 的实际调用是**同步工具环路**（`joseki_lookup` → `handleDemoTool`），`handleDemoTool` 走到 apply 分支时不能自己等仲裁。若让工具在无仲裁结果时照摆线，就形成「LLM 工具直达 apply、未经仲裁」的绕过路径——v1 失败换形态复活，**必须闭合**。
+
+**方案 A（预仲裁注入）**：
+
+1. **仲裁只发生在 advisor 异步路径**（不违反 D7）：advisor 在投递给 LLM 之前，对「用户点名定式且 L1/L3 判定可用」的局面跑 `Probe` 仲裁，产出 `engine_verdict`（按 position hash 缓存）；
+2. **注入工具上下文**：把 `engine_verdict` 注入 `AgentToolContext.joseki`（或等价共享 verdict 存储），使同步工具环路能读到已算好的结论；
+3. **`handleDemoTool(mode=apply)` 只消费已注入的 verdict**：有 verdict 且「成立」→ 摆线 + 标注胜率；有 verdict 且「不便宜」→ refuse + 荐 alternatives；**无 verdict → 一律降级 textbook（安全默认），绝不摆线**；
+4. 无 KataGo → 无 verdict 可注入 → apply 永远落到 textbook（与 P5 一致）。
+
+**新增测试（CTest，替身引擎）**：无 verdict 注入 + 请求 apply → 必须降级 textbook，**不得摆线**；有 verdict「成立」→ 摆线；有 verdict「不便宜」→ refuse。
+
 ### 4.5 L5 三模式执行
 
 | 模式 | 触发 | 行为 |
@@ -322,7 +349,7 @@ std::vector<JosekiMove> projectToCorner(const std::vector<JosekiMove>& seq, int 
 
 - `tests/test_joseki_v2.cpp`（CTest，重写自 `test_joseki.cpp`）：词典加载（含坐标帧防御、`when` 四谓词解析）、变体筛选、`projectToCorner` 8 对称往返（含 **UR→四角→UR 恒等**，锁死坐标帧）、`size` 不匹配拒绝、`fromJsonText` 非法 JSON 报错、`directoryIndex` 只含索引。
 - `tests/test_board_predicates.cpp`（CTest）：前提谓词（有/缺 anchor、路径占用、forbidden）、zone 分类、方向规则求镜像。
-- `tests/test_demo_modes.cpp`（CTest，替身引擎）：三模式分流（空角 textbook、空角实战 refuse、前提满足 apply、路径占用 refuse、无引擎降级）、教学模式先摆前提再走线、apply 引擎否决降级。
+- `tests/test_demo_modes.cpp`（CTest，替身引擎）：三模式分流（空角 textbook、空角实战 refuse、前提满足 apply、路径占用 refuse、无引擎降级）、教学模式先摆前提再走线、apply 引擎否决降级、**无 verdict 注入 + 请求 apply → 必须降级 textbook 且不摆线（apply 门禁闭合，§4.4.1）**。
 
 ---
 
@@ -532,7 +559,7 @@ TsumegoJudgement judgeTsumegoMove(const TsumegoProblem& p,
 ## 9. 回陆顺序与排期
 
 ```
-F0 可靠性框架（S0 全部：对称工具补测 + 谓词引擎 + probe 协议 + 演示三模式拆分 + 替身引擎测试）
+F0 可靠性框架（S0 全部：**① 替身引擎（全部替身测试的隐藏关键路径，最先交付）** → 对称工具补测 + 谓词引擎 + probe 协议 + 演示三模式拆分 + apply 门禁闭合 + 替身测试）
   │  无依赖，~1 周
   ├──→ F1 定式 v2（词典 12-15 条 + joseki_lookup 判定书 + joseki_advise + L4 仲裁 + 矩阵 #1-#10）
   │      ~1.5 周
@@ -566,7 +593,7 @@ F0 可靠性框架（S0 全部：对称工具补测 + 谓词引擎 + probe 协�
 ## 11. 里程碑验收清单（Done 定义）
 
 1. **多面情况矩阵 14 行逐行通过**；对抗提示无一次「空角硬点三三」——空盘「直接给我点三三」「现在点三三怎么样」必须走 textbook/refuse，不得硬下。
-2. **定式 v2**：前提满足时 apply 主线 + 引擎仲裁标注；空角走 textbook（先摆前提再走线 + announce）；路径占用/前提缺失走 refuse 并附替代；左右翼接应子使方向镜像正确。
+2. **定式 v2**：前提满足时 apply 主线 + 引擎仲裁标注；空角走 textbook（先摆前提再走线 + announce）；路径占用/前提缺失走 refuse 并附替代；左右翼接应子使方向镜像正确；**apply 门禁闭合——无预仲裁 verdict 时请求 apply 一律降级 textbook，绝不未经仲裁摆线**。
 3. **L3**：九常型单测全绿；「为什么做不活」能答「这是刀五，对方走 X 点即死，你补 Y 可活（已验证/按常型）」；B6 死活要点档可用。
 4. **L4**：首批 ≥40 题入库且引擎复核通过；树内判题秒回、树外引擎裁判有界；提示三档递进不提前泄答案；错题入复习队列。
 5. **CTest 全绿且无新增联网测试**；未配置 KataGo/LLM 的降级路径（只教不战 + 常型直判 + 树内判题）完整可用。
